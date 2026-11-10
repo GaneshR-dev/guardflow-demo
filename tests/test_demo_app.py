@@ -143,3 +143,7 @@ def test_frontend_dashboard_labels_and_link_button():
     assert "${l.today.completed} completed" in html
     assert "${l.today.checked_in+l.today.completed} checked in" not in html
     assert ".link{border:0;background:transparent;padding:0;" in html
+    assert "async function exportMonth(month)" in html
+    assert "{headers:{Authorization:'Bearer '+state.token}}" in html
+    assert "URL.createObjectURL(blob)" in html
+    assert "a.href=API+'/api/reports/export.csv?month='+month" not in html
