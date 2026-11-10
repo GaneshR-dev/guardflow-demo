@@ -1,4 +1,5 @@
 import os, sys
+from pathlib import Path
 os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 from fastapi.testclient import TestClient
@@ -134,3 +135,11 @@ def test_demo_credentials_not_seeded_when_demo_mode_off(tmp_path):
         text=True,
     )
     assert result.stdout.strip() == '0'
+
+
+def test_frontend_dashboard_labels_and_link_button():
+    html = (Path(__file__).resolve().parents[1] / "attendance-app.html").read_text()
+    assert "${l.today.checked_in} checked in" in html
+    assert "${l.today.completed} completed" in html
+    assert "${l.today.checked_in+l.today.completed} checked in" not in html
+    assert ".link{border:0;background:transparent;padding:0;" in html
