@@ -1,4 +1,4 @@
-"""Guardflow API foundation. Local setup only, not exposed by the public demo.
+"""Guardian API foundation. Local setup only, not exposed by the public demo.
 Use PostgreSQL for production. All writes require identity, role and version checks.
 """
 import os, json, hashlib, hmac, secrets
@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 DB_URL = os.environ.get('DATABASE_URL', 'sqlite:///./guardflow.db')
 kwargs = {'connect_args': {'check_same_thread': False}} if DB_URL.startswith('sqlite') else {}
 engine = create_engine(DB_URL, **kwargs)
-app = FastAPI(title='Guardflow API foundation', version='0.1.0')
+app = FastAPI(title='Guardian API foundation', version='0.1.0')
 auth = HTTPBearer()
 
 def now(): return datetime.now(timezone.utc)
