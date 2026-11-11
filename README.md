@@ -1,6 +1,6 @@
-# Guardflow attendance
+# Guardian attendance
 
-Mobile-first attendance demo for the supplied Figma design, with a FastAPI backend and fictional sample history.
+Mobile-first Guardian attendance demo for the supplied Figma design, with a FastAPI backend and fictional sample history.
 
 ## Current entry points
 
@@ -39,7 +39,7 @@ The tests cover the original API foundation plus the new login, scoped locations
 
 ## Demo data safety
 
-The sample backend uses `demo_` tables and marks seeded attendance as fictional. Demo users are seeded by default only for SQLite local development. When `DATABASE_URL` points at PostgreSQL, set `DEMO_MODE=true` only for a deliberate demo environment; otherwise the visible demo credentials are not created and cannot grant access to a production database.
+The Guardian sample backend uses `demo_` tables and marks seeded attendance as fictional. Demo users are seeded by default only for SQLite local development. When `DATABASE_URL` points at PostgreSQL, set `DEMO_MODE=true` only for a deliberate demo environment; otherwise the visible demo credentials are not created and cannot grant access to a production database.
 
 Supervisor users are scoped through `demo_user_locations`; admins see every location. Settings supports persisted profile updates, admin location creation and admin supervisor creation with location grants.
 
