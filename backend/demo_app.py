@@ -490,7 +490,7 @@ def import_employees(body: EmployeeImportBody, user=Depends(current_user)):
 def attendance(location_id: str, day: str | None = None, q: str = "", status: str = "", user=Depends(current_user)):
     selected_day = day or local_today().isoformat()
     sql = """
-      SELECT a.id,e.id employee_id,e.name,e.phone,e.role,e.location_id,:day day,
+      SELECT a.id,e.id employee_id,e.name,e.phone,e.role,e.location_id,
              COALESCE(a.status,'not_in') status,a.check_in,a.check_out,
              COALESCE(a.source,'not recorded') source
       FROM demo_employees e
