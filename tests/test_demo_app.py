@@ -156,6 +156,10 @@ def test_frontend_dashboard_labels_and_link_button():
     assert "['import','Import locations','Upload a CSV location list']" in html
     assert "history.pushState" in html
     assert "window.addEventListener('popstate'" in html
+    assert "const plural=(n,one,many=one+'s')" in html
+    assert "plural(total,'employee')" in html
+    assert "accessCount+' users'" in html
+    assert "padding:22px 22px 120px" in html
 
 
 def test_future_day_attendance_and_location_import():
