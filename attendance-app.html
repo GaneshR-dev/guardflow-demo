@@ -36,7 +36,7 @@ async function api(path,opts={}){
  if(state.localMode)return localApi(path,opts);
  const res=await fetch(API+path,{...opts,headers:{'Content-Type':'application/json',...(state.token?{Authorization:'Bearer '+state.token}:{})}});
  const text=await res.text();let data;try{data=JSON.parse(text)}catch{data={detail:text}}
- if(!res.ok)throw new Error(data.detail||'Request failed');return data;
+ if(!res.ok){const detail=Array.isArray(data.detail)?data.detail.map(x=>x.msg||x.message||String(x)).join('; '):data.detail;throw new Error(detail||'Request failed')}return data;
 }
 async function localApi(path,opts={}){
  const db=seedLocal();const body=opts.body?JSON.parse(opts.body):{};
