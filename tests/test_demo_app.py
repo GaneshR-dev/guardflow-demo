@@ -161,6 +161,13 @@ def test_frontend_dashboard_labels_and_link_button():
     assert "plural(accessCount,'user')" in html
     assert "if(screen==='settings'&&!state.settings)" in html
     assert "padding:22px 22px 120px" in html
+    assert "function newLocationId(name)" in html
+    assert "body.id=newLocationId(body.name)" in html
+    assert "showEmployeeForm" in html
+    assert "id=\"employeeForm\"" in html
+    assert "id=\"empSearch\"" in html
+    assert "© 2026 Guardian" in html
+    assert "Daymark" not in html
     assert "data.detail.map(x=>x.msg||x.message||String(x)).join('; ')" in html
 
 
