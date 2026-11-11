@@ -165,6 +165,7 @@ def test_frontend_dashboard_labels_and_link_button():
     assert "body.id=newLocationId(body.name)" in html
     assert "showEmployeeForm" in html
     assert "id=\"employeeForm\"" in html
+    assert "Back to attendance list" in html
     assert "id=\"empSearch\"" in html
     assert "© 2026 Guardian" in html
     assert "Daymark" not in html
