@@ -1,4 +1,4 @@
-"""Guardflow Figma demo API.
+"""Guardian attendance demo API.
 
 FastAPI + SQLAlchemy, SQLite for local development and PostgreSQL through
 DATABASE_URL for the approved office-PC/Cloudflare Tunnel deployment plan.
@@ -12,6 +12,7 @@ import hmac
 import io
 import json
 import os
+import re
 import secrets
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -35,7 +36,7 @@ if DB_URL.startswith("sqlite") and ":memory:" in DB_URL:
 engine = create_engine(DB_URL, **engine_kwargs)
 API_DOCS_ENABLED = os.environ.get("API_DOCS", "true").lower() == "true"
 app = FastAPI(
-    title="Guardflow Figma Demo API",
+    title="Guardian Attendance API",
     version="0.3.0",
     docs_url="/docs" if API_DOCS_ENABLED else None,
     redoc_url="/redoc" if API_DOCS_ENABLED else None,
@@ -229,12 +230,14 @@ def seed_access() -> None:
     with engine.begin() as c:
         if c.execute(text("SELECT COUNT(*) FROM demo_user_locations")).scalar():
             return
+        available = {row[0] for row in c.execute(text("SELECT id FROM demo_locations"))}
         for user_id, location_id in [
             ("supervisor.demo", "loc-hsr"),
             ("supervisor.demo", "loc-whitefield"),
             ("demo", "loc-hsr"),
         ]:
-            c.execute(text("INSERT INTO demo_user_locations VALUES (:user,:location)"), {"user": user_id, "location": location_id})
+            if location_id in available:
+                c.execute(text("INSERT INTO demo_user_locations VALUES (:user,:location)"), {"user": user_id, "location": location_id})
 
 
 seed_access()
@@ -290,6 +293,21 @@ class AccessBody(BaseModel):
     password: str = Field(min_length=12, max_length=100)
     role: str = Field(pattern="^(admin|supervisor)$")
     location_ids: list[str] = Field(default_factory=list, max_length=50)
+
+
+class ResetBody(BaseModel):
+    confirm: str = Field(min_length=1, max_length=40)
+
+
+class LocationImportRow(BaseModel):
+    id: str | None = Field(default=None, max_length=40, pattern=r"^[a-z0-9-]+$")
+    name: str = Field(min_length=3, max_length=100)
+    area: str = Field(min_length=2, max_length=100)
+    assigned_count: int = Field(default=0, ge=0, le=10000)
+
+
+class LocationImportBody(BaseModel):
+    rows: list[LocationImportRow] = Field(min_length=1, max_length=200)
 
 
 @app.post("/api/login")
@@ -373,15 +391,18 @@ def worked_hours(check_in: str | None, check_out: str | None) -> float | None:
     return round((end - start).total_seconds() / 3600, 2)
 
 
-def attendance_summary(location_id: str, day: date) -> dict:
-    with engine.connect() as c:
-        rows = c.execute(
-            text("SELECT status,COUNT(*) count FROM demo_attendance WHERE location_id=:location AND day=:day GROUP BY status"),
-            {"location": location_id, "day": day.isoformat()},
-        ).mappings().all()
-    counts = {"checked_in": 0, "completed": 0, "not_in": 0}
+def attendance_summary(c, location_id: str, day: date) -> dict:
+    total_employees = c.execute(
+        text("SELECT COUNT(*) FROM demo_employees WHERE active=1 AND location_id=:location"),
+        {"location": location_id},
+    ).scalar() or 0
+    rows = c.execute(
+        text("SELECT status,COUNT(*) count FROM demo_attendance WHERE location_id=:location AND day=:day AND status IN ('checked_in','completed') GROUP BY status"),
+        {"location": location_id, "day": day.isoformat()},
+    ).mappings().all()
+    counts = {"checked_in": 0, "completed": 0}
     counts.update({r["status"]: r["count"] for r in rows})
-    return counts
+    return {**counts, "not_in": max(total_employees - counts["checked_in"] - counts["completed"], 0)}
 
 
 @app.get("/api/health")
@@ -469,20 +490,24 @@ def import_employees(body: EmployeeImportBody, user=Depends(current_user)):
 def attendance(location_id: str, day: str | None = None, q: str = "", status: str = "", user=Depends(current_user)):
     selected_day = day or local_today().isoformat()
     sql = """
-      SELECT a.*,e.name,e.phone,e.role FROM demo_attendance a
-      JOIN demo_employees e ON e.id=a.employee_id
-      WHERE a.location_id=:location AND a.day=:day
+      SELECT a.id,e.id employee_id,e.name,e.phone,e.role,e.location_id,:day day,
+             COALESCE(a.status,'not_in') status,a.check_in,a.check_out,
+             COALESCE(a.source,'not recorded') source
+      FROM demo_employees e
+      LEFT JOIN demo_attendance a ON a.employee_id=e.id AND a.day=:day
+      WHERE e.active=1 AND e.location_id=:location
     """
     params = {"location": location_id, "day": selected_day}
     if q:
         sql += " AND (lower(e.name) LIKE :q OR lower(e.id) LIKE :q)"; params["q"] = f"%{q.lower()}%"
     if status:
-        sql += " AND a.status=:status"; params["status"] = status
+        sql += " AND COALESCE(a.status,'not_in')=:status"; params["status"] = status
     sql += " ORDER BY e.name"
     with engine.connect() as c:
         require_location_access(c, user, location_id)
         rows = [dict(r) for r in c.execute(text(sql), params).mappings()]
-    return {"day": selected_day, "summary": attendance_summary(location_id, date.fromisoformat(selected_day)), "rows": rows}
+        summary = attendance_summary(c, location_id, date.fromisoformat(selected_day))
+    return {"day": selected_day, "summary": summary, "rows": rows}
 
 
 @app.post("/api/attendance/checkin")
@@ -531,12 +556,17 @@ def dashboard(user=Depends(current_user)):
     params = {"day": today, **scope_params(user)}
     with engine.connect() as c:
         total_employees = c.execute(text("SELECT COUNT(*) FROM demo_employees WHERE active=1 AND " + scope), params).scalar() or 0
-        rows = c.execute(text("SELECT location_id,status,COUNT(*) count FROM demo_attendance WHERE day=:day AND " + scope + " GROUP BY location_id,status"), params).mappings()
+        employee_rows = c.execute(text("SELECT location_id,COUNT(*) count FROM demo_employees WHERE active=1 AND " + scope + " GROUP BY location_id"), params).mappings()
+        rows = c.execute(text("SELECT location_id,status,COUNT(*) count FROM demo_attendance WHERE day=:day AND status IN ('checked_in','completed') AND " + scope + " GROUP BY location_id,status"), params).mappings()
+        employee_counts = {row["location_id"]: row["count"] for row in employee_rows}
         by_location = {}
         for row in rows:
-            by_location.setdefault(row["location_id"], {"checked_in": 0, "completed": 0, "not_in": 0})[row["status"]] = row["count"]
+            by_location.setdefault(row["location_id"], {"checked_in": 0, "completed": 0})[row["status"]] = row["count"]
         checked = sum(v["checked_in"] for v in by_location.values())
         completed = sum(v["completed"] for v in by_location.values())
+        for loc in location_rows(user):
+            counts = by_location.setdefault(loc["id"], {"checked_in": 0, "completed": 0})
+            counts["not_in"] = max(employee_counts.get(loc["id"], 0) - counts["checked_in"] - counts["completed"], 0)
     return {
         "day": today,
         "employees": total_employees,
@@ -613,7 +643,7 @@ def export_csv(month: str = Query(pattern=r"^\d{4}-\d{2}$"), location_id: str = 
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=["day", "employee_id", "name", "location", "status", "check_in", "check_out", "source"])
     writer.writeheader(); writer.writerows(rows)
-    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=guardflow-{month}.csv"})
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=guardian-{month}.csv"})
 
 
 @app.get("/api/settings")
@@ -655,6 +685,69 @@ def create_location(body: LocationBody, user=Depends(current_user)):
         c.execute(text("INSERT INTO demo_locations VALUES (:id,:name,:area,:count)"), {"id": body.id, "name": body.name, "area": body.area, "count": body.assigned_count})
         audit(c, user, "settings.location.create", body.model_dump())
     return body.model_dump()
+
+
+def generated_location_id(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return "loc-" + (slug or secrets.token_hex(4))
+
+
+@app.post("/api/settings/locations/import")
+def import_locations(body: LocationImportBody, user=Depends(current_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    explicit_ids = [row.id for row in body.rows if row.id]
+    duplicates = sorted({location_id for location_id in explicit_ids if explicit_ids.count(location_id) > 1})
+    if duplicates:
+        raise HTTPException(400, "Duplicate location IDs in import: " + ", ".join(duplicates))
+    created = updated = 0
+    with engine.begin() as c:
+        for row in body.rows:
+            location_id = row.id or generated_location_id(row.name)
+            existing = c.execute(text("SELECT * FROM demo_locations WHERE id=:id"), {"id": location_id}).mappings().first()
+            if existing:
+                c.execute(text("UPDATE demo_locations SET name=:name,area=:area,assigned_count=:count WHERE id=:id"), {"id": location_id, "name": row.name, "area": row.area, "count": row.assigned_count})
+                updated += 1
+            else:
+                c.execute(text("INSERT INTO demo_locations VALUES (:id,:name,:area,:count)"), {"id": location_id, "name": row.name, "area": row.area, "count": row.assigned_count})
+                created += 1
+        audit(c, user, "settings.location.import", {"created": created, "updated": updated})
+    return {"created": created, "updated": updated}
+
+
+@app.get("/api/settings/data-summary")
+def data_summary(user=Depends(current_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    tables = ["demo_users", "demo_sessions", "demo_user_locations", "demo_locations", "demo_employees", "demo_attendance", "demo_audit"]
+    with engine.connect() as c:
+        return {
+            "tables": {table: c.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar() or 0 for table in tables},
+            "location_ids": [row[0] for row in c.execute(text("SELECT id FROM demo_locations ORDER BY id"))],
+            "employee_ids": [row[0] for row in c.execute(text("SELECT id FROM demo_employees ORDER BY id"))],
+            "attendance_sources": [dict(r) for r in c.execute(text("SELECT source,COUNT(*) count FROM demo_attendance GROUP BY source ORDER BY source")).mappings()],
+            "audit_actions": [dict(r) for r in c.execute(text("SELECT action,COUNT(*) count FROM demo_audit GROUP BY action ORDER BY action")).mappings()],
+        }
+
+
+@app.post("/api/settings/reset-sample-data")
+def reset_sample_data(body: ResetBody, user=Depends(current_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    if not DEMO_MODE:
+        raise HTTPException(403, "Sample-data reset is only available in demo mode")
+    if body.confirm != "CLEAR_SAMPLE_DATA":
+        raise HTTPException(400, "Confirmation text does not match")
+    tables = ["demo_attendance", "demo_audit", "demo_employees", "demo_user_locations", "demo_locations"]
+    with engine.begin() as c:
+        cleared = {table: c.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar() or 0 for table in tables}
+        for table in tables:
+            c.execute(text(f"DELETE FROM {table}"))
+        preserved = {
+            "demo_users": c.execute(text("SELECT COUNT(*) FROM demo_users")).scalar() or 0,
+            "demo_sessions": c.execute(text("SELECT COUNT(*) FROM demo_sessions")).scalar() or 0,
+        }
+    return {"cleared": cleared, "preserved": preserved}
 
 
 @app.post("/api/settings/access")
