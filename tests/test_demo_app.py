@@ -160,6 +160,7 @@ def test_frontend_dashboard_labels_and_link_button():
     assert "plural(total,'employee')" in html
     assert "accessCount+' users'" in html
     assert "padding:22px 22px 120px" in html
+    assert "data.detail.map(x=>x.msg||x.message||String(x)).join('; ')" in html
 
 
 def test_future_day_attendance_and_location_import():
