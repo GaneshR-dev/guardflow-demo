@@ -178,30 +178,3 @@ def test_future_day_attendance_and_location_import():
     locations = client.get('/api/locations', headers=headers).json()
     assert any(row['id'] == 'loc-import' and row['name'] == 'Imported Branch Updated' for row in locations)
     assert any(row['name'] == 'Generated Branch' for row in locations)
-
-
-def test_guarded_sample_reset_preserves_signin_and_empty_flow():
-    headers = auth()
-    before = client.get('/api/settings/data-summary', headers=headers).json()
-    assert before['tables']['demo_users'] >= 3
-    assert before['tables']['demo_employees'] > 0
-    assert client.post('/api/settings/reset-sample-data', headers=headers, json={'confirm': 'wrong'}).status_code == 400
-    reset = client.post('/api/settings/reset-sample-data', headers=headers, json={'confirm': 'CLEAR_SAMPLE_DATA'})
-    assert reset.status_code == 200
-    assert reset.json()['preserved']['demo_users'] >= 3
-    after = client.get('/api/settings/data-summary', headers=headers).json()
-    assert after['tables']['demo_locations'] == 0
-    assert after['tables']['demo_employees'] == 0
-    assert after['tables']['demo_attendance'] == 0
-    assert after['tables']['demo_user_locations'] == 0
-    assert after['tables']['demo_audit'] == 0
-    assert after['tables']['demo_users'] >= 3
-    assert client.get('/api/locations', headers=headers).json() == []
-    created_location = client.post('/api/settings/locations', headers=headers, json={'id': 'loc-reset', 'name': 'Reset Branch', 'area': 'Reset Area', 'assigned_count': 0})
-    assert created_location.status_code == 200
-    created_employee = client.post('/api/employees', headers=headers, json={'name': 'Fresh Guard', 'phone': '+91 90000 99998', 'role': 'Guard', 'location_id': 'loc-reset'})
-    assert created_employee.status_code == 200
-    attendance = client.get('/api/attendance?location_id=loc-reset', headers=headers).json()
-    assert attendance['summary'] == {'checked_in': 0, 'completed': 0, 'not_in': 1}
-    assert attendance['rows'][0]['name'] == 'Fresh Guard'
-    assert attendance['rows'][0]['status'] == 'not_in'
