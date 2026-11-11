@@ -715,41 +715,6 @@ def import_locations(body: LocationImportBody, user=Depends(current_user)):
     return {"created": created, "updated": updated}
 
 
-@app.get("/api/settings/data-summary")
-def data_summary(user=Depends(current_user)):
-    if user["role"] != "admin":
-        raise HTTPException(403, "Admin required")
-    tables = ["demo_users", "demo_sessions", "demo_user_locations", "demo_locations", "demo_employees", "demo_attendance", "demo_audit"]
-    with engine.connect() as c:
-        return {
-            "tables": {table: c.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar() or 0 for table in tables},
-            "location_ids": [row[0] for row in c.execute(text("SELECT id FROM demo_locations ORDER BY id"))],
-            "employee_ids": [row[0] for row in c.execute(text("SELECT id FROM demo_employees ORDER BY id"))],
-            "attendance_sources": [dict(r) for r in c.execute(text("SELECT source,COUNT(*) count FROM demo_attendance GROUP BY source ORDER BY source")).mappings()],
-            "audit_actions": [dict(r) for r in c.execute(text("SELECT action,COUNT(*) count FROM demo_audit GROUP BY action ORDER BY action")).mappings()],
-        }
-
-
-@app.post("/api/settings/reset-sample-data")
-def reset_sample_data(body: ResetBody, user=Depends(current_user)):
-    if user["role"] != "admin":
-        raise HTTPException(403, "Admin required")
-    if not DEMO_MODE:
-        raise HTTPException(403, "Sample-data reset is only available in demo mode")
-    if body.confirm != "CLEAR_SAMPLE_DATA":
-        raise HTTPException(400, "Confirmation text does not match")
-    tables = ["demo_attendance", "demo_audit", "demo_employees", "demo_user_locations", "demo_locations"]
-    with engine.begin() as c:
-        cleared = {table: c.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar() or 0 for table in tables}
-        for table in tables:
-            c.execute(text(f"DELETE FROM {table}"))
-        preserved = {
-            "demo_users": c.execute(text("SELECT COUNT(*) FROM demo_users")).scalar() or 0,
-            "demo_sessions": c.execute(text("SELECT COUNT(*) FROM demo_sessions")).scalar() or 0,
-        }
-    return {"cleared": cleared, "preserved": preserved}
-
-
 @app.post("/api/settings/access")
 def create_access(body: AccessBody, user=Depends(current_user)):
     if user["role"] != "admin":
