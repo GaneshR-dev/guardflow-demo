@@ -1,5 +1,6 @@
 import os, sys
 from pathlib import Path
+from datetime import timedelta
 os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 from fastapi.testclient import TestClient
@@ -147,3 +148,60 @@ def test_frontend_dashboard_labels_and_link_button():
     assert "{headers:{Authorization:'Bearer '+state.token}}" in html
     assert "URL.createObjectURL(blob)" in html
     assert "a.href=API+'/api/reports/export.csv?month='+month" not in html
+    assert "<title>Guardian Attendance</title>" in html
+    assert '<span class="brand">Guardian</span>' in html
+    assert 'class="avatar"' not in html
+    assert 'data-locaction="${k}"' in html
+    assert "['add','Add location','Create a new branch']" in html
+    assert "['import','Import locations','Upload a CSV location list']" in html
+    assert "history.pushState" in html
+    assert "window.addEventListener('popstate'" in html
+
+
+def test_future_day_attendance_and_location_import():
+    headers = auth()
+    future = (local_today() + timedelta(days=1)).isoformat()
+    attendance = client.get('/api/attendance?location_id=loc-hsr&day=' + future, headers=headers).json()
+    assert len(attendance['rows']) == 24
+    assert attendance['summary'] == {'checked_in': 0, 'completed': 0, 'not_in': 24}
+    imported = client.post('/api/settings/locations/import', headers=headers, json={'rows': [
+        {'id': 'loc-import', 'name': 'Imported Branch', 'area': 'Import Area', 'assigned_count': 0},
+        {'name': 'Generated Branch', 'area': 'Generated Area', 'assigned_count': 0},
+    ]})
+    assert imported.status_code == 200
+    assert imported.json() == {'created': 2, 'updated': 0}
+    updated = client.post('/api/settings/locations/import', headers=headers, json={'rows': [
+        {'id': 'loc-import', 'name': 'Imported Branch Updated', 'area': 'Import Area', 'assigned_count': 0},
+    ]})
+    assert updated.status_code == 200
+    assert updated.json() == {'created': 0, 'updated': 1}
+    locations = client.get('/api/locations', headers=headers).json()
+    assert any(row['id'] == 'loc-import' and row['name'] == 'Imported Branch Updated' for row in locations)
+    assert any(row['name'] == 'Generated Branch' for row in locations)
+
+
+def test_guarded_sample_reset_preserves_signin_and_empty_flow():
+    headers = auth()
+    before = client.get('/api/settings/data-summary', headers=headers).json()
+    assert before['tables']['demo_users'] >= 3
+    assert before['tables']['demo_employees'] > 0
+    assert client.post('/api/settings/reset-sample-data', headers=headers, json={'confirm': 'wrong'}).status_code == 400
+    reset = client.post('/api/settings/reset-sample-data', headers=headers, json={'confirm': 'CLEAR_SAMPLE_DATA'})
+    assert reset.status_code == 200
+    assert reset.json()['preserved']['demo_users'] >= 3
+    after = client.get('/api/settings/data-summary', headers=headers).json()
+    assert after['tables']['demo_locations'] == 0
+    assert after['tables']['demo_employees'] == 0
+    assert after['tables']['demo_attendance'] == 0
+    assert after['tables']['demo_user_locations'] == 0
+    assert after['tables']['demo_audit'] == 0
+    assert after['tables']['demo_users'] >= 3
+    assert client.get('/api/locations', headers=headers).json() == []
+    created_location = client.post('/api/settings/locations', headers=headers, json={'id': 'loc-reset', 'name': 'Reset Branch', 'area': 'Reset Area', 'assigned_count': 0})
+    assert created_location.status_code == 200
+    created_employee = client.post('/api/employees', headers=headers, json={'name': 'Fresh Guard', 'phone': '+91 90000 99998', 'role': 'Guard', 'location_id': 'loc-reset'})
+    assert created_employee.status_code == 200
+    attendance = client.get('/api/attendance?location_id=loc-reset', headers=headers).json()
+    assert attendance['summary'] == {'checked_in': 0, 'completed': 0, 'not_in': 1}
+    assert attendance['rows'][0]['name'] == 'Fresh Guard'
+    assert attendance['rows'][0]['status'] == 'not_in'
