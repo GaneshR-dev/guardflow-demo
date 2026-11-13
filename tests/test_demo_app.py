@@ -315,3 +315,53 @@ def test_customized_demo_identity_not_deleted():
     with engine.begin() as c:
         assert c.execute(text("SELECT name FROM demo_users WHERE id='demo'")).scalar() == 'Custom User'
         c.execute(text("DELETE FROM demo_users WHERE id='demo'"))
+
+
+def test_location_creation_assigns_only_selected_supervisor_atomically():
+    from demo_app import engine
+    from sqlalchemy import text
+    admin = auth()
+    for identifier in ['assign.one', 'assign.two']:
+        assert client.post('/api/settings/access', headers=admin, json={
+            'id': identifier, 'name': identifier.title(), 'password': 'local-test-password',
+            'role': 'supervisor', 'location_ids': [],
+        }).status_code == 200
+    one = auth('assign.one', 'local-test-password')
+    two = auth('assign.two', 'local-test-password')
+    body = {'id': 'loc-assignment', 'name': 'Assigned Branch', 'area': 'Test Area', 'supervisor_id': 'assign.one'}
+    assert client.post('/api/settings/locations', headers=one, json=body).status_code == 403
+    before = client.get('/api/locations', headers=auth('supervisor.demo')).json()
+    response = client.post('/api/settings/locations', headers=admin, json=body)
+    assert response.status_code == 200 and response.json()['supervisor_id'] == 'assign.one'
+    assert [loc['id'] for loc in client.get('/api/locations', headers=one).json()] == ['loc-assignment']
+    assert client.get('/api/locations', headers=two).json() == []
+    assert client.get('/api/locations', headers=auth('supervisor.demo')).json() == before
+    assert client.get('/api/attendance?location_id=loc-assignment', headers=one).status_code == 200
+    assert client.get('/api/attendance?location_id=loc-assignment', headers=two).status_code == 403
+    # Adding a second location preserves the first grant rather than replacing it.
+    assert client.post('/api/settings/locations', headers=admin, json={**body, 'id': 'loc-assignment-2'}).status_code == 200
+    assert {loc['id'] for loc in client.get('/api/locations', headers=one).json()} == {'loc-assignment', 'loc-assignment-2'}
+    # Invalid and admin IDs must not create a location, audit row or grant.
+    for index, identifier in enumerate(['missing.supervisor', 'admin.demo']):
+        location_id = f'loc-invalid-{index}'
+        with engine.connect() as c:
+            audit_before = c.execute(text('SELECT COUNT(*) FROM demo_audit')).scalar()
+        denied = client.post('/api/settings/locations', headers=admin, json={**body, 'id': location_id, 'supervisor_id': identifier})
+        assert denied.status_code == 400
+        with engine.connect() as c:
+            assert c.execute(text('SELECT COUNT(*) FROM demo_locations WHERE id=:id'), {'id': location_id}).scalar() == 0
+            assert c.execute(text('SELECT COUNT(*) FROM demo_user_locations WHERE location_id=:id'), {'id': location_id}).scalar() == 0
+            assert c.execute(text('SELECT COUNT(*) FROM demo_audit')).scalar() == audit_before
+    duplicate = client.post('/api/settings/locations', headers=admin, json={**body, 'supervisor_id': 'assign.two'})
+    assert duplicate.status_code == 409
+    assert client.get('/api/locations', headers=two).json() == []
+    # Explicit unassigned and old API clients with omitted supervisor_id stay supported.
+    for suffix, extra in [('explicit', {'supervisor_id': None}), ('legacy', {})]:
+        unassigned = {'id': 'loc-unassigned-' + suffix, 'name': 'Unassigned Branch', 'area': 'Test Area', **extra}
+        assert client.post('/api/settings/locations', headers=admin, json=unassigned).status_code == 200
+        with engine.connect() as c:
+            assert c.execute(text('SELECT COUNT(*) FROM demo_user_locations WHERE location_id=:id'), {'id': unassigned['id']}).scalar() == 0
+    assert client.post('/api/settings/locations', headers=admin, json={**body, 'id': 'loc-empty-supervisor', 'supervisor_id': ''}).status_code == 422
+    with engine.connect() as c:
+        details = c.execute(text("SELECT details FROM demo_audit WHERE action='settings.location.create' ORDER BY rowid DESC")).scalars().all()
+    assert any('assign.one' in detail for detail in details)
