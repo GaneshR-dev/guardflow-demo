@@ -25,15 +25,25 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 
-ROOT = Path(__file__).resolve().parents[1]
-LOCAL_TZ = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Kolkata"))
-DB_URL = os.environ.get("DATABASE_URL", "sqlite:///./guardflow-demo.db")
-if DB_URL.startswith("postgres://"):
-    DB_URL = DB_URL.replace("postgres://", "postgresql+psycopg://", 1)
-engine_kwargs = {"connect_args": {"check_same_thread": False}} if DB_URL.startswith("sqlite") else {}
-if DB_URL.startswith("sqlite") and ":memory:" in DB_URL:
-    engine_kwargs["poolclass"] = StaticPool
-engine = create_engine(DB_URL, **engine_kwargs)
+from demo_db import DEMO_MODE, engine, init_db
+from demo_security import (
+    insert_user,
+    iso_dt,
+    local_today,
+    login_throttle_check,
+    login_throttle_clear,
+    login_throttle_record,
+    password_hash,
+    token_digest,
+    utcnow,
+)
+from demo_seed import seed_access, seed_demo
+
+init_db()
+if DEMO_MODE:
+    seed_demo()
+seed_access()
+
 API_DOCS_ENABLED = os.environ.get("API_DOCS", "true").lower() == "true"
 app = FastAPI(
     title="Guardian Attendance API",
@@ -42,225 +52,8 @@ app = FastAPI(
     redoc_url="/redoc" if API_DOCS_ENABLED else None,
     openapi_url="/openapi.json" if API_DOCS_ENABLED else None,
 )
-DEMO_MODE = os.environ.get("DEMO_MODE", "true" if DB_URL.startswith("sqlite") else "false").lower() == "true"
 bearer = HTTPBearer(auto_error=False)
 
-LOGIN_MAX_FAILURES = int(os.environ.get("LOGIN_MAX_FAILURES", "5"))
-LOGIN_LOCK_SECONDS = int(os.environ.get("LOGIN_LOCK_SECONDS", "900"))
-_login_failures: dict[str, list[float]] = {}
-
-
-def login_throttle_check(key: str) -> None:
-    now = utcnow().timestamp()
-    attempts = [t for t in _login_failures.get(key, []) if now - t < LOGIN_LOCK_SECONDS]
-    _login_failures[key] = attempts
-    if len(attempts) >= LOGIN_MAX_FAILURES:
-        raise HTTPException(429, "Too many failed sign-in attempts. Try again later.")
-
-
-def login_throttle_record(key: str) -> None:
-    _login_failures.setdefault(key, []).append(utcnow().timestamp())
-
-
-def login_throttle_clear(key: str) -> None:
-    _login_failures.pop(key, None)
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def local_today() -> date:
-    return utcnow().astimezone(LOCAL_TZ).date()
-
-
-def token_digest(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
-
-
-def password_hash(password: str, salt: str) -> str:
-    return hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=16384, r=8, p=1).hex()
-
-
-def iso_dt(day: date, hour: int, minute: int) -> str:
-    return datetime.combine(day, time(hour, minute), tzinfo=LOCAL_TZ).astimezone(timezone.utc).isoformat()
-
-
-def init_db() -> None:
-    statements = [
-        "CREATE TABLE IF NOT EXISTS demo_users (id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL, salt TEXT NOT NULL, password TEXT NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS demo_user_locations (user_id TEXT NOT NULL, location_id TEXT NOT NULL, PRIMARY KEY (user_id, location_id))",
-        "CREATE TABLE IF NOT EXISTS demo_sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires TEXT NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS demo_locations (id TEXT PRIMARY KEY, name TEXT NOT NULL, area TEXT NOT NULL, assigned_count INTEGER NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS demo_employees (id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT NOT NULL, role TEXT NOT NULL, location_id TEXT NOT NULL, active INTEGER NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS demo_attendance (id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, location_id TEXT NOT NULL, day TEXT NOT NULL, status TEXT NOT NULL, check_in TEXT, check_out TEXT, source TEXT NOT NULL, UNIQUE(employee_id, day))",
-        "CREATE TABLE IF NOT EXISTS demo_audit (id TEXT PRIMARY KEY, at TEXT NOT NULL, user_id TEXT NOT NULL, action TEXT NOT NULL, details TEXT NOT NULL)",
-    ]
-    with engine.begin() as c:
-        for statement in statements:
-            c.execute(text(statement))
-
-
-def insert_user(c, user_id: str, name: str, role: str, password: str) -> None:
-    salt = secrets.token_hex(16)
-    c.execute(
-        text("INSERT INTO demo_users VALUES (:id,:name,:role,:salt,:password)"),
-        {"id": user_id, "name": name, "role": role, "salt": salt, "password": password_hash(password, salt)},
-    )
-
-
-def seed_demo() -> None:
-    """Seed clearly fictional sample history across the last six calendar months."""
-    with engine.begin() as c:
-        if c.execute(text("SELECT COUNT(*) FROM demo_users")).scalar():
-            return
-        insert_user(c, "admin.demo", "Admin Demo", "admin", "demo123")
-        insert_user(c, "supervisor.demo", "Supervisor Demo", "supervisor", "demo123")
-        insert_user(c, "demo", "Demo Supervisor", "supervisor", "demo123")
-        locations = [
-            ("loc-hsr", "Bengaluru - HSR Layout", "HSR Sector 2", 24),
-            ("loc-whitefield", "Bengaluru - Whitefield", "ITPL Main Road", 18),
-            ("loc-mysuru", "Mysuru - City Centre", "Devaraja Mohalla", 12),
-        ]
-        for row in locations:
-            c.execute(text("INSERT INTO demo_locations VALUES (:id,:name,:area,:count)"), {"id": row[0], "name": row[1], "area": row[2], "count": row[3]})
-        employees = [
-            ("EMP1024", "Deepak Kumar", "+91 90000 11024", "Senior Guard", "loc-hsr"),
-            ("EMP1031", "Ananya Rao", "+91 90000 11031", "Guard", "loc-hsr"),
-            ("EMP1042", "Rohan K", "+91 90000 11042", "Guard", "loc-hsr"),
-            ("EMP1048", "Sneha P", "+91 90000 11048", "Guard", "loc-hsr"),
-            ("EMP1051", "Vikram P", "+91 90000 11051", "Guard", "loc-hsr"),
-            ("EMP1052", "Meera Shah", "+91 90000 11052", "Guard", "loc-hsr"),
-            ("EMP1053", "Arjun Verma", "+91 90000 11053", "Guard", "loc-hsr"),
-            ("EMP1054", "Kiran S", "+91 90000 11054", "Guard", "loc-hsr"),
-            ("EMP1055", "Naveen R", "+91 90000 11055", "Guard", "loc-hsr"),
-            ("EMP1056", "Priya N", "+91 90000 11056", "Guard", "loc-hsr"),
-            ("EMP1057", "Suresh M", "+91 90000 11057", "Guard", "loc-hsr"),
-            ("EMP1058", "Divya L", "+91 90000 11058", "Guard", "loc-hsr"),
-            ("EMP1059", "Manoj T", "+91 90000 11059", "Guard", "loc-hsr"),
-            ("EMP1060", "Asha V", "+91 90000 11060", "Guard", "loc-hsr"),
-            ("EMP1061", "Ravi B", "+91 90000 11061", "Guard", "loc-hsr"),
-            ("EMP1062", "Pooja H", "+91 90000 11062", "Guard", "loc-hsr"),
-            ("EMP1063", "Imran A", "+91 90000 11063", "Guard", "loc-hsr"),
-            ("EMP1064", "Nisha D", "+91 90000 11064", "Guard", "loc-hsr"),
-            ("EMP1065", "Tarun J", "+91 90000 11065", "Guard", "loc-hsr"),
-            ("EMP1066", "Latha G", "+91 90000 11066", "Guard", "loc-hsr"),
-            ("EMP1067", "Vivek N", "+91 90000 11067", "Guard", "loc-hsr"),
-            ("EMP1068", "Sana F", "+91 90000 11068", "Guard", "loc-hsr"),
-            ("EMP1069", "Harish Q", "+91 90000 11069", "Guard", "loc-hsr"),
-            ("EMP1070", "Geeta W", "+91 90000 11070", "Guard", "loc-hsr"),
-            ("EMP2001", "Mahesh R", "+91 90000 12001", "Guard", "loc-whitefield"),
-            ("EMP2002", "Ritika S", "+91 90000 12002", "Guard", "loc-whitefield"),
-            ("EMP2003", "Farhan M", "+91 90000 12003", "Guard", "loc-whitefield"),
-            ("EMP2004", "Kavya B", "+91 90000 12004", "Guard", "loc-whitefield"),
-            ("EMP2005", "Ramesh K", "+91 90000 12005", "Guard", "loc-whitefield"),
-            ("EMP2006", "Jyoti P", "+91 90000 12006", "Guard", "loc-whitefield"),
-            ("EMP2007", "Santosh E", "+91 90000 12007", "Guard", "loc-whitefield"),
-            ("EMP2008", "Ammu C", "+91 90000 12008", "Guard", "loc-whitefield"),
-            ("EMP2009", "Prakash V", "+91 90000 12009", "Guard", "loc-whitefield"),
-            ("EMP2010", "Bindu N", "+91 90000 12010", "Guard", "loc-whitefield"),
-            ("EMP2011", "Sharath U", "+91 90000 12011", "Guard", "loc-whitefield"),
-            ("EMP2012", "Keerthi Z", "+91 90000 12012", "Guard", "loc-whitefield"),
-            ("EMP2013", "Yusuf L", "+91 90000 12013", "Guard", "loc-whitefield"),
-            ("EMP2014", "Anita M", "+91 90000 12014", "Guard", "loc-whitefield"),
-            ("EMP2015", "Chandra T", "+91 90000 12015", "Guard", "loc-whitefield"),
-            ("EMP2016", "Bhavana K", "+91 90000 12016", "Guard", "loc-whitefield"),
-            ("EMP2017", "Girish O", "+91 90000 12017", "Guard", "loc-whitefield"),
-            ("EMP2018", "Sowmya I", "+91 90000 12018", "Guard", "loc-whitefield"),
-            ("EMP3001", "Akash P", "+91 90000 13001", "Guard", "loc-mysuru"),
-            ("EMP3002", "Meghana R", "+91 90000 13002", "Guard", "loc-mysuru"),
-            ("EMP3003", "Vinod S", "+91 90000 13003", "Guard", "loc-mysuru"),
-            ("EMP3004", "Shalini D", "+91 90000 13004", "Guard", "loc-mysuru"),
-            ("EMP3005", "Rahul G", "+91 90000 13005", "Guard", "loc-mysuru"),
-            ("EMP3006", "Padma N", "+91 90000 13006", "Guard", "loc-mysuru"),
-            ("EMP3007", "Nithin J", "+91 90000 13007", "Guard", "loc-mysuru"),
-            ("EMP3008", "Anu B", "+91 90000 13008", "Guard", "loc-mysuru"),
-            ("EMP3009", "Karthik H", "+91 90000 13009", "Guard", "loc-mysuru"),
-            ("EMP3010", "Rashmi F", "+91 90000 13010", "Guard", "loc-mysuru"),
-            ("EMP3011", "Sunil A", "+91 90000 13011", "Guard", "loc-mysuru"),
-            ("EMP3012", "Veena K", "+91 90000 13012", "Guard", "loc-mysuru"),
-        ]
-        for emp in employees:
-            c.execute(
-                text("INSERT INTO demo_employees VALUES (:id,:name,:phone,:role,:location,1)"),
-                {"id": emp[0], "name": emp[1], "phone": emp[2], "role": emp[3], "location": emp[4]},
-            )
-        today = local_today()
-        first_day = today - timedelta(days=182)
-        for offset in range(183):
-            day = first_day + timedelta(days=offset)
-            if day == today:
-                continue
-            for index, emp in enumerate(employees):
-                # Deterministic fictional pattern: about 88% attendance with monthly variation.
-                present = ((index * 17 + day.day * 11 + day.month * 5) % 100) < 88
-                if not present:
-                    continue
-                check_hour = 8 + ((index + day.day) % 3)
-                check_min = (index * 7 + day.day * 3) % 60
-                out_hour = 17 + ((index + day.month) % 3)
-                out_min = (index * 11 + day.day) % 60
-                c.execute(
-                    text("INSERT INTO demo_attendance VALUES (:id,:employee,:location,:day,:status,:cin,:cout,:source)"),
-                    {
-                        "id": f"att-{emp[0]}-{day.isoformat()}",
-                        "employee": emp[0],
-                        "location": emp[4],
-                        "day": day.isoformat(),
-                        "status": "completed",
-                        "cin": iso_dt(day, check_hour, check_min),
-                        "cout": iso_dt(day, out_hour, out_min),
-                        "source": "fictional sample history",
-                    },
-                )
-        # Today mirrors the design's HSR counts: 16 checked in, 5 not in, 3 completed.
-        hsr = [e for e in employees if e[4] == "loc-hsr"]
-        for index, emp in enumerate(hsr):
-            if index < 16:
-                status, cout = "checked_in", None
-            elif index < 19:
-                status, cout = "completed", iso_dt(today, 17, 20 + index)
-            else:
-                status, cout = "not_in", None
-            cin = None if status == "not_in" else iso_dt(today, 8, 40 + (index % 12))
-            c.execute(
-                text("INSERT INTO demo_attendance VALUES (:id,:employee,:location,:day,:status,:cin,:cout,:source)"),
-                {
-                    "id": f"att-{emp[0]}-{today.isoformat()}",
-                    "employee": emp[0],
-                    "location": emp[4],
-                    "day": today.isoformat(),
-                    "status": status,
-                    "cin": cin,
-                    "cout": cout,
-                    "source": "fictional sample history",
-                },
-            )
-
-
-init_db()
-if DEMO_MODE:
-    seed_demo()
-
-
-def seed_access() -> None:
-    """Assign demo supervisors to a subset of locations; admins see all."""
-    if not DEMO_MODE:
-        return
-    with engine.begin() as c:
-        if c.execute(text("SELECT COUNT(*) FROM demo_user_locations")).scalar():
-            return
-        available = {row[0] for row in c.execute(text("SELECT id FROM demo_locations"))}
-        for user_id, location_id in [
-            ("supervisor.demo", "loc-hsr"),
-            ("supervisor.demo", "loc-whitefield"),
-            ("demo", "loc-hsr"),
-        ]:
-            if location_id in available:
-                c.execute(text("INSERT INTO demo_user_locations VALUES (:user,:location)"), {"user": user_id, "location": location_id})
-
-
-seed_access()
 
 
 class LoginBody(BaseModel):
