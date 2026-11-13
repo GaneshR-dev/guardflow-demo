@@ -1,17 +1,25 @@
 # Guardian attendance
 
-Mobile-first Guardian attendance demo for the supplied Figma design, with a FastAPI backend and fictional sample history.
+Mobile-first guard attendance app ("Guardian", formerly "GuardFlow") with a FastAPI backend, PostgreSQL database and fictional sample history. Built for a manpower/security company pilot: named-guard attendance per client site, replacements, register reconciliation and draft billing.
 
-## Current entry points
+## Live deployment
 
-- `attendance-flow.html` remains the previously delivered live demo. Do not replace it until the backend-hosted replacement is verified.
-- `attendance-app.html` is the new Figma-led app. It includes login, location selection, attendance, employee check-in, confirmation, check-out, admin dashboard, navigation, employees, reports and settings.
-- `backend/app.py` is the earlier security/audit API foundation.
-- `backend/demo_app.py` serves the new app API and seeds clearly fictional sample data across the last six months.
+- App: https://guardflow-demo.ethiodeploy.app/app (frontend, API and PostgreSQL on one platform)
+- Fictional sample data only - no real employee or client records.
+- Demo credentials are intentionally visible on the sign-in screen (`admin.demo`, `supervisor.demo`, `demo`, each with password `demo123`).
+- The earlier device-local GitHub Pages demo (ganeshr-dev.github.io/guardflow-demo) was unpublished on 2026-11-13; this repo's code and history are unchanged.
+
+## Repository layout
+
+- `attendance-app.html` - current frontend (HTML/CSS/vanilla JavaScript, mobile-first).
+- `backend/demo_app.py` - current API (FastAPI + SQLAlchemy; SQLite locally, PostgreSQL via `DATABASE_URL`).
+- `backend/app.py` - earlier API foundation, kept for reference.
+- `attendance-flow.html`, `index.html`, `1-*`, `2-*`, `3-*`, `4-*` - earlier demos and archives, kept for history.
+- `tests/` - API and frontend regression tests.
 
 ## Stack
 
-Approved plan: React PWA-style mobile frontend, Python FastAPI, SQLAlchemy, PostgreSQL for deployment, and free Cloudflare Tunnel from the office PC. Local development uses SQLite unless `DATABASE_URL` points to PostgreSQL.
+Vanilla JavaScript frontend served by the backend at `/app`, Python FastAPI + SQLAlchemy API, PostgreSQL in deployment, SQLite for local development and tests.
 
 ## Run locally
 
@@ -23,26 +31,22 @@ python3 -m uvicorn demo_app:app --host 127.0.0.1 --port 8000
 
 Open `http://127.0.0.1:8000/app`.
 
-Demo credentials are intentionally visible on the login screen:
-
-- `admin.demo` / `demo123`
-- `supervisor.demo` / `demo123`
-- `demo` / `demo123`
-
 ## Test
 
 ```bash
-python3 -m pytest -q tests/test_api.py tests/test_demo_app.py
+python3 -m pytest -q tests/
 ```
 
-The tests cover the original API foundation plus the new login, scoped locations, dashboard, check-in, duplicate-check-in prevention, check-out, employee creation/import validation and rollback, employee-level reports with computed hours, settings persistence, permissions and six-month sample history endpoints.
+Covers login (including throttling and server-side logout revocation), scoped locations, dashboard, check-in/check-out, duplicate prevention, employee creation/import with validation and rollback, reports with computed hours, settings, permissions and six-month sample history.
+
+## Security notes
+
+- HTML escaping on all dynamic values rendered by the frontend; parameterized SQL throughout the backend.
+- scrypt password hashing; sessions stored as SHA-256 digests with expiry; sign-out revokes the server session.
+- Login attempts are throttled after repeated failures (per user ID, configurable via `LOGIN_MAX_FAILURES` / `LOGIN_LOCK_SECONDS`).
+- Supervisor users are scoped through `demo_user_locations`; admins see every location. Role and location checks are enforced server-side.
+- This is a working pilot, not production-hardened. Do not load real employee records yet.
 
 ## Demo data safety
 
-The Guardian sample backend uses `demo_` tables and marks seeded attendance as fictional. Demo users are seeded by default only for SQLite local development. When `DATABASE_URL` points at PostgreSQL, set `DEMO_MODE=true` only for a deliberate demo environment; otherwise the visible demo credentials are not created and cannot grant access to a production database.
-
-Supervisor users are scoped through `demo_user_locations`; admins see every location. Settings supports persisted profile updates, admin location creation and admin supervisor creation with location grants.
-
-## Deployment gap
-
-The approved live route is PostgreSQL on the office PC exposed through Cloudflare Tunnel. This workspace has verified the app only on local SQLite. A live backend still needs the actual office-PC or another approved free host, PostgreSQL database, tunnel DNS and HTTPS URL before the public frontend should switch from browser-local fallback to the live API.
+Seeded attendance is fictional and marked in the `source` field. Demo users are seeded by default only for local SQLite; for a deployed demo set `DEMO_MODE=true` deliberately. With `DEMO_MODE=false` against PostgreSQL the visible demo credentials are never created.
