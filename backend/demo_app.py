@@ -14,6 +14,7 @@ import json
 import os
 import re
 import secrets
+import sys
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -25,7 +26,11 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 
-from demo_db import DEMO_MODE, engine, init_db
+# Sibling modules resolve whether uvicorn loads this file as `demo_app`
+# (cwd = backend/) or as `backend.demo_app` (cwd = repo root, as on ethiodeploy).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from demo_db import DEMO_MODE, DB_URL, ROOT, engine, init_db
 from demo_security import (
     insert_user,
     iso_dt,
