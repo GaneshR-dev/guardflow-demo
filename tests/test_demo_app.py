@@ -192,3 +192,38 @@ def test_future_day_attendance_and_location_import():
     locations = client.get('/api/locations', headers=headers).json()
     assert any(row['id'] == 'loc-import' and row['name'] == 'Imported Branch Updated' for row in locations)
     assert any(row['name'] == 'Generated Branch' for row in locations)
+
+
+def test_logout_revokes_session():
+    response = client.post('/api/login', json={'username': 'demo', 'password': 'demo123'})
+    assert response.status_code == 200
+    headers = {'Authorization': 'Bearer ' + response.json()['token']}
+    assert client.get('/api/locations', headers=headers).status_code == 200
+    assert client.post('/api/logout', headers=headers).status_code == 200
+    assert client.get('/api/locations', headers=headers).status_code == 401
+
+
+def test_login_throttle_locks_after_failures():
+    for _ in range(5):
+        denied = client.post('/api/login', json={'username': 'locked.user', 'password': 'wrong-password'})
+        assert denied.status_code == 401
+    throttled = client.post('/api/login', json={'username': 'locked.user', 'password': 'wrong-password'})
+    assert throttled.status_code == 429
+    # A different account is not locked out by another account's failures.
+    other = client.post('/api/login', json={'username': 'admin.demo', 'password': 'demo123'})
+    assert other.status_code == 200
+
+
+def test_generated_employee_ids_unique_and_shaped():
+    headers = auth()
+    ids = set()
+    for index in range(6):
+        created = client.post('/api/employees', headers=headers, json={
+            'name': f'Race Guard {index}', 'phone': f'+91 90000 5555{index}',
+            'role': 'Guard', 'location_id': 'loc-mysuru',
+        })
+        assert created.status_code == 200
+        employee_id = created.json()['id']
+        assert employee_id.startswith('EMP') and employee_id[3:].isdigit()
+        assert employee_id not in ids
+        ids.add(employee_id)
