@@ -267,3 +267,35 @@ def test_location_supervisor_list_empty_or_unavailable(mode, tmp_path):
         page.screenshot(path=str(tmp_path / (mode + '-assignment.png')))
         assert posts == []
         browser.close()
+
+
+def test_excel_report_download_keeps_selected_filters(tmp_path):
+    calls=[]
+    def respond(route):
+        parsed=urlsplit(route.request.url);path=parsed.path
+        if path=='/app':return route.fulfill(content_type='text/html',body=HTML)
+        if path=='/api/reports/export.xlsx':
+            calls.append((parse_qs(parsed.query),route.request.headers.get('authorization')))
+            return route.fulfill(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',body=b'illustrative-download-fixture')
+        body={'/api/login':{'token':'test-token','user':{'id':'test','name':'Test','role':'supervisor'}},'/api/locations':[{'id':'loc-test','name':'Test Site','area':'Test Area','assigned_count':0}],'/api/attendance':{'rows':[],'summary':{}},'/api/reports/months':[{'month':'2026-11','total_records':1,'completed':1}],'/api/reports/monthly':{'rows':[{'day':'2026-11-10','employee_name':'Sample Guard','employee_id':'SAMPLE','location_name':'Test Site','status':'completed','check_in':'2026-11-10T02:30:00Z','check_out':'2026-11-10T12:30:00Z','hours':10}]}}.get(path,{})
+        route.fulfill(content_type='application/json',body=json.dumps(body))
+    with playwright.sync_playwright() as p:
+        browser=p.chromium.launch(headless=True,args=['--no-sandbox'])
+        page=browser.new_page(viewport={'width':390,'height':844})
+        page.route('http://guardian.test/**',respond)
+        page.goto('http://guardian.test/app')
+        page.locator('[name=username]').fill('test');page.locator('[name=password]').fill('fixture-password');page.locator('#loginForm .primary').click()
+        page.wait_for_selector('#attSearch')
+        page.locator('[data-nav=reports]').click();page.locator('[data-report=daily]').click()
+        page.locator('#reportFilters [name=period]').fill('2026-11-10')
+        page.locator('#reportFilters button').click()
+        page.wait_for_function("state.monthly.rows[0].day==='2026-11-10'")
+        page.screenshot(path=str(tmp_path/'excel-report-phone.png'),full_page=True)
+        with page.expect_download() as pending:page.locator('#exportFilteredReport').click()
+        assert pending.value.suggested_filename=='guardian-attendance-2026-11-10.xlsx'
+        assert calls[-1]==({'month':['2026-11'],'day':['2026-11-10'],'location_id':['loc-test']},'Bearer test-token')
+        # A month-history export must not accidentally inherit the daily filter.
+        with page.expect_download():page.locator('[data-export="2026-11"]').click()
+        assert calls[-1][0]=={'month':['2026-11']}
+        assert not page.locator('.error').count()
+        browser.close()
