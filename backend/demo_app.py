@@ -30,7 +30,8 @@ from sqlalchemy.pool import StaticPool
 # (cwd = backend/) or as `backend.demo_app` (cwd = repo root, as on ethiodeploy).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from demo_db import DEMO_MODE, DB_URL, ROOT, engine, init_db
+from demo_db import DEMO_MODE, DB_URL, ROOT, LOCAL_TZ, engine, init_db
+from demo_reports import attendance_workbook
 from demo_security import (
     insert_user,
     iso_dt,
@@ -461,20 +462,38 @@ def month_history(months: int = Query(6, ge=1, le=12), user=Depends(current_user
     return result
 
 
-@app.get("/api/reports/export.csv")
-def export_csv(month: str = Query(pattern=r"^\d{4}-\d{2}$"), location_id: str = "", user=Depends(current_user)):
+def export_rows(month, day, location_id, user):
     params = {"month": month + "-%", **scope_params(user)}
     sql = "SELECT a.day,e.id employee_id,e.name,l.name location,a.status,a.check_in,a.check_out,a.source FROM demo_attendance a JOIN demo_employees e ON e.id=a.employee_id JOIN demo_locations l ON l.id=a.location_id WHERE a.day LIKE :month AND " + scoped_sql(user, "a.location_id")
     with engine.connect() as c:
+        if day:
+            if not day.startswith(month + "-"):
+                raise HTTPException(400, "Day must be inside the selected month")
+            sql += " AND a.day=:day"; params["day"] = day
         if location_id:
             require_location_access(c, user, location_id)
             sql += " AND a.location_id=:location"; params["location"] = location_id
         sql += " ORDER BY a.day,e.id"
-        rows = [dict(r) for r in c.execute(text(sql), params).mappings()]
+        return [dict(r) for r in c.execute(text(sql), params).mappings()]
+
+
+@app.get("/api/reports/export.csv")
+def export_csv(month: str = Query(pattern=r"^\d{4}-\d{2}$"), location_id: str = "", day: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"), user=Depends(current_user)):
+    # Existing CSV consumers retain the original field names and timestamp values.
+    rows = export_rows(month, day, location_id, user)
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=["day", "employee_id", "name", "location", "status", "check_in", "check_out", "source"])
     writer.writeheader(); writer.writerows(rows)
-    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=guardian-{month}.csv"})
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=guardian-{day or month}.csv"})
+
+
+@app.get("/api/reports/export.xlsx")
+def export_excel(month: str = Query(pattern=r"^\d{4}-\d{2}$"), location_id: str = "", day: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"), user=Depends(current_user)):
+    rows = export_rows(month, day, location_id, user)
+    if len(rows) > 1048575:
+        raise HTTPException(400, "Too many rows for Excel. Choose a day or location filter.")
+    payload = attendance_workbook(rows, LOCAL_TZ, month, day or "", location_id or "All permitted locations")
+    return StreamingResponse(iter([payload]), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f"attachment; filename=guardian-attendance-{day or month}.xlsx"})
 
 
 @app.get("/api/settings")
