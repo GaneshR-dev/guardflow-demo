@@ -42,12 +42,13 @@ from demo_security import (
     token_digest,
     utcnow,
 )
-from demo_seed import seed_access, seed_demo
+from demo_seed import retire_legacy_demo_account, seed_access, seed_demo
 
 init_db()
 if DEMO_MODE:
     seed_demo()
 seed_access()
+retire_legacy_demo_account()
 
 API_DOCS_ENABLED = os.environ.get("API_DOCS", "true").lower() == "true"
 app = FastAPI(
@@ -271,8 +272,8 @@ def new_employee_id(c) -> str:
 
 @app.post("/api/employees")
 def add_employee(body: EmployeeBody, user=Depends(current_user)):
-    if user["role"] not in ("admin", "supervisor"):
-        raise HTTPException(403, "Admin or supervisor required")
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
     require_role_write(user, body.role)
     with engine.begin() as c:
         require_location_access(c, user, body.location_id)
@@ -288,8 +289,8 @@ def add_employee(body: EmployeeBody, user=Depends(current_user)):
 
 @app.post("/api/employees/import")
 def import_employees(body: EmployeeImportBody, user=Depends(current_user)):
-    if user["role"] not in ("admin", "supervisor"):
-        raise HTTPException(403, "Admin or supervisor required")
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
     explicit_ids = [row.id for row in body.rows if row.id]
     duplicates = sorted({employee_id for employee_id in explicit_ids if explicit_ids.count(employee_id) > 1})
     if duplicates:
