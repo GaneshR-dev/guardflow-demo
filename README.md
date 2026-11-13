@@ -1,13 +1,14 @@
 # Guardian attendance
 
-Mobile-first guard attendance app ("Guardian", formerly "GuardFlow") with a FastAPI backend, PostgreSQL database and fictional sample history. Built for a manpower/security company pilot: named-guard attendance per client site, replacements, register reconciliation and draft billing.
+Mobile-first guard attendance app ("Guardian", formerly "GuardFlow") with a FastAPI backend and PostgreSQL database. Built for a manpower/security company pilot: named-guard attendance per client site, replacements, register reconciliation and draft billing.
 
 ## Live deployment
 
 - App: https://guardflow-demo.ethiodeploy.app/app (frontend, API and PostgreSQL on one platform)
-- Fictional sample data only - no real employee or client records.
+- The live database currently holds no attendance records (cleared at the owner's request); only the demo sign-in accounts remain. No real employee or client records.
 - Demo credentials are intentionally visible on the sign-in screen (`admin.demo`, `supervisor.demo`, `demo`, each with password `demo123`).
-- The earlier device-local GitHub Pages demo (ganeshr-dev.github.io/guardflow-demo) was unpublished on 2026-11-13; this repo's code and history are unchanged.
+- The earlier device-local GitHub Pages demo (ganeshr-dev.github.io/guardflow-demo) was unpublished on 2026-11-13; Git history is preserved.
+- A local run behaves differently: it seeds fictional sample history automatically (see Run locally).
 
 ## Repository layout
 
@@ -24,15 +25,18 @@ Vanilla JavaScript frontend served by the backend at `/app`, Python FastAPI + SQ
 
 ## Run locally
 
+Requires Python 3.10+. Run all commands from the repository root:
+
 ```bash
 python3 -m pip install -r backend/requirements.txt
-cd backend
-python3 -m uvicorn demo_app:app --host 127.0.0.1 --port 8000
+python3 -m uvicorn backend.demo_app:app --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000/app` and sign in with one of the demo accounts shown on the sign-in screen. A local SQLite database with fictional sample data is created automatically on first run. Requires Python 3.10+.
+Open `http://127.0.0.1:8000/app` and sign in with one of the demo accounts shown on the sign-in screen. A local SQLite database with fictional sample history is created automatically on first run.
 
 ## Test
+
+From the repository root:
 
 ```bash
 python3 -m pip install pytest
