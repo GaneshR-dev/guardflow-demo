@@ -65,20 +65,21 @@ def test_supervisor_location_scope_and_import_validation():
         {'id': 'EMP9100', 'name': 'Role Guard', 'phone': '+91 90000 91000', 'role': 'Supervisor', 'location_id': 'loc-hsr'}
     ]})
     assert denied_role.status_code == 403
-    duplicate = client.post('/api/employees/import', headers=headers, json={'rows': [
+    admin = auth()
+    duplicate = client.post('/api/employees/import', headers=admin, json={'rows': [
         {'id': 'EMP9101', 'name': 'Duplicate One', 'phone': '+91 90000 91011', 'role': 'Guard', 'location_id': 'loc-hsr'},
         {'id': 'EMP9101', 'name': 'Duplicate Two', 'phone': '+91 90000 91012', 'role': 'Guard', 'location_id': 'loc-hsr'},
     ]})
     assert duplicate.status_code == 400
     assert not any(row['id'] == 'EMP9101' for row in client.get('/api/employees?location_id=loc-hsr&q=9101', headers=headers).json())
-    rollback = client.post('/api/employees/import', headers=headers, json={'rows': [
+    rollback = client.post('/api/employees/import', headers=admin, json={'rows': [
         {'id': 'EMP9102', 'name': 'Rollback Guard', 'phone': '+91 90000 91021', 'role': 'Guard', 'location_id': 'loc-hsr'},
-        {'id': 'EMP9103', 'name': 'Denied Guard', 'phone': '+91 90000 91031', 'role': 'Guard', 'location_id': 'loc-mysuru'},
+        {'id': 'EMP9103', 'name': 'Denied Guard', 'phone': '+91 90000 91031', 'role': 'Guard', 'location_id': 'loc-does-not-exist'},
     ]})
-    assert rollback.status_code == 403
+    assert rollback.status_code == 404
     employees = client.get('/api/employees?location_id=loc-hsr&q=910', headers=headers).json()
     assert not any(row['id'] in ('EMP9102', 'EMP9103') for row in employees)
-    malformed = client.post('/api/employees/import', headers=headers, json={'rows': [
+    malformed = client.post('/api/employees/import', headers=admin, json={'rows': [
         {'id': 'EMP9104', 'name': 'Broken Guard', 'role': 'Guard', 'location_id': 'loc-hsr'}
     ]})
     assert malformed.status_code == 422
@@ -195,7 +196,7 @@ def test_future_day_attendance_and_location_import():
 
 
 def test_logout_revokes_session():
-    response = client.post('/api/login', json={'username': 'demo', 'password': 'demo123'})
+    response = client.post('/api/login', json={'username': 'supervisor.demo', 'password': 'demo123'})
     assert response.status_code == 200
     headers = {'Authorization': 'Bearer ' + response.json()['token']}
     assert client.get('/api/locations', headers=headers).status_code == 200
@@ -265,3 +266,52 @@ def test_employee_id_exhaustion_fails_controlled(monkeypatch):
     after = client.get('/api/employees', headers=headers).json()
     assert len(after) == len(before)  # nothing written, nothing clobbered
     assert next(e for e in after if e['id'] == 'EMP1024')['name'] == 'Deepak Kumar'
+
+
+def test_only_two_builtin_logins_and_supervisor_read_only_records():
+    assert client.post('/api/login', json={'username': 'demo', 'password': 'demo123'}).status_code == 401
+    supervisor = auth('supervisor.demo')
+    before = client.get('/api/employees', headers=supervisor).json()
+    assert before
+    body = {'name': 'Denied Guard', 'phone': '+91 90000 54321', 'role': 'Guard', 'location_id': 'loc-hsr'}
+    assert client.post('/api/employees', headers=supervisor, json=body).status_code == 403
+    assert client.post('/api/employees/import', headers=supervisor, json={'rows': [body]}).status_code == 403
+    existing = {**body, 'id': before[0]['id'], 'name': 'Denied Update'}
+    assert client.post('/api/employees/import', headers=supervisor, json={'rows': [existing]}).status_code == 403
+    assert client.post('/api/settings/locations/import', headers=supervisor, json={'rows': [
+        {'name': 'Denied Site', 'area': 'Denied Area'}]}).status_code == 403
+    assert client.get('/api/employees', headers=supervisor).json() == before
+    assert client.get('/api/locations', headers=supervisor).status_code == 200
+
+
+def test_legacy_demo_retirement_preserves_business_data():
+    from demo_app import engine
+    from demo_seed import retire_legacy_demo_account
+    from demo_security import insert_user
+    from sqlalchemy import text
+    with engine.begin() as c:
+        insert_user(c, 'demo', 'Demo Supervisor', 'supervisor', 'demo123')
+        c.execute(text("INSERT INTO demo_sessions VALUES ('legacy-session','demo','2099-01-01T00:00:00+00:00')"))
+        c.execute(text("INSERT INTO demo_user_locations VALUES ('demo','loc-hsr')"))
+        before = {table: c.execute(text('SELECT COUNT(*) FROM ' + table)).scalar()
+                  for table in ['demo_employees', 'demo_attendance', 'demo_locations', 'demo_audit']}
+    retire_legacy_demo_account()
+    retire_legacy_demo_account()  # idempotent startup migration
+    with engine.connect() as c:
+        for table in ['demo_users', 'demo_sessions', 'demo_user_locations']:
+            column = 'id' if table == 'demo_users' else 'user_id'
+            assert c.execute(text(f"SELECT COUNT(*) FROM {table} WHERE {column}='demo'")).scalar() == 0
+        assert before == {table: c.execute(text('SELECT COUNT(*) FROM ' + table)).scalar() for table in before}
+
+
+def test_customized_demo_identity_not_deleted():
+    from demo_app import engine
+    from demo_seed import retire_legacy_demo_account
+    from demo_security import insert_user
+    from sqlalchemy import text
+    with engine.begin() as c:
+        insert_user(c, 'demo', 'Custom User', 'supervisor', 'custom-long-password')
+    retire_legacy_demo_account()
+    with engine.begin() as c:
+        assert c.execute(text("SELECT name FROM demo_users WHERE id='demo'")).scalar() == 'Custom User'
+        c.execute(text("DELETE FROM demo_users WHERE id='demo'"))
