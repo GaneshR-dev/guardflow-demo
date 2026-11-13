@@ -30,11 +30,12 @@ cd backend
 python3 -m uvicorn demo_app:app --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000/app`.
+Open `http://127.0.0.1:8000/app` and sign in with one of the demo accounts shown on the sign-in screen. A local SQLite database with fictional sample data is created automatically on first run. Requires Python 3.10+.
 
 ## Test
 
 ```bash
+python3 -m pip install pytest
 python3 -m pytest -q tests/
 ```
 
