@@ -37,13 +37,33 @@ engine = create_engine(DB_URL, **engine_kwargs)
 API_DOCS_ENABLED = os.environ.get("API_DOCS", "true").lower() == "true"
 app = FastAPI(
     title="Guardian Attendance API",
-    version="0.3.0",
+    version="0.4.0",
     docs_url="/docs" if API_DOCS_ENABLED else None,
     redoc_url="/redoc" if API_DOCS_ENABLED else None,
     openapi_url="/openapi.json" if API_DOCS_ENABLED else None,
 )
 DEMO_MODE = os.environ.get("DEMO_MODE", "true" if DB_URL.startswith("sqlite") else "false").lower() == "true"
 bearer = HTTPBearer(auto_error=False)
+
+LOGIN_MAX_FAILURES = int(os.environ.get("LOGIN_MAX_FAILURES", "5"))
+LOGIN_LOCK_SECONDS = int(os.environ.get("LOGIN_LOCK_SECONDS", "900"))
+_login_failures: dict[str, list[float]] = {}
+
+
+def login_throttle_check(key: str) -> None:
+    now = utcnow().timestamp()
+    attempts = [t for t in _login_failures.get(key, []) if now - t < LOGIN_LOCK_SECONDS]
+    _login_failures[key] = attempts
+    if len(attempts) >= LOGIN_MAX_FAILURES:
+        raise HTTPException(429, "Too many failed sign-in attempts. Try again later.")
+
+
+def login_throttle_record(key: str) -> None:
+    _login_failures.setdefault(key, []).append(utcnow().timestamp())
+
+
+def login_throttle_clear(key: str) -> None:
+    _login_failures.pop(key, None)
 
 
 def utcnow() -> datetime:
@@ -312,16 +332,29 @@ class LocationImportBody(BaseModel):
 
 @app.post("/api/login")
 def login(body: LoginBody):
+    key = body.username.strip().lower()
+    login_throttle_check(key)
     with engine.begin() as c:
         row = c.execute(text("SELECT * FROM demo_users WHERE id=:id"), {"id": body.username}).mappings().first()
         if not row or not hmac.compare_digest(password_hash(body.password, row["salt"]), row["password"]):
+            login_throttle_record(key)
             raise HTTPException(401, "Invalid user ID or password")
+        login_throttle_clear(key)
+        c.execute(text("DELETE FROM demo_sessions WHERE expires<:now"), {"now": utcnow().isoformat()})
         token = secrets.token_urlsafe(32)
         c.execute(
             text("INSERT INTO demo_sessions VALUES (:token,:user,:expires)"),
             {"token": token_digest(token), "user": row["id"], "expires": (utcnow() + timedelta(hours=10)).isoformat()},
         )
         return {"token": token, "user": {"id": row["id"], "name": row["name"], "role": row["role"]}}
+
+
+@app.post("/api/logout")
+def logout(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    if credentials:
+        with engine.begin() as c:
+            c.execute(text("DELETE FROM demo_sessions WHERE token=:token"), {"token": token_digest(credentials.credentials)})
+    return {"status": "signed out"}
 
 
 def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
@@ -429,6 +462,15 @@ def employees(location_id: str | None = None, q: str = "", user=Depends(current_
         return [dict(r) for r in c.execute(text(sql), params).mappings()]
 
 
+def new_employee_id(c) -> str:
+    """Random unique employee ID; avoids the count-based allocation race."""
+    for _ in range(25):
+        candidate = f"EMP{secrets.randbelow(9000) + 1000}"
+        if not c.execute(text("SELECT 1 FROM demo_employees WHERE id=:id"), {"id": candidate}).first():
+            return candidate
+    raise HTTPException(500, "Could not allocate an employee ID")
+
+
 @app.post("/api/employees")
 def add_employee(body: EmployeeBody, user=Depends(current_user)):
     if user["role"] not in ("admin", "supervisor"):
@@ -436,12 +478,7 @@ def add_employee(body: EmployeeBody, user=Depends(current_user)):
     require_role_write(user, body.role)
     with engine.begin() as c:
         require_location_access(c, user, body.location_id)
-        count = int(c.execute(text("SELECT COUNT(*) FROM demo_employees")).scalar() or 0)
-        while True:
-            employee_id = f"EMP{4000 + count + 1}"
-            if not c.execute(text("SELECT 1 FROM demo_employees WHERE id=:id"), {"id": employee_id}).first():
-                break
-            count += 1
+        employee_id = new_employee_id(c)
         c.execute(
             text("INSERT INTO demo_employees VALUES (:id,:name,:phone,:role,:location,1)"),
             {"id": employee_id, "name": body.name, "phone": body.phone, "role": body.role, "location": body.location_id},
@@ -461,18 +498,12 @@ def import_employees(body: EmployeeImportBody, user=Depends(current_user)):
         raise HTTPException(400, "Duplicate employee IDs in import: " + ", ".join(duplicates))
     created = updated = 0
     with engine.begin() as c:
-        next_count = int(c.execute(text("SELECT COUNT(*) FROM demo_employees")).scalar() or 0)
         for row in body.rows:
             require_role_write(user, row.role)
             require_location_access(c, user, row.location_id)
             employee_id = row.id
             if not employee_id:
-                while True:
-                    candidate = f"EMP{4000 + next_count + 1}"
-                    next_count += 1
-                    if not c.execute(text("SELECT 1 FROM demo_employees WHERE id=:id"), {"id": candidate}).first():
-                        employee_id = candidate
-                        break
+                employee_id = new_employee_id(c)
             existing = c.execute(text("SELECT * FROM demo_employees WHERE id=:id"), {"id": employee_id}).mappings().first()
             if existing:
                 require_location_access(c, user, existing["location_id"])
