@@ -172,3 +172,98 @@ def test_login_error_feedback(failure, expected, tmp_path):
         assert page.evaluate("localStorage.getItem('gf_token')") is None
         page.screenshot(path=str(tmp_path / ('login-' + failure + '.png')))
         browser.close()
+
+
+@pytest.mark.parametrize('entry,selection', [('locations', 'supervisor.demo'), ('settings', 'supervisor.demo'), ('locations', '__unassigned__'), ('settings', '__unassigned__')])
+def test_location_creation_prompts_for_supervisor(entry, selection, tmp_path):
+    user = {'id': 'admin.demo', 'name': 'Admin Demo', 'role': 'admin'}
+    locations = [{'id': 'loc-old', 'name': 'Existing Branch', 'area': 'Existing Area', 'assigned_count': 0}]
+    access = [user, {'id': 'supervisor.demo', 'name': 'Supervisor Demo', 'role': 'supervisor', 'location_ids': []},
+              {'id': 'other.supervisor', 'name': '<Other Supervisor>', 'role': 'supervisor', 'location_ids': []}]
+    posts = []
+
+    def respond(route):
+        path = urlsplit(route.request.url).path
+        if path == '/app':
+            return route.fulfill(content_type='text/html', body=HTML)
+        if path == '/api/settings/locations':
+            body = route.request.post_data_json
+            posts.append(body)
+            locations.append({k: body[k] for k in ['id', 'name', 'area', 'assigned_count']})
+            return route.fulfill(json=body)
+        data = {'/api/locations': locations, '/api/settings': {'profile': user, 'locations': locations, 'access': access},
+                '/api/attendance': {'rows': [], 'summary': {}}}.get(path, {})
+        route.fulfill(json=data)
+
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
+        page = browser.new_page(viewport={'width': 390, 'height': 844})
+        page.add_init_script("localStorage.setItem('gf_token','local-test-token');localStorage.setItem('gf_user',JSON.stringify(" + json.dumps(user) + "))")
+        page.route('http://guardian.test/**', respond)
+        page.goto('http://guardian.test/app')
+        page.wait_for_selector('h1:text("Mark attendance")')
+        if entry == 'locations':
+            page.evaluate("go('locations')")
+            page.locator('[data-locaction=add]').click()
+        else:
+            page.locator('[data-nav=settings]').click()
+            page.locator('[data-settings=locations]').click()
+        form = page.locator('#locationForm')
+        form.locator('[name=name]').fill('New Branch')
+        form.locator('[name=area]').fill('New Area')
+        select = form.locator('[name=supervisor_id]')
+        assert select.input_value() == ''
+        assert select.locator('option').all_text_contents() == [
+            'Choose a supervisor or leave unassigned', 'Supervisor Demo (supervisor.demo)',
+            '<Other Supervisor> (other.supervisor)', 'Leave unassigned']
+        assert select.locator('script').count() == 0
+        # Missing choice blocks native form submission, not an automatic grant.
+        form.locator('button').click()
+        assert posts == []
+        select.select_option(selection)
+        assert page.locator('#locationSupervisorSelection').inner_text() == ('No supervisor will receive access.' if selection == '__unassigned__' else 'Supervisor Demo (supervisor.demo)')
+        form.scroll_into_view_if_needed()
+        page.screenshot(path=str(tmp_path / (entry + '-assignment.png')))
+        form.locator('button').click()
+        page.wait_for_function("document.body.innerText.includes('Location added as loc-new-branch')")
+        assert posts == [{'name': 'New Branch', 'area': 'New Area', 'supervisor_id': None if selection == '__unassigned__' else selection,
+                          'id': 'loc-new-branch', 'assigned_count': 0}]
+        assert 'assigned to supervisor.demo' in page.inner_text('body') if selection == 'supervisor.demo' else '(unassigned)' in page.inner_text('body')
+        browser.close()
+
+
+@pytest.mark.parametrize('mode', ['empty', 'unavailable'])
+def test_location_supervisor_list_empty_or_unavailable(mode, tmp_path):
+    user = {'id': 'admin.demo', 'name': 'Admin Demo', 'role': 'admin'}
+    posts = []
+    def respond(route):
+        path = urlsplit(route.request.url).path
+        if path == '/app':
+            return route.fulfill(content_type='text/html', body=HTML)
+        if route.request.method == 'POST':
+            posts.append(path)
+        if path == '/api/settings':
+            if mode == 'unavailable':
+                return route.fulfill(status=503, json={'detail': 'Service unavailable'})
+            return route.fulfill(json={'profile': user, 'locations': [], 'access': [user]})
+        return route.fulfill(json=[] if path == '/api/locations' else {})
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
+        page = browser.new_page(viewport={'width': 390, 'height': 844})
+        page.add_init_script("localStorage.setItem('gf_token','local-test-token');localStorage.setItem('gf_user',JSON.stringify(" + json.dumps(user) + "))")
+        page.route('http://guardian.test/**', respond)
+        page.goto('http://guardian.test/app#locations')
+        if mode == 'empty':
+            page.wait_for_selector('#locationSupervisor')
+            assert 'No supervisor accounts yet.' in page.inner_text('body')
+            assert page.locator('#locationSupervisor option').count() == 2
+            assert page.locator('#locationSupervisor').input_value() == ''
+        else:
+            page.wait_for_selector('.error')
+            assert 'Service unavailable' in page.locator('.error').inner_text()
+            assert page.locator('#locationSupervisor').is_disabled()
+            assert page.locator('#locationForm button').is_disabled()
+        page.locator('#locationForm').scroll_into_view_if_needed()
+        page.screenshot(path=str(tmp_path / (mode + '-assignment.png')))
+        assert posts == []
+        browser.close()
