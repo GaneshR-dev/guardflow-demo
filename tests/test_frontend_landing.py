@@ -133,3 +133,42 @@ def test_attendance_suppresses_superseded_success_and_error():
         page.wait_for_function("errors.includes('current error')")
         assert page.evaluate('errors') == ['current error']
         browser.close()
+
+
+@pytest.mark.parametrize('failure,expected', [
+    ('credentials', 'Wrong password or user ID. Try again.'),
+    ('throttle', 'Too many failed sign-in attempts. Try again later.'),
+    ('server', 'Service unavailable'),
+    ('network', 'Cannot reach the Guardian server. Check the connection and try again.'),
+])
+def test_login_error_feedback(failure, expected, tmp_path):
+    def respond(route):
+        if urlsplit(route.request.url).path == '/app':
+            return route.fulfill(content_type='text/html', body=HTML)
+        if failure == 'network':
+            return route.abort()
+        status, detail = {
+            'credentials': (401, 'Invalid user ID or password'),
+            'throttle': (429, 'Too many failed sign-in attempts. Try again later.'),
+            'server': (503, 'Service unavailable'),
+        }[failure]
+        route.fulfill(status=status, content_type='application/json', body=json.dumps({'detail': detail}))
+
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
+        page = browser.new_page(viewport={'width': 390, 'height': 844})
+        page.route('http://guardian.test/**', respond)
+        page.goto('http://guardian.test/app')
+        page.locator('[name=username]').fill('supervisor.demo')
+        page.locator('[name=password]').fill('incorrect-local-test')
+        page.locator('#loginForm .primary').click()
+        page.wait_for_selector('.error')
+        assert page.locator('.error').inner_text() == expected
+        assert page.locator('.error').is_visible()
+        box = page.locator('.error').bounding_box()
+        assert box['y'] >= 0 and box['y'] + box['height'] < 844
+        assert box['y'] < page.locator('[name=username]').bounding_box()['y']
+        assert page.locator('h1').inner_text() == 'Guardian'
+        assert page.evaluate("localStorage.getItem('gf_token')") is None
+        page.screenshot(path=str(tmp_path / ('login-' + failure + '.png')))
+        browser.close()
