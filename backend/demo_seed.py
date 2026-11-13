@@ -6,7 +6,7 @@ from datetime import timedelta
 from sqlalchemy import text
 
 from demo_db import DEMO_MODE, engine
-from demo_security import insert_user, iso_dt, local_today
+from demo_security import insert_user, iso_dt, local_today, password_hash
 
 def seed_demo() -> None:
     """Seed clearly fictional sample history across the last six calendar months."""
@@ -15,7 +15,6 @@ def seed_demo() -> None:
             return
         insert_user(c, "admin.demo", "Admin Demo", "admin", "demo123")
         insert_user(c, "supervisor.demo", "Supervisor Demo", "supervisor", "demo123")
-        insert_user(c, "demo", "Demo Supervisor", "supervisor", "demo123")
         locations = [
             ("loc-hsr", "Bengaluru - HSR Layout", "HSR Sector 2", 24),
             ("loc-whitefield", "Bengaluru - Whitefield", "ITPL Main Road", 18),
@@ -148,7 +147,23 @@ def seed_access() -> None:
         for user_id, location_id in [
             ("supervisor.demo", "loc-hsr"),
             ("supervisor.demo", "loc-whitefield"),
-            ("demo", "loc-hsr"),
         ]:
             if location_id in available:
                 c.execute(text("INSERT INTO demo_user_locations VALUES (:user,:location)"), {"user": user_id, "location": location_id})
+
+
+def retire_legacy_demo_account() -> None:
+    """Retire only the original built-in demo identity, never business records.
+
+    Runs for existing databases too, including deployments with DEMO_MODE off.
+    A customized account with the same ID is left alone for manual review.
+    """
+    with engine.begin() as c:
+        row = c.execute(text("SELECT * FROM demo_users WHERE id='demo'")).mappings().first()
+        if not row or row["name"] != "Demo Supervisor" or row["role"] != "supervisor":
+            return
+        if row["password"] != password_hash("demo123", row["salt"]):
+            return
+        c.execute(text("DELETE FROM demo_sessions WHERE user_id='demo'"))
+        c.execute(text("DELETE FROM demo_user_locations WHERE user_id='demo'"))
+        c.execute(text("DELETE FROM demo_users WHERE id='demo'"))
