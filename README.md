@@ -6,7 +6,7 @@ Mobile-first guard attendance app ("Guardian", formerly "GuardFlow") with a Fast
 
 - App: https://guardflow-demo.ethiodeploy.app/app (frontend, API and PostgreSQL on one platform)
 - The live database currently holds no attendance records (cleared at the owner's request); only the demo sign-in accounts remain. No real employee or client records.
-- Demo credentials are intentionally visible on the sign-in screen (`admin.demo`, `supervisor.demo`, `demo`, each with password `demo123`).
+- Demo credentials are intentionally visible on the sign-in screen (`admin.demo`, `supervisor.demo`, each with password `demo123`).
 - The earlier device-local GitHub Pages demo (ganeshr-dev.github.io/guardflow-demo) was unpublished on 2026-11-13; Git history is preserved.
 - A local run behaves differently: it seeds fictional sample history automatically (see Run locally).
 
@@ -56,3 +56,9 @@ Covers login (including throttling and server-side logout revocation), scoped lo
 ## Demo data safety
 
 Seeded attendance is fictional and marked in the `source` field. Demo users are seeded by default only for local SQLite; for a deployed demo set `DEMO_MODE=true` deliberately. With `DEMO_MODE=false` against PostgreSQL the visible demo credentials are never created.
+
+## Demo roles and landing page
+
+Both built-in accounts open the attendance/check-in page after sign-in and location selection. Admins can add/import locations and employees. Supervisors can view employees and assigned locations, and continue to record check-ins/check-outs within their existing location scope. The API enforces creation/import permissions as well as the UI.
+
+Startup retires only the original, unchanged `demo` sign-in identity and its sessions/location grants from existing databases. Employee records, attendance and audit history are preserved. Customized accounts are not removed automatically.
