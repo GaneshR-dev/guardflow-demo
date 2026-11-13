@@ -100,6 +100,7 @@ class ProfileBody(BaseModel):
 
 
 class LocationBody(BaseModel):
+    supervisor_id: str | None = Field(default=None, min_length=3, max_length=80)
     id: str = Field(min_length=2, max_length=40, pattern=r"^[a-z0-9-]+$")
     name: str = Field(min_length=3, max_length=100)
     area: str = Field(min_length=2, max_length=100)
@@ -512,7 +513,13 @@ def create_location(body: LocationBody, user=Depends(current_user)):
     with engine.begin() as c:
         if c.execute(text("SELECT 1 FROM demo_locations WHERE id=:id"), {"id": body.id}).first():
             raise HTTPException(409, "Location ID already exists")
+        if body.supervisor_id is not None:
+            supervisor = c.execute(text("SELECT role FROM demo_users WHERE id=:id"), {"id": body.supervisor_id}).scalar()
+            if supervisor != "supervisor":
+                raise HTTPException(400, "Choose an existing supervisor")
         c.execute(text("INSERT INTO demo_locations VALUES (:id,:name,:area,:count)"), {"id": body.id, "name": body.name, "area": body.area, "count": body.assigned_count})
+        if body.supervisor_id is not None:
+            c.execute(text("INSERT INTO demo_user_locations VALUES (:user,:location)"), {"user": body.supervisor_id, "location": body.id})
         audit(c, user, "settings.location.create", body.model_dump())
     return body.model_dump()
 
