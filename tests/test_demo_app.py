@@ -365,3 +365,74 @@ def test_location_creation_assigns_only_selected_supervisor_atomically():
     with engine.connect() as c:
         details = c.execute(text("SELECT details FROM demo_audit WHERE action='settings.location.create' ORDER BY rowid DESC")).scalars().all()
     assert any('assign.one' in detail for detail in details)
+
+
+def test_excel_export_date_times_timezone_blanks_scope_and_filters():
+    from io import BytesIO
+    from datetime import datetime, date
+    from openpyxl import load_workbook
+    from sqlalchemy import text
+    from demo_db import engine, LOCAL_TZ
+    with engine.begin() as c:
+        c.execute(text("INSERT INTO demo_employees VALUES ('EXCEL001','=Do not execute','9000000000','Guard','loc-hsr',1)"))
+        c.execute(text("INSERT INTO demo_employees VALUES ('EXCEL002','Other site','9000000001','Guard','loc-mysuru',1)"))
+        values = [
+            ('xl-1','EXCEL001','loc-hsr','2026-01-05','completed','2026-01-05T02:30:00+00:00','2026-01-05T12:35:00Z','test fixture'),
+            ('xl-2','EXCEL001','loc-hsr','2026-01-06','checked_in','2026-01-06T18:00:00+00:00',None,'test fixture'),
+            ('xl-3','EXCEL002','loc-mysuru','2026-01-05','completed','2026-01-05T02:30:00+00:00','2026-01-05T12:35:00+00:00','test fixture'),
+        ]
+        for v in values:
+            c.execute(text('INSERT INTO demo_attendance VALUES (:id,:employee,:location,:day,:status,:cin,:cout,:source)'),dict(zip(['id','employee','location','day','status','cin','cout','source'],v)))
+    try:
+        supervisor = auth('supervisor.demo')
+        url='/api/reports/export.xlsx?month=2026-01&location_id=loc-hsr'
+        assert client.get(url).status_code == 401
+        response=client.get(url,headers=supervisor)
+        assert response.status_code == 200
+        assert 'spreadsheetml' in response.headers['content-type']
+        assert '.xlsx' in response.headers['content-disposition']
+        wb=load_workbook(BytesIO(response.content));ws=wb['Attendance']
+        assert [c.value for c in ws[1]][:6] == ['Date','Entry time','Exit time','Employee ID','Employee name','Location']
+        assert ws.max_row==3
+        assert ws['A2'].value.date()==date(2026,1,5)
+        expected=datetime.fromisoformat('2026-01-05T02:30:00+00:00').astimezone(LOCAL_TZ).replace(tzinfo=None)
+        assert ws['B2'].value==expected
+        assert ws['B2'].number_format=='hh:mm'
+        assert ws['C3'].value is None
+        assert ws['E2'].data_type=='s' and ws['E2'].value=='=Do not execute'
+        assert wb['Report info']['B2'].value==LOCAL_TZ.key
+        assert ws.freeze_panes=='D2'
+        assert client.get('/api/reports/export.xlsx?month=2026-01&location_id=loc-mysuru',headers=supervisor).status_code==403
+        assert client.get('/api/reports/export.xlsx?month=2026-01&day=2026-02-01',headers=supervisor).status_code==400
+        daily=client.get(url+'&day=2026-01-05',headers=supervisor)
+        assert load_workbook(BytesIO(daily.content)).active.max_row==2
+        all_scoped=load_workbook(BytesIO(client.get('/api/reports/export.xlsx?month=2026-01',headers=supervisor).content)).active
+        assert {r[3] for r in list(all_scoped.values)[1:]}=={'EXCEL001'}
+        empty=load_workbook(BytesIO(client.get(url+'&day=2026-01-30',headers=supervisor).content)).active
+        assert empty.max_row==1
+        # Old CSV remains compatible, and accepts the same selected-day filter.
+        csv_result=client.get('/api/reports/export.csv?month=2026-01&day=2026-01-05&location_id=loc-hsr',headers=supervisor)
+        assert csv_result.status_code==200 and 'check_in,check_out' in csv_result.text
+        assert '2026-01-06' not in csv_result.text
+    finally:
+        with engine.begin() as c:
+            c.execute(text("DELETE FROM demo_attendance WHERE employee_id IN ('EXCEL001','EXCEL002')"))
+            c.execute(text("DELETE FROM demo_employees WHERE id IN ('EXCEL001','EXCEL002')"))
+
+
+def test_excel_workbook_overnight_and_unverified_timestamp():
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from zoneinfo import ZoneInfo
+    from demo_reports import attendance_workbook
+    row={'day':'2026-11-10','employee_id':'TEST','name':'Sample','location':'Sample site',
+         'status':'completed','check_in':'2026-11-10T14:30:00Z','check_out':'2026-11-11T02:30:00Z','source':'fixture'}
+    ws=load_workbook(BytesIO(attendance_workbook([row],ZoneInfo('Asia/Kolkata'),'2026-11'))).active
+    assert ws['B2'].value.hour==20 and ws['C2'].value.hour==8
+    assert 'Exit date: 2026-11-11' in ws['I2'].value
+    row['check_in']='2026-11-10T08:00:00' # Unknown zone: do not guess.
+    row['check_out']='not-a-timestamp'
+    ws=load_workbook(BytesIO(attendance_workbook([row],ZoneInfo('Asia/Kolkata'),'2026-11'))).active
+    assert ws['B2'].value=='2026-11-10T08:00:00'
+    assert ws['C2'].value=='not-a-timestamp'
+    assert 'original text retained' in ws['I2'].value
