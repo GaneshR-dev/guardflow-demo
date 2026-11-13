@@ -227,3 +227,41 @@ def test_generated_employee_ids_unique_and_shaped():
         assert employee_id.startswith('EMP') and employee_id[3:].isdigit()
         assert employee_id not in ids
         ids.add(employee_id)
+
+
+def test_employee_id_forced_collision_retries_without_overwrite(monkeypatch):
+    import demo_app
+    real_randbelow = demo_app.secrets.randbelow
+    calls = {'n': 0}
+    def colliding(n):
+        calls['n'] += 1
+        if calls['n'] == 1:
+            return 24  # forces EMP1024, which already exists in the seed
+        return real_randbelow(n)
+    monkeypatch.setattr(demo_app.secrets, 'randbelow', colliding)
+    headers = auth()
+    before = {e['id']: e['name'] for e in client.get('/api/employees', headers=headers).json()}
+    created = client.post('/api/employees', headers=headers, json={
+        'name': 'Collision Guard', 'phone': '+91 90000 77777', 'role': 'Guard', 'location_id': 'loc-hsr'})
+    assert created.status_code == 200
+    new_id = created.json()['id']
+    assert new_id != 'EMP1024'
+    assert calls['n'] >= 2  # allocator retried after the forced collision
+    after = {e['id']: e['name'] for e in client.get('/api/employees', headers=headers).json()}
+    assert after['EMP1024'] == before['EMP1024'] == 'Deepak Kumar'  # no overwrite
+    assert len(after) == len(before) + 1
+    assert after[new_id] == 'Collision Guard'
+
+
+def test_employee_id_exhaustion_fails_controlled(monkeypatch):
+    import demo_app
+    monkeypatch.setattr(demo_app.secrets, 'randbelow', lambda n: 24)  # every candidate collides
+    headers = auth()
+    before = client.get('/api/employees', headers=headers).json()
+    created = client.post('/api/employees', headers=headers, json={
+        'name': 'Exhaustion Guard', 'phone': '+91 90000 88888', 'role': 'Guard', 'location_id': 'loc-hsr'})
+    assert created.status_code == 500
+    assert created.json()['detail'] == 'Could not allocate an employee ID'
+    after = client.get('/api/employees', headers=headers).json()
+    assert len(after) == len(before)  # nothing written, nothing clobbered
+    assert next(e for e in after if e['id'] == 'EMP1024')['name'] == 'Deepak Kumar'
