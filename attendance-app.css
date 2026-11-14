@@ -1237,11 +1237,17 @@ button {
 /* Shift timing row inside the Add location form. */
 .shiftRow {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin-top: 8px;
 }
 .shiftRow > div {
-  flex: 1;
+  flex: 1 1 30%;
+  min-width: 100px;
+}
+.shiftRow .shiftRemove {
+  flex: 0 0 auto;
+  align-self: end;
 }
 
 /* Location detail rows (shift timing). */
