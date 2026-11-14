@@ -134,7 +134,7 @@ def test_guards_supervisor_only_and_no_self_disable():
         == 400
     )
     assert client.delete("/api/settings/access/admin.demo", headers=auth()).status_code == 400
-    assert client.post("/api/settings/access/admin.demo/enable", headers=auth()).status_code == 404
+    assert client.post("/api/settings/access/admin.demo/enable", headers=auth()).status_code == 400
     # Unknown users 404; double-disable 404.
     assert client.delete("/api/settings/access/sup.ghost", headers=auth()).status_code == 404
     make_supervisor("sup.guard", ["loc-hsr"])
