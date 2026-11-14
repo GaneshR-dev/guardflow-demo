@@ -137,3 +137,29 @@ def test_disabled_location_stays_visible_to_supervisor_and_blocks_attendance():
     )
     summary_after = client.get(f"/api/reports/summary?month={month}", headers=headers).json()
     assert next(loc for loc in summary_after["locations"] if loc["id"] == "loc-disable-test")["active"] == 1
+
+
+def test_location_payloads_expose_disabled_count_for_clear_labels():
+    """assigned_count alone read as "0 employees" above greyed rows; disabled_count fixes the label."""
+    headers = auth()
+    employee_id = not_in_employee("loc-hsr")
+    assert employee_id, "a not-in seeded employee expected"
+    before = next(loc for loc in client.get("/api/locations", headers=headers).json() if loc["id"] == "loc-hsr")
+    assert client.delete(f"/api/employees/{employee_id}", headers=headers).status_code == 200
+    after = next(loc for loc in client.get("/api/locations", headers=headers).json() if loc["id"] == "loc-hsr")
+    assert after["disabled_count"] == before["disabled_count"] + 1
+    assert after["assigned_count"] == before["assigned_count"] - 1
+    # Dashboard and settings share the same payload shape.
+    dash = next(
+        loc for loc in client.get("/api/dashboard", headers=headers).json()["locations"] if loc["id"] == "loc-hsr"
+    )
+    assert dash["disabled_count"] == after["disabled_count"]
+    settings = next(
+        loc for loc in client.get("/api/settings", headers=headers).json()["locations"] if loc["id"] == "loc-hsr"
+    )
+    assert settings["disabled_count"] == after["disabled_count"]
+    # Re-enable returns both counts.
+    assert client.post(f"/api/employees/{employee_id}/enable", headers=headers).status_code == 200
+    restored = next(loc for loc in client.get("/api/locations", headers=headers).json() if loc["id"] == "loc-hsr")
+    assert restored["disabled_count"] == before["disabled_count"]
+    assert restored["assigned_count"] == before["assigned_count"]

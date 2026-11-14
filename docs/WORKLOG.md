@@ -98,3 +98,8 @@ Template:
 - Changed: `attendance-app.js`, `attendance-app.css`, `backend/demo_app.py` (`/api/reports/summary`), `tests/test_demo_app.py`, `tests/test_frontend_landing.py`
 - Tests: API tests passed. Browser test updated but not run.
 - Open items: No call button for guards who are not in (no phone in report data).
+
+## 2026-11-14 · Clear headcount labels on disabled branches · Instinct · fix/disabled-count-labels
+- Request: A disabled branch read "0 employees" directly above its greyed employees and next to kept history. Make the count clear within the approved disabled-state scope.
+- Changed: `backend/demo_app.py`: location payloads (`/api/locations`, `/api/settings`, `/api/dashboard`, `/api/reports/summary`, all via `location_rows`) now carry `disabled_count`, the number of disabled employees on the branch; `assigned_count` keeps meaning active employees. `attendance-app.js`: one `empCountLabel` helper renders "0 active employees · 3 disabled" whenever a branch has disabled employees (plain count otherwise), used on the locations picker, location detail, dashboard breakdown, settings locations panel and report location cards.
+- Tests: new `tests/test_disable_only.py::test_location_payloads_expose_disabled_count_for_clear_labels` and `tests/test_frontend_nov14.py::test_disabled_headcount_label_clarifies_zero_active`. Results recorded below before merge.
