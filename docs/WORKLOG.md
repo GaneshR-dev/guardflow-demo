@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-14 · Date picker on phones, clear empty Day state · Claude Code · fix/mobile-date-picker
+- Request: The calendar does not open in a mobile browser. Day is empty while Month shows all locations.
+- Changed: `attendance-app.js`, `attendance-app.css`: the real date/month input now covers the date button (invisible), so a tap opens the phone's own picker; with a mouse the app also calls `showPicker()`. The Day report for today with no guards shows "No guards at this location" with "Choose location".
+- Tests: `pytest -q tests/` without the 3 browser test files → 48 passed. Ruff → passed. Manual Playwright check with iPhone 13 and Pixel 7 emulation: the tap lands on the date input, picking a date loads that day, the empty state and Choose location work, no page errors.
+- Open items: Not checked on a real phone (emulation cannot open the native picker). Month shows all locations and Day shows one location: this is expected. The live data was not checked (no sign-in in the browser pane).
+
 ## 2026-11-14 · Shared error state on all screens · Claude Code · feat/reports
 - Request: Use the 403 and 404 states on the other screens too.
 - Changed: `attendance-app.js`: new `showScreenError()`, `screenErrorView()` and `friendlyError()`; Attendance, Check-in, Check-out, Home, Employees and Settings show the shared state for 403, 404, no network and server errors; check-in and check-out 403/404 show it too (409 stays in the banner); server errors show a plain message (also on Reports); some loaders had no error handling before. `AGENTS.md`, `docs/UI-GUIDE.md`: the new helpers.

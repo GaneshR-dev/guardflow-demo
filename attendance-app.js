@@ -505,7 +505,10 @@ function reportFilters(r) {
   const locId = isDay ? r.dayLocation : r.monthLocation;
   const loc = state.locations.find((l) => l.id === locId);
   const locLabel = loc ? shortLoc(loc.name) : isDay ? 'Choose location' : 'All locations';
-  return `<div class="rpFilters"><div class="rpPeriod"><button class="rpSelect" id="reportPeriodBtn" aria-label="${isDay ? 'Change date' : 'Change month'}">${ICON.calendar}<span>${esc(isDay ? fmtShortDay(r.date) : fmtShortMonth(r.month))}</span>${ICON.chevDown}</button><input class="rpHiddenInput" id="reportPeriod" type="${isDay ? 'date' : 'month'}" value="${esc(isDay ? r.date : r.month)}" tabindex="-1" aria-hidden="true"></div><button class="rpSelect" id="reportLocation" aria-haspopup="dialog" aria-label="Change location">${ICON.pin}<span>${esc(locLabel)}</span>${ICON.chevDown}</button></div>`;
+  // The real date/month input lies over the button (invisible), so a tap opens the
+  // browser's own picker on every phone. A hidden input plus showPicker() does not
+  // work in many mobile browsers.
+  return `<div class="rpFilters"><label class="rpPeriod"><span class="rpSelect" aria-hidden="true">${ICON.calendar}<span>${esc(isDay ? fmtShortDay(r.date) : fmtShortMonth(r.month))}</span>${ICON.chevDown}</span><input class="rpPeriodInput" id="reportPeriod" type="${isDay ? 'date' : 'month'}" value="${esc(isDay ? r.date : r.month)}" aria-label="${isDay ? 'Change date' : 'Change month'}"></label><button class="rpSelect" id="reportLocation" aria-haspopup="dialog" aria-label="Change location">${ICON.pin}<span>${esc(locLabel)}</span>${ICON.chevDown}</button></div>`;
 }
 function guardRow(x) {
   const time =
@@ -522,6 +525,17 @@ function dayReport(r) {
   if (!r.dayLocation)
     return emptyState(ICON.emptyPin, 'No location yet', 'You need access to a location before you can see a report.');
   const rows = r.day?.rows || [];
+  if (!rows.length && r.date === todayISO()) {
+    // Today's Day report lists every active guard of the location, also guards with no
+    // record. So an empty list today means that the location has no active guards.
+    const loc = state.locations.find((l) => l.id === r.dayLocation);
+    return emptyState(
+      ICON.emptyPin,
+      'No guards at this location',
+      `${loc ? shortLoc(loc.name) : 'This location'} has no active guards. Choose another location, or add guards in Employees.`,
+      '<button class="secondary rpCta" data-rchoose>Choose location</button>',
+    );
+  }
   if (!rows.length) {
     const future = r.date > todayISO();
     return emptyState(
@@ -1238,15 +1252,16 @@ function bindReports() {
         render();
       }),
   );
-  const periodButton = document.getElementById('reportPeriodBtn');
   const periodInput = document.getElementById('reportPeriod');
-  if (periodButton && periodInput) {
-    periodButton.onclick = () => {
+  if (periodInput) {
+    // Phones open their picker on the tap itself. With a mouse, a click on the text of a
+    // date input only selects a part of the date, so open the picker as well.
+    periodInput.onclick = () => {
+      if (!window.matchMedia('(pointer: fine)').matches) return;
       try {
         periodInput.showPicker();
       } catch {
-        periodInput.focus();
-        periodInput.click();
+        // The picker is already open, or this browser has no showPicker(): the input still works.
       }
     };
     periodInput.onchange = () => {
