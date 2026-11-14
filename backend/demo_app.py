@@ -149,6 +149,8 @@ class AttendanceTimeBody(BaseModel):
     day: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     check_in: str = Field(pattern=SHIFT_PATTERN)
     check_out: str | None = Field(default=None, pattern=SHIFT_PATTERN)
+    # Overnight corrections: checkout can land on a later IST date than the check-in record.
+    check_out_day: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
 
 
 class LocationImportRow(BaseModel):
@@ -580,10 +582,17 @@ def edit_attendance_times(body: AttendanceTimeBody, user=Depends(current_user)):
         parsed_day = date.fromisoformat(body.day)
     except ValueError:
         raise HTTPException(400, "Invalid day") from None
+    out_day_text = body.check_out_day or body.day
+    try:
+        out_day = date.fromisoformat(out_day_text)
+    except ValueError:
+        raise HTTPException(400, "Invalid check-out date") from None
+    if body.check_out and out_day < parsed_day:
+        raise HTTPException(400, "Check-out date cannot be before the check-in date")
     check_in = ist_stamp(body.day, body.check_in)
-    check_out = ist_stamp(body.day, body.check_out) if body.check_out else None
+    check_out = ist_stamp(out_day_text, body.check_out) if body.check_out else None
     if check_out and check_out <= check_in:
-        raise HTTPException(400, "Check-out time must be after the check-in time")
+        raise HTTPException(400, "Check-out must be after the check-in time")
     with engine.begin() as c:
         require_location_access(c, user, body.location_id)
         row = (
@@ -618,6 +627,7 @@ def edit_attendance_times(body: AttendanceTimeBody, user=Depends(current_user)):
     return {
         "employee_id": body.employee_id,
         "day": parsed_day.isoformat(),
+        "check_out_day": out_day.isoformat() if check_out else None,
         "status": status,
         "check_in": check_in,
         "check_out": check_out,
@@ -890,6 +900,32 @@ def remove_location(location_id: str, user=Depends(current_user)):
         )
         if not row:
             raise HTTPException(404, "Location not found")
+        assigned = (
+            c.execute(
+                text("SELECT COUNT(*) FROM demo_employees WHERE location_id=:id AND active=1"), {"id": location_id}
+            ).scalar()
+            or 0
+        )
+        open_checkins = (
+            c.execute(
+                text("SELECT COUNT(*) FROM demo_attendance WHERE location_id=:id AND status='checked_in'"),
+                {"id": location_id},
+            ).scalar()
+            or 0
+        )
+        if assigned or open_checkins:
+            blockers = []
+            if assigned:
+                blockers.append(f"{assigned} employee(s) are still assigned here")
+            if open_checkins:
+                blockers.append(f"{open_checkins} check-in(s) are still open")
+            raise HTTPException(
+                409,
+                "Cannot remove this branch yet: "
+                + " and ".join(blockers)
+                + ". Reassign employees to another branch (Employees > Import keeps their IDs and updates their "
+                "location) or remove them, and record the open check-outs first. Attendance history is kept either way.",
+            )
         c.execute(text("UPDATE demo_locations SET active=0 WHERE id=:id"), {"id": location_id})
         c.execute(text("DELETE FROM demo_user_locations WHERE location_id=:id"), {"id": location_id})
         audit(
