@@ -1254,6 +1254,24 @@ button {
   align-items: center;
   margin-bottom: 6px;
 }
+/* Small red trash button; compact icon, comfortable hit area, no text. */
+.shiftRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 8px;
+  margin: -6px -8px -6px 0;
+  background: none;
+  border: none;
+  border-radius: 10px;
+  color: var(--red, #d92d20);
+  cursor: pointer;
+}
+.shiftRemove:hover {
+  background: #fdecea;
+}
 .shiftTimes {
   display: flex;
   flex-wrap: wrap;
