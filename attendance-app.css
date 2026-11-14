@@ -1371,3 +1371,363 @@ button {
 .modalActions button {
   flex: 1;
 }
+
+/* Shared phone-first rhythm, based on the Reports components. */
+:root {
+  --muted: #5f7087;
+  --green: #0b794c;
+}
+button,
+.link,
+summary,
+.forgot a {
+  min-height: 44px;
+}
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 3px;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.menuButton,
+.iconButton,
+.iconBtn,
+.shiftRemove {
+  min-width: 44px;
+  min-height: 44px;
+}
+.menuButton {
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+.page,
+.navPanel {
+  padding-top: 20px;
+}
+.sub {
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+.card,
+.locationCard,
+.person,
+.navLink {
+  box-shadow: none;
+  border-color: var(--line);
+}
+.card,
+.locationCard {
+  border-radius: 16px;
+}
+.primary {
+  box-shadow: none;
+  font-size: 14px;
+}
+.secondary {
+  font-size: 14px;
+}
+.link {
+  padding: 10px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.backLink {
+  margin: -8px 0 12px -8px;
+}
+.small,
+.person small,
+.locationCard span,
+.stat span,
+.helper,
+.badge,
+.chip,
+.selectBtn,
+.outlineBtn,
+.navItem {
+  font-size: 12px;
+}
+.person {
+  gap: 10px;
+}
+.person > span:not(.initials):not(.personTime) {
+  min-width: 0;
+  flex: 1;
+}
+.person strong,
+.locationCard strong,
+.navLink strong {
+  overflow-wrap: anywhere;
+}
+.person small {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.person .initials {
+  flex-shrink: 0;
+}
+.personTime {
+  flex-shrink: 0;
+  max-width: 115px;
+  line-height: 1.5;
+}
+.badge {
+  padding: 3px 6px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.badge.green,
+.chip.green {
+  color: #0b6b42;
+}
+.badge.amber,
+.chip.amber {
+  color: #7d4900;
+}
+.badge.blue {
+  color: #1c4fb8;
+}
+.filters {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.chip {
+  padding: 8px 10px;
+}
+.selectBtn,
+.outlineBtn {
+  flex-shrink: 0;
+  min-width: 44px;
+}
+.stats {
+  gap: 8px;
+  margin: 12px 0 16px;
+}
+.stat {
+  padding: 10px 4px;
+}
+.stat strong {
+  color: var(--text) !important;
+}
+.recordingAt {
+  border: 1px solid var(--line);
+  background: var(--card);
+  padding: 10px 14px;
+  border-radius: 12px;
+  margin: 0 0 12px;
+}
+.recordingAt label {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.recordingAt strong {
+  font-size: 13px;
+  display: block;
+  overflow-wrap: anywhere;
+}
+.recordingAt select {
+  width: 100%;
+  border: 0;
+  background: var(--card);
+  color: var(--text);
+  min-height: 44px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.attendanceList {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+  padding: 0 12px;
+  margin-bottom: 18px;
+}
+.attendanceList .person {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 14px 0;
+  margin: 0;
+}
+.attendanceList .person:last-child {
+  border-bottom: 0;
+}
+.attendanceList .badge {
+  background: transparent;
+  padding: 0;
+}
+.attendanceList > p {
+  padding: 18px 0;
+}
+.detailCard {
+  padding: 18px;
+  margin: 0 0 18px;
+}
+.detailCard h2 {
+  font-size: 16px;
+  margin: 0;
+}
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.sectionHead .outlineBtn {
+  margin: 0;
+}
+.shiftSummary {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-top: 14px;
+}
+.shiftSummary .shiftTimes {
+  margin-top: 12px;
+}
+.shiftSummary small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.shiftSummary strong {
+  display: block;
+  font-size: 18px;
+}
+.shiftSummary p {
+  margin: 12px 0 0;
+}
+.shiftRow {
+  background: #f7faff;
+  padding: 12px;
+  margin-top: 12px;
+}
+.shiftRow .helper {
+  text-align: left;
+  margin: 0 0 6px;
+  display: block;
+}
+.shiftTimes input {
+  background: var(--card);
+  border: 1px solid var(--line);
+  padding: 0 8px;
+  font-size: 14px;
+}
+.shiftRemove {
+  margin: -6px -6px -6px 0;
+}
+.shiftAdd {
+  border-style: dashed;
+  border-radius: 12px;
+  margin-top: 14px;
+}
+fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.formActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+}
+.formActions .secondary {
+  flex: 1;
+  height: 52px;
+}
+.formActions .primary {
+  flex: 1.5;
+  height: 52px;
+}
+.quietEmpty {
+  text-align: center;
+  padding: 36px 0 20px;
+  font-size: 13px;
+}
+.quietEmpty p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+.locationSettings {
+  margin-top: 24px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.locationSettings summary {
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 14px 0;
+}
+.locationSettings .outlineBtn {
+  margin: 0;
+}
+.inlineError {
+  color: var(--red);
+  border: 1px solid var(--red);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 12px;
+}
+.navLink {
+  min-height: 72px;
+}
+.navLink small {
+  line-height: 1.5;
+}
+.rpSelect {
+  min-height: 44px;
+}
+.rpTab,
+.rpStat,
+.rpOption {
+  min-height: 44px;
+}
+@media (max-width: 379px) {
+  .page,
+  .navPanel {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .person {
+    flex-wrap: wrap;
+  }
+  .personTime {
+    max-width: 98px;
+    font-size: 11px;
+  }
+  .attendanceList {
+    padding: 0 10px;
+  }
+  .detailCard {
+    padding: 14px;
+  }
+  .shiftTimes {
+    gap: 8px;
+  }
+  .shiftTimes input {
+    font-size: 12px;
+    padding: 0 4px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation: none !important;
+  }
+}
+button {
+  min-width: 44px;
+}
