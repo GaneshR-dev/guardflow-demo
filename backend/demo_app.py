@@ -232,7 +232,14 @@ def login(body: LoginBody):
     key = body.username.strip().lower()
     login_throttle_check(key)
     with engine.begin() as c:
-        row = c.execute(text("SELECT * FROM demo_users WHERE id=:id"), {"id": body.username}).mappings().first()
+        # Lock the user row so sign-in serializes with admin disable/enable on PostgreSQL:
+        # either this login commits first and disable deletes its fresh session, or disable
+        # commits first and the marker check below rejects the sign-in. Without the lock a
+        # login racing in the disable window could bank a session that revives on re-enable.
+        lock_sql = " FOR UPDATE" if engine.dialect.name != "sqlite" else ""
+        row = c.execute(
+            text(f"SELECT * FROM demo_users WHERE id=:id{lock_sql}"), {"id": body.username}
+        ).mappings().first()
         if not row or not hmac.compare_digest(password_hash(body.password, row["salt"]), row["password"]):
             login_throttle_record(key)
             raise HTTPException(401, "Invalid user ID or password")
@@ -1579,22 +1586,29 @@ def create_access(body: AccessBody, user=Depends(current_user)):
 
 def supervisor_row(c, user_id: str, active: int | None = None, lock: bool = False):
     """Load a user for access management. Supervisor-only by design: admin account
-    management is out of scope for these endpoints."""
-    q = "SELECT u.* FROM demo_users u"
-    params: dict = {"id": user_id}
-    if active is not None:
-        q += " LEFT JOIN demo_disabled_users d ON d.user_id=u.id"
-        q += " WHERE u.id=:id AND d.user_id IS " + ("NULL" if active else "NOT NULL")
-    else:
-        q += " WHERE u.id=:id"
-    # Lock only the demo_users side: PostgreSQL refuses FOR UPDATE on a LEFT JOIN's
-    # nullable side, and the marker row does not need the lock.
-    lock_sql = " FOR UPDATE OF u" if lock and engine.dialect.name != "sqlite" else ""
-    row = c.execute(text(q + lock_sql), params).mappings().first()
+    management is out of scope for these endpoints.
+
+    The lock is taken on the base user row alone, and the disabled marker is read by a
+    separate statement AFTER lock acquisition. Filtering with a LEFT JOIN predicate
+    instead would evaluate the join on the pre-wait snapshot under READ COMMITTED: two
+    concurrent disables could both pass the filter, and the second would proceed on the
+    stale join result and duplicate-insert the marker.
+    """
+    lock_sql = " FOR UPDATE" if lock and engine.dialect.name != "sqlite" else ""
+    row = c.execute(
+        text(f"SELECT u.* FROM demo_users u WHERE u.id=:id{lock_sql}"), {"id": user_id}
+    ).mappings().first()
     if not row:
         raise HTTPException(404, "Supervisor not found")
     if row["role"] != "supervisor":
         raise HTTPException(400, "Only supervisor accounts can be changed here")
+    if active is not None:
+        disabled = (
+            c.execute(text("SELECT 1 FROM demo_disabled_users WHERE user_id=:id"), {"id": user_id}).first()
+            is not None
+        )
+        if disabled == bool(active):
+            raise HTTPException(404, "Supervisor not found")
     return row
 
 
@@ -1634,7 +1648,11 @@ def update_access_locations(user_id: str, body: AccessLocationsBody, user=Depend
     if user["role"] != "admin":
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
-        supervisor_row(c, user_id)
+        # Lock the user row: grants are replaced as DELETE+INSERT, and two concurrent edits
+        # under READ COMMITTED could otherwise interleave into a union of both edits (or a
+        # unique violation). The lock makes per-user replacements strictly serialized, so
+        # the last committer's set is exactly what remains.
+        supervisor_row(c, user_id, lock=True)
         after = list(dict.fromkeys(body.location_ids))
         for location_id in after:
             if not c.execute(text("SELECT 1 FROM demo_locations WHERE id=:id"), {"id": location_id}).first():
@@ -1683,6 +1701,11 @@ def enable_access(user_id: str, user=Depends(current_user)):
     with engine.begin() as c:
         row = supervisor_row(c, user_id, active=0, lock=True)
         c.execute(text("DELETE FROM demo_disabled_users WHERE user_id=:id"), {"id": user_id})
+        # Purge any session row that somehow outlived the disabled window, so no token
+        # minted before or during it can revive on re-enable. Login already serializes
+        # with disable on the user row lock; this keeps the guarantee independent of how
+        # any future code path creates sessions.
+        c.execute(text("DELETE FROM demo_sessions WHERE user_id=:id"), {"id": user_id})
         audit(c, user, "settings.access.enable", {"id": user_id, "name": row["name"]})
     return {"id": user_id, "status": "active"}
 
