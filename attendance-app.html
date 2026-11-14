@@ -15,7 +15,7 @@
 const $app=document.getElementById('app');
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const dayISO=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-const API=(new URLSearchParams(location.search).get('api')||'').replace(/\/$/,'');
+const API='';
 const todayISO=()=>dayISO(new Date());
 const fmtDate=d=>new Intl.DateTimeFormat('en-GB',{weekday:'long',day:'2-digit',month:'long',year:'numeric'}).format(d);
 const fmtMonth=d=>new Intl.DateTimeFormat('en-GB',{month:'long',year:'numeric'}).format(d);
