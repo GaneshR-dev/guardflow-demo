@@ -1234,14 +1234,68 @@ button {
   }
 }
 
-/* Shift timing row inside the Add location form. */
-.shiftRow {
+/* Shift timing slots inside the location forms: inline repeatable cards
+   (reference UI picked by the user): titled slot card, start/end side by side
+   on wide screens, stacked on phones, counter + dashed add button. */
+.shiftFieldHead {
   display: flex;
-  gap: 10px;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.shiftRow {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
   margin-top: 8px;
 }
-.shiftRow > div {
-  flex: 1;
+.shiftSlotHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+/* Small red trash button; compact icon, comfortable hit area, no text. */
+.shiftRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 8px;
+  margin: -6px -8px -6px 0;
+  background: none;
+  border: none;
+  border-radius: 10px;
+  color: var(--red, #d92d20);
+  cursor: pointer;
+}
+.shiftRemove:hover {
+  background: #fdecea;
+}
+.shiftTimes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+/* Start and end stay side by side, including on phones: two equal columns
+   that are allowed to shrink so the time inputs never overflow the card. */
+.shiftTimes > div {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.shiftTimes input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.shiftAdd {
+  display: block;
+  width: 100%;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 12px;
+  margin-top: 10px;
 }
 
 /* Location detail rows (shift timing). */

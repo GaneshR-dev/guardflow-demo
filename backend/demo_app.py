@@ -23,8 +23,8 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import text
+from pydantic import BaseModel, Field, field_validator, model_validator
+from sqlalchemy import bindparam, text
 
 # Sibling modules resolve whether uvicorn loads this file as `demo_app`
 # (cwd = backend/) or as `backend.demo_app` (cwd = repo root, as on ethiodeploy).
@@ -120,6 +120,33 @@ class ProfileBody(BaseModel):
 SHIFT_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 
 
+# Bound on how many windows one branch can carry; display-only metadata. Five
+# matches the slot limit in the UI reference the user picked.
+MAX_SHIFTS_PER_LOCATION = 5
+
+
+def _unique_windows(shifts: list[ShiftBody]) -> list[ShiftBody]:
+    """Two windows with the same start and end are a duplicate entry, not two shifts."""
+    if shifts is not None and len({(s.shift_start, s.shift_end) for s in shifts}) != len(shifts):
+        raise ValueError("Duplicate shift window")
+    return shifts
+
+
+class ShiftBody(BaseModel):
+    # One branch shift window. Both times are required; an optional label ("Morning")
+    # is display-only. Overnight windows (end before start) are allowed and display-only.
+    label: str | None = Field(default=None, min_length=1, max_length=40)
+    shift_start: str = Field(pattern=SHIFT_PATTERN)
+    shift_end: str = Field(pattern=SHIFT_PATTERN)
+
+    @model_validator(mode="after")
+    def _nonzero_window(self):
+        # A zero-length window (start == end) is a data entry error, not a 24h shift.
+        if self.shift_start == self.shift_end:
+            raise ValueError("Shift start and end must differ")
+        return self
+
+
 class LocationBody(BaseModel):
     supervisor_id: str | None = Field(default=None, min_length=3, max_length=80)
     id: str = Field(min_length=2, max_length=40, pattern=r"^[a-z0-9-]+$")
@@ -128,6 +155,33 @@ class LocationBody(BaseModel):
     assigned_count: int = Field(default=0, ge=0, le=10000)
     shift_start: str | None = Field(default=None, pattern=SHIFT_PATTERN)
     shift_end: str | None = Field(default=None, pattern=SHIFT_PATTERN)
+    # Multiple shift timings per branch. Omitted: the legacy pair above still works.
+    # Explicitly empty: no windows. A non-empty list wins over the pair, which then
+    # mirrors the first window for older readers.
+    shifts: list[ShiftBody] | None = Field(default=None, max_length=MAX_SHIFTS_PER_LOCATION)
+
+    _unique_shifts = field_validator("shifts")(_unique_windows)
+
+    @model_validator(mode="after")
+    def _legacy_pair_complete(self):
+        # A half-sent legacy pair (only one side) is a client bug: reject it instead of
+        # silently dropping the timing.
+        if (self.shift_start is None) != (self.shift_end is None):
+            raise ValueError("Provide both shift_start and shift_end, or neither")
+        # The equal-time rule lives here too, not only on ShiftBody: the create endpoint
+        # wraps the pair in ShiftBody itself, and a pydantic error raised there would be
+        # an uncontrolled 500 instead of this clean 422.
+        if self.shift_start is not None and self.shift_start == self.shift_end:
+            raise ValueError("Shift start and end must differ")
+        return self
+
+
+class LocationShiftsBody(BaseModel):
+    # The full replacement set for one branch. The field is required: a PUT without a
+    # "shifts" key is a 422, not a silent clear. An explicit empty list clears the timings.
+    shifts: list[ShiftBody] = Field(max_length=MAX_SHIFTS_PER_LOCATION)
+
+    _unique_shifts = field_validator("shifts")(_unique_windows)
 
 
 class AccessBody(BaseModel):
@@ -234,26 +288,82 @@ def audit(c, user, action: str, details: dict) -> None:
 DISABLED_COUNT_SQL = "(SELECT COUNT(*) FROM demo_employees e WHERE e.location_id=l.id AND e.active=0) AS disabled_count"
 
 
+def attach_shifts(c, rows: list[dict]) -> list[dict]:
+    """Add each location's shift windows (ordered by position) to location rows."""
+    if not rows:
+        return rows
+    shifts: dict[str, list] = {}
+    for s in c.execute(
+        text(
+            "SELECT location_id,label,shift_start,shift_end FROM demo_location_shifts "
+            "WHERE location_id IN :ids ORDER BY location_id,position"
+        ).bindparams(bindparam("ids", expanding=True)),
+        {"ids": [r["id"] for r in rows]},
+    ).mappings():
+        shifts.setdefault(s["location_id"], []).append(
+            {"label": s["label"], "shift_start": s["shift_start"], "shift_end": s["shift_end"]}
+        )
+    return [{**r, "shifts": shifts.get(r["id"], [])} for r in rows]
+
+
 def location_rows(user):
     with engine.connect() as c:
         if user["role"] == "admin":
-            return [
+            return attach_shifts(
+                c,
+                [
+                    dict(r)
+                    for r in c.execute(
+                        text(
+                            "SELECT l.*, "
+                            + DISABLED_COUNT_SQL
+                            + " FROM demo_locations l ORDER BY l.active DESC, l.name"
+                        )
+                    ).mappings()
+                ],
+            )
+        return attach_shifts(
+            c,
+            [
                 dict(r)
                 for r in c.execute(
-                    text("SELECT l.*, " + DISABLED_COUNT_SQL + " FROM demo_locations l ORDER BY l.active DESC, l.name")
+                    text(
+                        "SELECT l.*, "
+                        + DISABLED_COUNT_SQL
+                        + " FROM demo_locations l JOIN demo_user_locations a ON a.location_id=l.id WHERE a.user_id=:user ORDER BY l.active DESC, l.name"
+                    ),
+                    {"user": user["id"]},
                 ).mappings()
-            ]
-        return [
-            dict(r)
-            for r in c.execute(
-                text(
-                    "SELECT l.*, "
-                    + DISABLED_COUNT_SQL
-                    + " FROM demo_locations l JOIN demo_user_locations a ON a.location_id=l.id WHERE a.user_id=:user ORDER BY l.active DESC, l.name"
-                ),
-                {"user": user["id"]},
-            ).mappings()
-        ]
+            ],
+        )
+
+
+def insert_shift_rows(c, location_id: str, rows: list[ShiftBody]) -> None:
+    """Store one branch's shift windows in display order."""
+    for position, row in enumerate(rows):
+        c.execute(
+            text(
+                "INSERT INTO demo_location_shifts (id,location_id,label,shift_start,shift_end,position) "
+                "VALUES (:id,:location,:label,:start,:end,:position)"
+            ),
+            {
+                "id": f"{location_id}-shift-{position + 1}-{secrets.token_hex(3)}",
+                "location": location_id,
+                "label": row.label,
+                "start": row.shift_start,
+                "end": row.shift_end,
+                "position": position,
+            },
+        )
+
+
+def sync_legacy_shift_pair(c, location_id: str, rows: list[ShiftBody]) -> None:
+    """Mirror the first window into the legacy shift columns so older readers stay sane."""
+    first = rows[0] if rows else None
+    c.execute(
+        text("UPDATE demo_locations SET shift_start=:start, shift_end=:end WHERE id=:id"),
+        {"start": first.shift_start if first else None, "end": first.shift_end if first else None, "id": location_id},
+    )
 
 
 def scoped_sql(user: dict, column: str) -> str:
@@ -1275,6 +1385,14 @@ def create_location(body: LocationBody, user=Depends(current_user)):
             ).scalar()
             if supervisor != "supervisor":
                 raise HTTPException(400, "Choose an existing supervisor")
+        if body.shifts is not None:
+            # An explicit list wins, including an explicit empty list (no windows).
+            shift_rows = body.shifts
+        elif body.shift_start and body.shift_end:
+            shift_rows = [ShiftBody(shift_start=body.shift_start, shift_end=body.shift_end)]
+        else:
+            shift_rows = []
+        first = shift_rows[0] if shift_rows else None
         c.execute(
             text(
                 "INSERT INTO demo_locations (id,name,area,assigned_count,shift_start,shift_end,active) VALUES (:id,:name,:area,:count,:shift_start,:shift_end,1)"
@@ -1284,10 +1402,11 @@ def create_location(body: LocationBody, user=Depends(current_user)):
                 "name": body.name,
                 "area": body.area,
                 "count": body.assigned_count,
-                "shift_start": body.shift_start,
-                "shift_end": body.shift_end,
+                "shift_start": first.shift_start if first else None,
+                "shift_end": first.shift_end if first else None,
             },
         )
+        insert_shift_rows(c, body.id, shift_rows)
         if body.supervisor_id is not None:
             c.execute(
                 text("INSERT INTO demo_user_locations VALUES (:user,:location)"),
@@ -1295,6 +1414,45 @@ def create_location(body: LocationBody, user=Depends(current_user)):
             )
         audit(c, user, "settings.location.create", body.model_dump())
     return body.model_dump()
+
+
+@app.put("/api/settings/locations/{location_id}/shifts")
+def replace_location_shifts(location_id: str, body: LocationShiftsBody, user=Depends(current_user)):
+    """Replace a branch's shift timings. Display-only metadata: employee assignments,
+    attendance cardinality, history and reports are untouched. Admin-only write; both
+    roles read the timings through their existing scoped location lists."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        # Lock the parent row first (FOR UPDATE on PostgreSQL, where each request gets
+        # its own connection): concurrent replacements and a concurrent boot backfill
+        # serialize on this branch, so the read + delete + insert + mirror below is the
+        # only writer of this branch's windows at a time, and the unique
+        # (location_id, position) index rejects any remaining interleave loudly.
+        # NOTE: SQLite demo mode serves all requests over one shared in-memory
+        # connection (StaticPool), so overlapping requests interleave at the driver
+        # level regardless of endpoint code - a pre-existing demo-mode limitation
+        # that applies to every multi-statement endpoint, not specific to this one.
+        require_location_access(c, user, location_id, lock=True)
+        before = [
+            dict(r)
+            for r in c.execute(
+                text(
+                    "SELECT label,shift_start,shift_end FROM demo_location_shifts WHERE location_id=:id ORDER BY position"
+                ),
+                {"id": location_id},
+            ).mappings()
+        ]
+        c.execute(text("DELETE FROM demo_location_shifts WHERE location_id=:id"), {"id": location_id})
+        insert_shift_rows(c, location_id, body.shifts)
+        sync_legacy_shift_pair(c, location_id, body.shifts)
+        audit(
+            c,
+            user,
+            "settings.location.shifts",
+            {"location_id": location_id, "before": before, "after": [s.model_dump() for s in body.shifts]},
+        )
+    return {"id": location_id, "shifts": [s.model_dump() for s in body.shifts]}
 
 
 @app.delete("/api/settings/locations/{location_id}")

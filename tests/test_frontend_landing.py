@@ -309,8 +309,7 @@ def test_location_creation_prompts_for_supervisor(entry, selection, tmp_path):
                 "supervisor_id": None if selection == "__unassigned__" else selection,
                 "id": "loc-new-branch",
                 "assigned_count": 0,
-                "shift_start": None,
-                "shift_end": None,
+                "shifts": [],
             }
         ]
         assert (
