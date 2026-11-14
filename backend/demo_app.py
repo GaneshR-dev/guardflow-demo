@@ -23,7 +23,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import bindparam, text
 
 # Sibling modules resolve whether uvicorn loads this file as `demo_app`
@@ -120,12 +120,31 @@ class ProfileBody(BaseModel):
 SHIFT_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 
 
+# Bound on how many windows one branch can carry; display-only metadata. Five
+# matches the slot limit in the UI reference the user picked.
+MAX_SHIFTS_PER_LOCATION = 5
+
+
+def _unique_windows(shifts: list[ShiftBody]) -> list[ShiftBody]:
+    """Two windows with the same start and end are a duplicate entry, not two shifts."""
+    if shifts is not None and len({(s.shift_start, s.shift_end) for s in shifts}) != len(shifts):
+        raise ValueError("Duplicate shift window")
+    return shifts
+
+
 class ShiftBody(BaseModel):
     # One branch shift window. Both times are required; an optional label ("Morning")
     # is display-only. Overnight windows (end before start) are allowed and display-only.
     label: str | None = Field(default=None, min_length=1, max_length=40)
     shift_start: str = Field(pattern=SHIFT_PATTERN)
     shift_end: str = Field(pattern=SHIFT_PATTERN)
+
+    @model_validator(mode="after")
+    def _nonzero_window(self):
+        # A zero-length window (start == end) is a data entry error, not a 24h shift.
+        if self.shift_start == self.shift_end:
+            raise ValueError("Shift start and end must differ")
+        return self
 
 
 class LocationBody(BaseModel):
@@ -136,14 +155,28 @@ class LocationBody(BaseModel):
     assigned_count: int = Field(default=0, ge=0, le=10000)
     shift_start: str | None = Field(default=None, pattern=SHIFT_PATTERN)
     shift_end: str | None = Field(default=None, pattern=SHIFT_PATTERN)
-    # Multiple shift timings per branch. The legacy pair above still works; when both are
-    # sent, this list wins and the pair mirrors the first window for older readers.
-    shifts: list[ShiftBody] | None = None
+    # Multiple shift timings per branch. Omitted: the legacy pair above still works.
+    # Explicitly empty: no windows. A non-empty list wins over the pair, which then
+    # mirrors the first window for older readers.
+    shifts: list[ShiftBody] | None = Field(default=None, max_length=MAX_SHIFTS_PER_LOCATION)
+
+    _unique_shifts = field_validator("shifts")(_unique_windows)
+
+    @model_validator(mode="after")
+    def _legacy_pair_complete(self):
+        # A half-sent legacy pair (only one side) is a client bug: reject it instead of
+        # silently dropping the timing.
+        if (self.shift_start is None) != (self.shift_end is None):
+            raise ValueError("Provide both shift_start and shift_end, or neither")
+        return self
 
 
 class LocationShiftsBody(BaseModel):
-    # The full replacement set for one branch; an empty list clears the timings.
-    shifts: list[ShiftBody] = Field(default_factory=list)
+    # The full replacement set for one branch. The field is required: a PUT without a
+    # "shifts" key is a 422, not a silent clear. An explicit empty list clears the timings.
+    shifts: list[ShiftBody] = Field(max_length=MAX_SHIFTS_PER_LOCATION)
+
+    _unique_shifts = field_validator("shifts")(_unique_windows)
 
 
 class AccessBody(BaseModel):
@@ -1347,9 +1380,13 @@ def create_location(body: LocationBody, user=Depends(current_user)):
             ).scalar()
             if supervisor != "supervisor":
                 raise HTTPException(400, "Choose an existing supervisor")
-        shift_rows = body.shifts or []
-        if not shift_rows and body.shift_start and body.shift_end:
+        if body.shifts is not None:
+            # An explicit list wins, including an explicit empty list (no windows).
+            shift_rows = body.shifts
+        elif body.shift_start and body.shift_end:
             shift_rows = [ShiftBody(shift_start=body.shift_start, shift_end=body.shift_end)]
+        else:
+            shift_rows = []
         first = shift_rows[0] if shift_rows else None
         c.execute(
             text(
@@ -1382,8 +1419,16 @@ def replace_location_shifts(location_id: str, body: LocationShiftsBody, user=Dep
     if user["role"] != "admin":
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
-        if not c.execute(text("SELECT 1 FROM demo_locations WHERE id=:id"), {"id": location_id}).first():
-            raise HTTPException(404, "Location not found")
+        # Lock the parent row first (FOR UPDATE on PostgreSQL, where each request gets
+        # its own connection): concurrent replacements and a concurrent boot backfill
+        # serialize on this branch, so the read + delete + insert + mirror below is the
+        # only writer of this branch's windows at a time, and the unique
+        # (location_id, position) index rejects any remaining interleave loudly.
+        # NOTE: SQLite demo mode serves all requests over one shared in-memory
+        # connection (StaticPool), so overlapping requests interleave at the driver
+        # level regardless of endpoint code - a pre-existing demo-mode limitation
+        # that applies to every multi-statement endpoint, not specific to this one.
+        require_location_access(c, user, location_id, lock=True)
         before = [
             dict(r)
             for r in c.execute(
