@@ -176,6 +176,8 @@ def test_admin_edit_times_form_posts_ist_values(tmp_path):
         assert patches[0]["check_in"] == "09:30"
         assert patches[0]["check_out"] == "19:15"
         assert patches[0]["employee_id"] == "EMP9001"
+        # The checkout date travels with overnight corrections; it defaults to the record day.
+        assert patches[0]["check_out_day"] == patches[0]["day"]
         browser.close()
 
 
