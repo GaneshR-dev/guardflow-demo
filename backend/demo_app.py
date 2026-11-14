@@ -621,6 +621,66 @@ def month_history(months: int = Query(6, ge=1, le=12), user=Depends(current_user
     return result
 
 
+def _tally(bucket: dict, row: dict) -> None:
+    bucket["records"] += 1
+    bucket[row["status"]] = bucket.get(row["status"], 0) + 1
+    hours = worked_hours(row.get("check_in"), row.get("check_out"))
+    if hours:
+        bucket["_hours"].append(hours)
+
+
+def _new_bucket(**extra) -> dict:
+    return {"records": 0, "completed": 0, "checked_in": 0, "not_in": 0, "_hours": [], **extra}
+
+
+def _finish(bucket: dict) -> dict:
+    hours = bucket.pop("_hours")
+    bucket["avg_hours"] = round(sum(hours) / len(hours), 1) if hours else None
+    return bucket
+
+
+@app.get("/api/reports/summary")
+def month_summary(
+    month: str = Query(pattern=r"^\d{4}-\d{2}$"),
+    location_id: str = "",
+    user=Depends(current_user),
+):
+    """Whole-month totals (no row limit) for the Month report and its location detail."""
+    params = {"month": month + "-%", **scope_params(user)}
+    sql = (
+        "SELECT day,location_id,status,check_in,check_out FROM demo_attendance WHERE day LIKE :month AND "
+        + scoped_sql(user, "location_id")
+    )
+    with engine.connect() as c:
+        if location_id:
+            require_location_access(c, user, location_id)
+            sql += " AND location_id=:location"
+            params["location"] = location_id
+        rows = c.execute(text(sql), params).mappings().all()
+    locations = [loc for loc in location_rows(user) if not location_id or loc["id"] == location_id]
+    totals = _new_bucket()
+    by_location = {
+        loc["id"]: _new_bucket(
+            id=loc["id"], name=loc["name"], area=loc["area"], assigned_count=loc.get("assigned_count", 0)
+        )
+        for loc in locations
+    }
+    by_day: dict = {}
+    for row in rows:
+        _tally(totals, row)
+        if row["location_id"] in by_location:
+            _tally(by_location[row["location_id"]], row)
+        if location_id:
+            _tally(by_day.setdefault(row["day"], _new_bucket(day=row["day"])), row)
+    return {
+        "month": month,
+        "location_id": location_id or None,
+        "totals": _finish(totals),
+        "locations": [_finish(b) for b in by_location.values()],
+        "days": [_finish(by_day[d]) for d in sorted(by_day, reverse=True)],
+    }
+
+
 def export_rows(month, day, location_id, user):
     params = {"month": month + "-%", **scope_params(user)}
     sql = (

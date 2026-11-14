@@ -65,12 +65,7 @@ const state = {
   summary: {},
   employees: [],
   dashboard: null,
-  history: [],
-  monthly: null,
-  reportMode: '',
-  reportDate: '',
-  reportMonth: '',
-  reportLocation: '',
+  report: null,
   settings: null,
   settingsView: '',
   showLocationForm: false,
@@ -256,38 +251,256 @@ function employees() {
       '',
     )}${state.user?.role === 'admin' ? '<input type="file" id="importFile" accept=".csv,text/csv" style="display:none">' : ''}${form}<input class="search" id="empSearch" placeholder="Search name, role or employee ID" value="${esc(state.employeeQuery)}"><div id="directoryList">${shown.map((e) => `<div class="person"><span class="initials">${esc(initials(e.name))}</span><span><strong>${esc(e.name)}</strong><small>${esc(e.id)} · ${esc(e.role)}</small></span></div>`).join('') || '<p class="muted small">No employees match.</p>'}</div></div>${nav()}${message()}`;
 }
-async function reports() {
-  if (!state.history.length) state.history = await api('/api/reports/months?months=6');
-  const h = state.history;
-  const report = state.monthly;
-  const locOptions = state.locations
-    .map(
-      (l) =>
-        `<option value="${esc(l.id)}" ${state.reportLocation === l.id ? 'selected' : ''}>${esc(l.name.split(' - ')[1] || l.name)}</option>`,
-    )
-    .join('');
-  return `<div class="page">${header()}<h1>Attendance reports</h1><p class="sub">Review attendance summaries by date and location.</p>${[
-    ['daily', 'Daily report', 'Check-in, check-out and hours'],
-    ['locations', 'Location report', 'Compare all assigned branches'],
-    ['export', 'Excel report', 'Date, entry time and exit time'],
+// Reports screen: Day / Month / History tabs. Everything it shows comes from
+// state.report; loadReport() fetches the data for the open tab.
+const STATUS_LABEL = { checked_in: 'On duty', completed: 'Done', not_in: 'Not in' };
+const STATUS_TONE = { checked_in: 'green', completed: 'blue', not_in: 'amber' };
+const shortLoc = (name) => (name || '').split(' - ')[1] || name || '';
+const locCity = (name) => ((name || '').includes(' - ') ? name.split(' - ')[0] : '');
+const fmtShortDay = (iso) =>
+  new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).format(
+    new Date(iso + 'T00:00:00'),
+  );
+const fmtShortMonth = (ym) =>
+  new Intl.DateTimeFormat('en-GB', { month: 'short', year: 'numeric' }).format(new Date(ym + '-01T00:00:00'));
+const fmtCount = (n) => Number(n || 0).toLocaleString('en-IN');
+const svgIcon = (d, size = 18, width = 2) =>
+  `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICON = {
+  download: svgIcon('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
+  calendar: svgIcon('<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>'),
+  pin: svgIcon('<path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/>'),
+  chevDown: svgIcon('<path d="M6 9l6 6 6-6"/>', 16),
+  chevRight: svgIcon('<path d="M9 6l6 6-6 6"/>'),
+  back: svgIcon('<path d="M15 6l-6 6 6 6"/>', 20, 2.2),
+  close: svgIcon('<path d="M6 6l12 12M18 6L6 18"/>'),
+  check: svgIcon('<path d="M5 12l5 5 9-10"/>', 22, 2.4),
+  retry: svgIcon('<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>'),
+  wifiOff: svgIcon('<path d="M2 8.5a15 15 0 0 1 20 0M5.5 12a10 10 0 0 1 13 0M9 15.5a5 5 0 0 1 6 0M12 19h.01M3 3l18 18"/>', 30, 1.8),
+  emptyDay: svgIcon('<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>', 30, 1.8),
+  chart: svgIcon('<path d="M5 20V10M12 20V4M19 20v-7"/>', 30, 1.8),
+  emptyPin: svgIcon('<path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/>', 30, 1.8),
+};
+function reportDefaults() {
+  const today = todayISO();
+  return {
+    tab: 'day',
+    date: today,
+    month: today.slice(0, 7),
+    dayLocation: state.location?.id || state.locations[0]?.id || '',
+    monthLocation: '',
+    status: 'all',
+    detail: '',
+    sheet: false,
+    loading: false,
+    error: '',
+    loadedAt: '',
+    day: null,
+    summary: null,
+    detailData: null,
+    history: null,
+    seq: 0,
+  };
+}
+function progress(done, total) {
+  const pct = total ? Math.round((done * 100) / total) : 0;
+  return { pct, bar: `<div class="rpBar" aria-hidden="true"><span style="width:${pct}%"></span></div>` };
+}
+function emptyState(icon, title, text, cta = '', tone = '') {
+  return `<div class="rpEmpty ${tone}" ${tone === 'rpError' ? 'role="alert"' : ''}><span class="rpEmptyIcon">${icon}</span><h2>${esc(title)}</h2><p>${esc(text)}</p>${cta}</div>`;
+}
+function reportError(r) {
+  return emptyState(
+    ICON.wifiOff,
+    'Could not load the report',
+    r.error + ' Your filters stay the same.',
+    `<button class="primary rpCta" data-rretry>${ICON.retry}Try again</button>${r.loadedAt ? `<small>Last loaded at ${esc(r.loadedAt)}</small>` : ''}`,
+    'rpError',
+  );
+}
+function skeletonRows(n) {
+  return `<div class="rpList" aria-hidden="true">${Array.from({ length: n }, (_, i) => `<div class="rpRow"><span class="rpSkel round"></span><span class="rpWho"><span class="rpSkel" style="width:${[120, 96, 132, 84, 110, 100, 126][i % 7]}px;height:12px"></span><span class="rpSkel" style="width:64px;height:10px;margin-top:6px"></span></span><span class="rpWhen"><span class="rpSkel" style="width:66px;height:12px"></span><span class="rpSkel" style="width:52px;height:18px;border-radius:9px"></span></span></div>`).join('')}</div>`;
+}
+function reportSkeleton(r) {
+  const loc = state.locations.find((l) => l.id === (r.tab === 'day' ? r.dayLocation : r.detail || r.monthLocation));
+  const what = r.tab === 'history' ? 'the history' : `the ${loc ? shortLoc(loc.name) + ' ' : ''}report`;
+  const head =
+    r.tab === 'day'
+      ? `<div class="rpStats" aria-hidden="true">${'<div class="rpStat"><span class="rpSkel" style="width:34px;height:16px"></span><span class="rpSkel" style="width:48px;height:10px;margin-top:8px"></span></div>'.repeat(4)}</div>`
+      : '';
+  return `${head}<p class="rpHint" role="status">Loading ${esc(what)}…</p>${skeletonRows(r.tab === 'day' ? 7 : 5)}`;
+}
+function reportFilters(r) {
+  const isDay = r.tab === 'day';
+  const locId = isDay ? r.dayLocation : r.monthLocation;
+  const loc = state.locations.find((l) => l.id === locId);
+  const locLabel = loc ? shortLoc(loc.name) : isDay ? 'Choose location' : 'All locations';
+  return `<div class="rpFilters"><div class="rpPeriod"><button class="rpSelect" id="reportPeriodBtn" aria-label="${isDay ? 'Change date' : 'Change month'}">${ICON.calendar}<span>${esc(isDay ? fmtShortDay(r.date) : fmtShortMonth(r.month))}</span>${ICON.chevDown}</button><input class="rpHiddenInput" id="reportPeriod" type="${isDay ? 'date' : 'month'}" value="${esc(isDay ? r.date : r.month)}" tabindex="-1" aria-hidden="true"></div><button class="rpSelect" id="reportLocation" aria-haspopup="dialog" aria-label="Change location">${ICON.pin}<span>${esc(locLabel)}</span>${ICON.chevDown}</button></div>`;
+}
+function guardRow(x) {
+  const time =
+    x.status === 'completed'
+      ? `${fmtTime(x.check_in)} – ${fmtTime(x.check_out)}`
+      : x.status === 'checked_in'
+        ? 'In ' + fmtTime(x.check_in)
+        : '—';
+  const badge =
+    x.status === 'completed' && x.hours ? `Done · ${Number(x.hours).toFixed(1)} h` : STATUS_LABEL[x.status] || x.status;
+  return `<div class="rpRow"><span class="rpAvatar ${x.status === 'not_in' ? 'amber' : ''}" aria-hidden="true">${esc(initials(x.employee_name))}</span><span class="rpWho"><strong>${esc(x.employee_name)}</strong><small>${esc(x.employee_id)}</small></span><span class="rpWhen"><span>${time}</span><span class="badge ${STATUS_TONE[x.status] || 'blue'}">${esc(badge)}</span></span></div>`;
+}
+function dayReport(r) {
+  if (!r.dayLocation)
+    return emptyState(ICON.emptyPin, 'No location yet', 'You need access to a location before you can see a report.');
+  const rows = r.day?.rows || [];
+  if (!rows.length) {
+    const future = r.date > todayISO();
+    return emptyState(
+      ICON.emptyDay,
+      future ? 'No attendance for this day yet' : 'No attendance records',
+      future
+        ? `${fmtDate(new Date(r.date + 'T00:00:00'))} is in the future. Records show here when guards check in.`
+        : 'Nobody checked in at this location on this day.',
+      r.date !== todayISO() ? '<button class="primary rpCta" data-rtoday>Go to today</button>' : '',
+    );
+  }
+  const count = (s) => rows.filter((x) => s === 'all' || x.status === s).length;
+  const stats = [
+    ['all', 'All'],
+    ['checked_in', 'On duty'],
+    ['completed', 'Done'],
+    ['not_in', 'Not in'],
   ]
     .map(
-      ([k, t, d]) =>
-        `<button class="navLink" data-report="${k}"><span><strong>${t}</strong><small>${d}</small></span><span>›</span></button>`,
+      ([k, l]) =>
+        `<button class="rpStat ${k} ${r.status === k ? 'active' : ''}" data-rstatus="${k}" aria-pressed="${r.status === k}"><strong>${count(k)}</strong><span>${l}</span></button>`,
     )
-    .join('')}${
-    report
-      ? `<h2 class="sectionTitle">${esc(report.title)}</h2><button class="secondary" id="exportFilteredReport" style="margin-bottom:12px">Download this report as Excel</button><form id="reportFilters" class="card" style="padding:14px;margin-bottom:12px"><div class="field"><label>${state.reportMode === 'daily' ? 'Date' : 'Month'}</label><input name="period" type="${state.reportMode === 'daily' ? 'date' : 'month'}" value="${esc(state.reportMode === 'daily' ? state.reportDate : state.reportMonth)}" required></div><div class="field"><label>Location</label><select name="location_id">${state.reportMode === 'locations' ? '<option value="">All assigned locations</option>' : ''}${locOptions}</select></div><button class="secondary">Apply filters</button></form><div class="card" style="padding:8px 14px"><div class="reportRow employee head"><span>Date</span><span>Employee</span><span>In</span><span>Out</span><span>Hours</span></div>${
-          report.rows
-            .slice(0, 50)
-            .map(
-              (r) =>
-                `<div class="reportRow employee"><span>${r.day.slice(5)}</span><span><strong>${esc(r.employee_name)}</strong><br><small class="muted">${esc(r.employee_id)} · ${esc(r.location_name.split(' - ')[1] || r.location_name)} · ${esc(r.status.replace('_', ' '))}</small></span><span>${r.check_in ? fmtTime(r.check_in) : '-'}</span><span>${r.check_out ? fmtTime(r.check_out) : '-'}</span><span>${r.hours ?? '-'}</span></div>`,
-            )
-            .join('') || '<p class="muted small" style="padding:10px 4px">No records match these filters.</p>'
-        }</div>`
-      : ''
-  }<h2 class="sectionTitle">Last 6 months</h2><div class="card" style="padding:8px 14px"><div class="reportRow head"><span>Month</span><span>Records</span><span>Done</span><span>Export</span></div>${h.map((m) => `<div class="reportRow"><span>${fmtMonth(new Date(m.month + '-01'))}</span><span>${m.total_records}</span><span>${m.completed}</span><span><button class="link" data-export="${esc(m.month)}">Excel</button></span></div>`).join('')}</div><p class="helper">Sample history is fictional and marked in the source field.</p></div>${nav()}${message()}`;
+    .join('');
+  const shown = rows.filter((x) => r.status === 'all' || x.status === r.status);
+  const hours = rows.map((x) => x.hours).filter(Boolean);
+  const avg = hours.length ? (hours.reduce((a, b) => a + b, 0) / hours.length).toFixed(1) : '';
+  const title = r.status === 'all' ? plural(rows.length, 'guard') : `${shown.length} ${STATUS_LABEL[r.status].toLowerCase()}`;
+  const side =
+    r.status !== 'all'
+      ? '<button class="link" data-rstatus="all">Show all</button>'
+      : avg
+        ? `<span>Avg shift ${avg} h</span>`
+        : '';
+  return `<div class="rpStats" role="group" aria-label="Filter by status">${stats}</div><p class="rpHint">Tap a figure to filter the list</p><div class="rpListHead"><strong>${esc(title)}</strong>${side}</div><div class="rpList">${shown.map(guardRow).join('') || '<p class="rpNone">Nobody in this group.</p>'}</div>`;
+}
+function monthSummary(t) {
+  const p = progress(t.completed, t.records);
+  const open = t.records - t.completed;
+  const sub = `${open ? `<strong class="rpOpen">${fmtCount(open)} open</strong>` : 'Nothing open'}${t.avg_hours ? ` · avg shift ${t.avg_hours.toFixed(1)} h` : ''}`;
+  return `<div class="rpSummary"><div class="rpSummaryLine"><span>${fmtCount(t.completed)} of ${fmtCount(t.records)} completed</span><span>${p.pct}%</span></div>${p.bar}<small>${sub}</small></div>`;
+}
+function monthReport(r) {
+  const s = r.summary;
+  const t = s?.totals;
+  if (!t || !t.records)
+    return emptyState(
+      ICON.chart,
+      'No attendance this month',
+      'Records show here when guards check in.',
+      r.month !== todayISO().slice(0, 7) ? '<button class="primary rpCta" data-rtoday>Go to this month</button>' : '',
+    );
+  const cards = s.locations
+    .map((l) => {
+      const lp = progress(l.completed, l.records);
+      const city = locCity(l.name);
+      return `<button class="rpLoc" data-rdetail="${esc(l.id)}"><span class="rpLocHead"><span><strong>${esc(shortLoc(l.name))}</strong><small>${esc((city ? city + ' · ' : '') + plural(l.assigned_count, 'guard'))}</small></span><span class="badge ${l.records && lp.pct === 100 ? 'green' : l.records ? 'amber' : 'blue'}">${l.records ? lp.pct + '%' : 'No records'}</span>${ICON.chevRight}</span>${lp.bar}<span class="rpFigures"><span><strong>${fmtCount(l.records)}</strong>Records</span><span><strong>${fmtCount(l.records - l.completed)}</strong>Open</span><span><strong>${l.avg_hours ? l.avg_hours.toFixed(1) + ' h' : '–'}</strong>Avg shift</span></span></button>`;
+    })
+    .join('');
+  return `${monthSummary(t)}<h2 class="rpSection">By location</h2>${cards}`;
+}
+function reportDetail(r) {
+  const d = r.detailData;
+  const loc = state.locations.find((l) => l.id === r.detail);
+  const assigned = loc?.assigned_count || 0;
+  const city = locCity(loc?.name);
+  const canExport = !r.loading && !r.error && d?.totals?.records;
+  const top = `<div class="rpBackBar"><button class="rpBack" data-rback>${ICON.back}All locations</button><button class="rpExport" id="reportExport" ${canExport ? '' : 'disabled'}>${ICON.download}Excel</button></div><h1 class="rpDetailTitle">${esc(loc ? shortLoc(loc.name) : 'Location')}</h1><p class="rpDetailSub">${esc((city ? city + ' · ' : '') + plural(assigned, 'guard') + ' · ' + fmtMonth(new Date(r.month + '-01T00:00:00')))}</p>`;
+  if (r.loading) return top + `<p class="rpHint" role="status">Loading the days…</p>` + skeletonRows(7);
+  if (r.error) return top + reportError(r);
+  if (!d?.totals?.records)
+    return top + emptyState(ICON.chart, 'No attendance this month', 'Records show here when guards check in.');
+  const today = todayISO();
+  const days = d.days
+    .map((x) => {
+      const dt = new Date(x.day + 'T00:00:00');
+      const present = x.completed + x.checked_in;
+      const open = x.checked_in || x.not_in;
+      const missing = assigned - x.records;
+      const sub = open
+        ? `${x.completed} done · ${x.checked_in} on duty · ${x.not_in} not in`
+        : `All shifts completed${missing > 0 ? ` · ${missing} no record` : ''}`;
+      return `<button class="rpDay" data-rday="${esc(x.day)}"><span class="rpDate"><strong>${dt.getDate()}</strong><small>${new Intl.DateTimeFormat('en-GB', { weekday: 'short' }).format(dt)}</small></span><span class="rpWho"><strong>${present} of ${assigned || x.records} present</strong><small>${esc(sub)}</small></span>${x.day === today ? '<span class="badge amber">Today</span>' : ''}${ICON.chevRight}</button>`;
+    })
+    .join('');
+  return `${top}${monthSummary(d.totals)}<h2 class="rpSection">By day</h2><div class="rpList">${days}</div>`;
+}
+function historyReport(r) {
+  const h = r.history || [];
+  if (!h.some((m) => m.total_records))
+    return emptyState(
+      ICON.chart,
+      'No history yet',
+      'Monthly reports show here after the first month of attendance. You can see this month on the Month tab.',
+      '<button class="secondary rpCta" data-rtab="month">Open this month</button>',
+    );
+  const current = todayISO().slice(0, 7);
+  const rows = h
+    .map((m) => {
+      const p = progress(m.completed, m.total_records);
+      const label = fmtMonth(new Date(m.month + '-01T00:00:00'));
+      return `<div class="rpMonth"><span class="rpWho"><span class="rpMonthTitle"><strong>${label}</strong>${m.month === current ? '<span class="badge amber">In progress</span>' : ''}</span>${p.bar}<small>${fmtCount(m.completed)} of ${fmtCount(m.total_records)} records completed</small></span><button class="rpIconBtn" data-export="${esc(m.month)}" aria-label="Download ${label} as Excel" ${m.total_records ? '' : 'disabled'}>${ICON.download}</button></div>`;
+    })
+    .join('');
+  return `<div class="rpListHead"><strong class="rpListTitle">Last 6 months</strong><span>${state.user?.role === 'admin' ? 'All locations' : 'Your locations'}</span></div><div class="rpList">${rows}</div><p class="rpHint center">Each download is one Excel file for the whole month.</p>`;
+}
+function locationSheet(r) {
+  const isDay = r.tab === 'day';
+  const current = isDay ? r.dayLocation : r.monthLocation;
+  const options = (isDay ? [] : [{ id: '', name: 'All locations', area: plural(state.locations.length, 'location') }])
+    .concat(state.locations)
+    .map((l) => {
+      const on = l.id === current;
+      const meta = l.id
+        ? [locCity(l.name), l.area, plural(l.assigned_count, 'guard')].filter(Boolean).join(' · ')
+        : l.area;
+      return `<button role="radio" aria-checked="${on}" class="rpOption ${on ? 'active' : ''}" data-rloc="${esc(l.id)}"><span><strong>${esc(l.id ? shortLoc(l.name) : l.name)}</strong><small>${esc(meta)}</small></span>${on ? ICON.check : ''}</button>`;
+    })
+    .join('');
+  return `<div class="rpScrim" data-rsheet-close></div><div class="rpSheet" role="dialog" aria-modal="true" aria-labelledby="rpSheetTitle"><span class="rpHandle" aria-hidden="true"></span><div class="rpSheetHead"><h2 id="rpSheetTitle">Choose location</h2><button class="rpClose" data-rsheet-close aria-label="Close">${ICON.close}</button></div>${state.user?.role !== 'admin' ? '<p>You see only the locations assigned to you.</p>' : ''}<div role="radiogroup" aria-label="Location">${options}</div></div>`;
+}
+function reports() {
+  const r = state.report || (state.report = reportDefaults());
+  if (r.tab === 'month' && r.detail) return `<div class="page rp">${reportDetail(r)}</div>${nav()}${message()}`;
+  const hasData = r.tab === 'day' ? r.day?.rows?.length : r.summary?.totals?.records;
+  const canExport = !r.loading && !r.error && hasData;
+  const tabs = [
+    ['day', 'Day'],
+    ['month', 'Month'],
+    ['history', 'History'],
+  ]
+    .map(
+      ([k, l]) =>
+        `<button class="rpTab ${r.tab === k ? 'active' : ''}" data-rtab="${k}" ${r.tab === k ? 'aria-current="page"' : ''}>${l}</button>`,
+    )
+    .join('');
+  const exportButton =
+    r.tab === 'history'
+      ? ''
+      : `<button class="rpExport" id="reportExport" ${canExport ? '' : 'disabled'}>${ICON.download}Excel</button>`;
+  const body = r.loading
+    ? reportSkeleton(r)
+    : r.error
+      ? reportError(r)
+      : r.tab === 'day'
+        ? dayReport(r)
+        : r.tab === 'month'
+          ? monthReport(r)
+          : historyReport(r);
+  return `<div class="page rp">${header()}<div class="rpTitle"><h1>Reports</h1>${exportButton}</div><nav class="rpTabs" aria-label="Report type">${tabs}</nav>${r.tab === 'history' ? '' : reportFilters(r)}${body}</div>${r.sheet ? locationSheet(r) : ''}${nav()}${message()}`;
 }
 function settings() {
   const d = state.settings;
@@ -332,7 +545,7 @@ async function render() {
     else if (state.screen === 'dashboard' || state.screen === 'home') html = await dashboard();
     else if (state.screen === 'menu') html = menu();
     else if (state.screen === 'employees') html = employees();
-    else if (state.screen === 'reports') html = await reports();
+    else if (state.screen === 'reports') html = reports();
     else if (state.screen === 'settings') html = settings();
     else html = locations();
   } catch (e) {
@@ -446,11 +659,6 @@ function bind() {
   const lo = document.getElementById('logout');
   if (lo) lo.onclick = logout;
   document.querySelectorAll('[data-export]').forEach((b) => (b.onclick = () => exportMonth(b.dataset.export)));
-  const exportFiltered = document.querySelector('#exportFilteredReport');
-  if (exportFiltered)
-    exportFiltered.onclick = () =>
-      exportReport(state.reportMonth, state.reportMode === 'daily' ? state.reportDate : '', state.reportLocation);
-  document.querySelectorAll('[data-report]').forEach((b) => (b.onclick = () => openReport(b.dataset.report)));
   document.querySelectorAll('[data-emp]').forEach(
     (b) =>
       (b.onclick = () => {
@@ -462,8 +670,6 @@ function bind() {
         else document.getElementById('importFile')?.click();
       }),
   );
-  const rf = document.getElementById('reportFilters');
-  if (rf) rf.onsubmit = applyReportFilters;
   document.querySelectorAll('[data-settings]').forEach((b) => (b.onclick = () => openSettings(b.dataset.settings)));
   const pf = document.getElementById('profileForm');
   if (pf) pf.onsubmit = saveProfile;
@@ -481,6 +687,7 @@ function bind() {
   if (ef) ef.onsubmit = createEmployee;
   const acf = document.getElementById('accessForm');
   if (acf) acf.onsubmit = createAccess;
+  bindReports();
 }
 // In-app history: hash changes (#attendance, #reports, ...) are kept in sync with
 // an internal stack so the hardware/browser Back button walks back screen by screen
@@ -542,6 +749,10 @@ function go(screen, opts = {}) {
     loadEmployees();
     return;
   }
+  if (screen === 'reports') {
+    loadReport();
+    return;
+  }
   render();
 }
 window.addEventListener('popstate', (event) => {
@@ -594,7 +805,7 @@ async function bootstrap() {
   state.location = state.locations.some((l) => l.id === state.location?.id) ? state.location : state.locations[0];
   state.showLocationForm = !state.locations.length && state.user?.role === 'admin';
   state.dashboard = null;
-  state.history = [];
+  state.report = null;
 }
 let attendanceGeneration = 0;
 // Attendance data: today's records and the check-in/out actions.
@@ -692,51 +903,157 @@ async function createEmployee(e) {
     render();
   }
 }
-// Reports: month summaries, daily/location reports and their filters.
-async function openReport(kind) {
-  const month = todayISO().slice(0, 7);
-  if (kind === 'export') {
-    exportMonth(month);
-    return;
-  }
-  state.reportMode = kind;
-  state.reportDate = todayISO();
-  state.reportMonth = month;
-  state.reportLocation = kind === 'daily' ? state.location?.id || state.locations[0]?.id || '' : '';
-  await loadReport();
-}
+// Reports: data loading for the open tab, plus the Excel export of what is on screen.
 async function loadReport() {
+  const r = state.report || (state.report = reportDefaults());
+  const seq = ++r.seq;
+  r.loading = true;
+  r.error = '';
+  render();
   try {
-    const q = new URLSearchParams({ month: state.reportMonth });
-    if (state.reportMode === 'daily') q.set('day', state.reportDate);
-    if (state.reportLocation) q.set('location_id', state.reportLocation);
-    const r = await api('/api/reports/monthly?' + q);
-    state.monthly = {
-      title:
-        state.reportMode === 'daily'
-          ? 'Daily report · ' + fmtDate(new Date(state.reportDate + 'T00:00:00'))
-          : 'Location report · ' + fmtMonth(new Date(state.reportMonth + '-01')),
-      rows: r.rows,
-    };
-    render();
+    let data = null;
+    if (r.tab === 'day') {
+      if (r.dayLocation)
+        data = await api(
+          '/api/reports/monthly?' +
+            new URLSearchParams({ month: r.date.slice(0, 7), day: r.date, location_id: r.dayLocation }),
+        );
+    } else if (r.tab === 'month') {
+      const q = new URLSearchParams({ month: r.month });
+      const loc = r.detail || r.monthLocation;
+      if (loc) q.set('location_id', loc);
+      data = await api('/api/reports/summary?' + q);
+    } else data = await api('/api/reports/months?months=6');
+    if (seq !== r.seq || state.report !== r) return;
+    if (r.tab === 'day') r.day = data || { rows: [] };
+    else if (r.tab === 'month' && r.detail) r.detailData = data;
+    else if (r.tab === 'month') r.summary = data;
+    else r.history = data;
+    r.loadedAt = fmtTime(new Date().toISOString());
   } catch (e) {
-    state.error = e.message;
+    if (seq !== r.seq || state.report !== r) return;
+    r.error = e.message;
+  }
+  r.loading = false;
+  render();
+}
+function exportCurrentReport() {
+  const r = state.report;
+  if (!r) return;
+  if (r.tab === 'day') return exportReport(r.date.slice(0, 7), r.date, r.dayLocation);
+  return exportReport(r.month, '', r.detail || r.monthLocation);
+}
+function bindReports() {
+  const r = state.report;
+  if (!r || state.screen !== 'reports') return;
+  document.querySelectorAll('[data-rtab]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        if (r.tab === b.dataset.rtab && !r.detail) return;
+        r.tab = b.dataset.rtab;
+        r.detail = '';
+        r.sheet = false;
+        loadReport();
+      }),
+  );
+  document.querySelectorAll('[data-rstatus]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        r.status = b.dataset.rstatus;
+        render();
+      }),
+  );
+  const periodButton = document.getElementById('reportPeriodBtn');
+  const periodInput = document.getElementById('reportPeriod');
+  if (periodButton && periodInput) {
+    periodButton.onclick = () => {
+      try {
+        periodInput.showPicker();
+      } catch {
+        periodInput.focus();
+        periodInput.click();
+      }
+    };
+    periodInput.onchange = () => {
+      if (!periodInput.value) return;
+      if (r.tab === 'day') {
+        r.date = periodInput.value;
+        r.status = 'all';
+      } else r.month = periodInput.value;
+      loadReport();
+    };
+  }
+  const locationButton = document.getElementById('reportLocation');
+  if (locationButton)
+    locationButton.onclick = () => {
+      r.sheet = true;
+      render();
+    };
+  document.querySelectorAll('[data-rsheet-close]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        r.sheet = false;
+        render();
+      }),
+  );
+  document.querySelectorAll('[data-rloc]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        r.sheet = false;
+        if (r.tab === 'day') {
+          r.dayLocation = b.dataset.rloc;
+          r.status = 'all';
+        } else r.monthLocation = b.dataset.rloc;
+        loadReport();
+      }),
+  );
+  if (r.sheet) document.querySelector('.rpSheet .rpOption.active, .rpSheet .rpOption')?.focus();
+  document.querySelectorAll('[data-rdetail]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        r.detail = b.dataset.rdetail;
+        r.detailData = null;
+        loadReport();
+      }),
+  );
+  document.querySelectorAll('[data-rback]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        r.detail = '';
+        if (r.summary) render();
+        else loadReport();
+      }),
+  );
+  document.querySelectorAll('[data-rday]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        r.tab = 'day';
+        r.dayLocation = r.detail;
+        r.detail = '';
+        r.date = b.dataset.rday;
+        r.status = 'all';
+        loadReport();
+      }),
+  );
+  document.querySelectorAll('[data-rtoday]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        const today = todayISO();
+        if (r.tab === 'day') r.date = today;
+        else r.month = today.slice(0, 7);
+        loadReport();
+      }),
+  );
+  document.querySelectorAll('[data-rretry]').forEach((b) => (b.onclick = () => loadReport()));
+  const exportButton = document.getElementById('reportExport');
+  if (exportButton) exportButton.onclick = exportCurrentReport;
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && state.screen === 'reports' && state.report?.sheet) {
+    state.report.sheet = false;
     render();
   }
-}
-async function applyReportFilters(e) {
-  e.preventDefault();
-  const f = new FormData(e.target);
-  if (state.reportMode === 'daily') {
-    state.reportDate = f.get('period');
-    state.reportMonth = String(f.get('period')).slice(0, 7);
-  } else {
-    state.reportMonth = f.get('period');
-    state.reportDate = '';
-  }
-  state.reportLocation = f.get('location_id') || '';
-  await loadReport();
-}
+});
 // Settings screens: profile, locations, and supervisor access.
 async function openSettings(kind) {
   try {
@@ -878,7 +1195,7 @@ async function exportReport(month, day = '', location = '') {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast('Excel downloaded');
+    toast('Excel file is ready · ' + a.download);
   } catch (e) {
     state.error = e.message;
     render();
@@ -956,6 +1273,7 @@ async function logout() {
   localStorage.removeItem('gf_user');
   state.token = '';
   state.user = null;
+  state.report = null;
   state.screen = 'login';
   history.replaceState({ gfScreen: 'login' }, '', '#login');
   render();

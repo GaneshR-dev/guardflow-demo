@@ -207,6 +207,31 @@ def test_employee_level_reports_filters_and_scope():
     assert supervisor_months["total_records"] < admin_months["total_records"]
 
 
+def test_month_summary_totals_scope_and_location_days():
+    month = local_today().isoformat()[:7]
+    admin = client.get(f"/api/reports/summary?month={month}", headers=auth()).json()
+    history = client.get("/api/reports/months?months=1", headers=auth()).json()[0]
+    # Totals cover the whole month: no row limit, and they match the month history.
+    assert admin["totals"]["records"] == history["total_records"]
+    assert admin["totals"]["completed"] == history["completed"]
+    assert len(admin["locations"]) == 3
+    assert sum(loc["records"] for loc in admin["locations"]) == admin["totals"]["records"]
+    assert admin["days"] == []
+    assert admin["totals"]["avg_hours"] and admin["totals"]["avg_hours"] > 0
+
+    supervisor = auth("supervisor.demo")
+    scoped = client.get(f"/api/reports/summary?month={month}", headers=supervisor).json()
+    assert {loc["id"] for loc in scoped["locations"]} == {"loc-hsr", "loc-whitefield"}
+    assert scoped["totals"]["records"] < admin["totals"]["records"]
+    assert client.get(f"/api/reports/summary?month={month}&location_id=loc-mysuru", headers=supervisor).status_code == 403
+
+    detail = client.get(f"/api/reports/summary?month={month}&location_id=loc-hsr", headers=supervisor).json()
+    assert [loc["id"] for loc in detail["locations"]] == ["loc-hsr"]
+    assert detail["days"] and detail["days"][0]["day"] >= detail["days"][-1]["day"]
+    assert sum(d["records"] for d in detail["days"]) == detail["totals"]["records"]
+    assert client.get("/api/reports/summary?month=2026-1", headers=supervisor).status_code == 422
+
+
 def test_settings_backed_flows_and_permissions():
     supervisor = auth("supervisor.demo")
     settings = client.get("/api/settings", headers=supervisor).json()
