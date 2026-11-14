@@ -416,6 +416,42 @@ button {
 .person.disabledRow small {
   color: var(--muted);
 }
+/* Settings > User access: each account is a card - identity row on top, actions in a
+   deliberate row below it (nothing squeezed beside wrapped text). */
+.person.accessCard {
+  flex-direction: column;
+  align-items: stretch;
+}
+.accessTop {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+.accessTop .accessInfo {
+  flex: 1;
+  min-width: 0;
+}
+.accessActions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.accessActions .link {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.accessEdit {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
 .selectBtn {
   margin-left: auto;
   border: 0;
