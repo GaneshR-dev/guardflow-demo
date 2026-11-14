@@ -276,7 +276,9 @@ def test_location_creation_prompts_for_supervisor(entry, selection, tmp_path):
             page.locator("[data-locaction=add]").click()
         else:
             page.locator("[data-nav=settings]").click()
-            page.locator("[data-settings=locations]").click()
+            page.locator("[data-go=locations]").click()
+            page.wait_for_selector("[data-locaction=add]")
+            page.locator("[data-locaction=add]").click()
         form = page.locator("#locationForm")
         form.locator("[name=name]").fill("New Branch")
         form.locator("[name=area]").fill("New Area")
@@ -353,10 +355,14 @@ def test_location_supervisor_list_empty_or_unavailable(mode, tmp_path):
             assert page.locator("#locationSupervisor option").count() == 2
             assert page.locator("#locationSupervisor").input_value() == ""
         else:
-            page.wait_for_selector(".error")
-            assert "Service unavailable" in page.locator(".error").inner_text()
-            assert page.locator("#locationSupervisor").is_disabled()
-            assert page.locator("#locationForm button.secondary").is_disabled()
+            # Settings load failures now use the shared retry screen, not a partial form.
+            page.wait_for_selector("[data-screen-retry]")
+            assert "Could not load" in page.inner_text("body")
+            assert page.locator("#locationForm").count() == 0
+            page.screenshot(path=str(tmp_path / "unavailable-assignment.png"))
+            assert posts == []
+            browser.close()
+            return
         page.locator("#locationForm").scroll_into_view_if_needed()
         page.screenshot(path=str(tmp_path / (mode + "-assignment.png")))
         assert posts == []
