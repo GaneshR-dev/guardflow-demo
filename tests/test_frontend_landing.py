@@ -36,12 +36,18 @@ def serve_frontend_only(route):
 def test_login_session_restore_and_location_navigation(role, tmp_path):
     user = {"id": role + ".demo", "name": role.title(), "role": role}
     locations = [
-        {"id": "loc-test", "name": "Test Branch", "area": "Test Area", "assigned_count": 0},
-        {"id": "loc-second", "name": "Second Branch", "area": "Other Area", "assigned_count": 0},
+        {"id": "loc-test", "name": "Test Branch", "area": "Test Area", "assigned_count": 0, "active": 1},
+        {"id": "loc-second", "name": "Second Branch", "area": "Other Area", "assigned_count": 0, "active": 1},
     ]
     if role == "admin":
         locations.append(
-            {"id": "loc-admin-only", "name": "Admin Only Branch", "area": "Restricted Area", "assigned_count": 0}
+            {
+                "id": "loc-admin-only",
+                "name": "Admin Only Branch",
+                "area": "Restricted Area",
+                "assigned_count": 0,
+                "active": 1,
+            }
         )
     attendance_calls = []
     checkin_calls = []
@@ -228,7 +234,9 @@ def test_login_error_feedback(failure, expected, tmp_path):
 )
 def test_location_creation_prompts_for_supervisor(entry, selection, tmp_path):
     user = {"id": "admin.demo", "name": "Admin Demo", "role": "admin"}
-    locations = [{"id": "loc-old", "name": "Existing Branch", "area": "Existing Area", "assigned_count": 0}]
+    locations = [
+        {"id": "loc-old", "name": "Existing Branch", "area": "Existing Area", "assigned_count": 0, "active": 1}
+    ]
     access = [
         user,
         {"id": "supervisor.demo", "name": "Supervisor Demo", "role": "supervisor", "location_ids": []},
@@ -372,7 +380,9 @@ def test_excel_report_download_keeps_selected_filters(tmp_path):
             )
         body = {
             "/api/login": {"token": "test-token", "user": {"id": "test", "name": "Test", "role": "supervisor"}},
-            "/api/locations": [{"id": "loc-test", "name": "Test Site", "area": "Test Area", "assigned_count": 0}],
+            "/api/locations": [
+                {"id": "loc-test", "name": "Test Site", "area": "Test Area", "assigned_count": 0, "active": 1}
+            ],
             "/api/attendance": {"rows": [], "summary": {}},
             "/api/reports/months": [{"month": "2026-11", "total_records": 1, "completed": 1}],
             "/api/reports/summary": {
