@@ -298,7 +298,7 @@ function locations() {
             '',
           )}<input type="file" id="importLocationFile" accept=".csv,text/csv" style="display:none">${state.showLocationForm ? `<div class="card addCard"><strong>Add location</strong><p>Create a branch supervisors can record attendance for.</p><form id="locationForm"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Area</label><input name="area" required></div>${shiftFields()}${locationSupervisorField()}<button class="secondary" ${!Array.isArray(state.settings?.access) ? 'disabled' : ''}>Save location</button></form></div>` : ''}`
       : '';
-  return `<div class="page">${header()}<h1>Locations</h1><p class="sub">${state.user?.role === 'admin' ? 'Select, add or import the branch where you are recording attendance. Tap a branch for its shift and employees.' : 'View your assigned branches, their shifts and employees.'}</p>${tools}<input class="search" id="locSearch" placeholder="Search locations" value="${esc(state.locationQuery)}"><div id="locationList">${shown.map((l) => `<button class="locationCard ${state.location?.id === l.id ? 'active' : ''}" data-loc="${esc(l.id)}"><span class="locIcon">✥</span><span><strong>${esc(l.name)}</strong><span>${esc(l.area)} · ${plural(l.assigned_count, 'employee')} · ${esc(shiftLabel(l))}</span></span><span class="chev">›</span></button>`).join('') || `<p class="muted small">${empty}</p>`}</div><button class="primary" id="continueLoc" ${state.location ? '' : 'disabled'}>Continue</button><p class="helper">You can switch locations later</p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Locations</h1><p class="sub">${state.user?.role === 'admin' ? 'Select, add or import the branch where you are recording attendance. Tap a branch for its shift and employees.' : 'View your assigned branches, their shifts and employees.'}</p>${tools}<input class="search" id="locSearch" placeholder="Search locations" value="${esc(state.locationQuery)}"><div id="locationList">${shown.map((l) => `<button class="locationCard ${state.location?.id === l.id ? 'active' : ''} ${l.active ? '' : 'disabledCard'}" data-loc="${esc(l.id)}"><span class="locIcon">✥</span><span><strong>${esc(l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><span>${esc(l.area)} · ${plural(l.assigned_count, 'employee')} · ${esc(shiftLabel(l))}</span></span><span class="chev">›</span></button>`).join('') || `<p class="muted small">${empty}</p>`}</div><button class="primary" id="continueLoc" ${state.location ? '' : 'disabled'}>Continue</button><p class="helper">You can switch locations later</p></div>${nav()}${message()}`;
 }
 // Location detail: shift timing and assigned employees, visible to admins and supervisors.
 function locationDetail() {
@@ -307,15 +307,22 @@ function locationDetail() {
   const l = d.location;
   const isAdmin = state.user?.role === 'admin';
   const emps = d.employees;
-  return `<div class="page">${header()}<h1>${esc(l.name)}</h1><p class="sub">${esc(l.area)} · ${plural(l.assigned_count, 'employee')}</p><div class="card"><div class="detailRow"><span>Shift timing</span><strong>${esc(shiftLabel(l))}</strong></div></div><h2 class="sectionTitle">Employees at this location</h2>${
+  const empButton = (e) =>
+    !isAdmin || !l.active
+      ? ''
+      : e.active
+        ? `<button class="outlineBtn dangerText" data-del-emp="${esc(e.id)}" data-name="${esc(e.name)}">Disable</button>`
+        : `<button class="outlineBtn" data-en-emp="${esc(e.id)}" data-name="${esc(e.name)}">Enable</button>`;
+  return `<div class="page">${header()}<h1>${esc(l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</h1><p class="sub">${esc(l.area)} · ${plural(l.assigned_count, 'employee')}${l.active ? '' : ' · Disabled locations keep their history. New attendance is off.'}</p><div class="card"><div class="detailRow"><span>Shift timing</span><strong>${esc(shiftLabel(l))}</strong></div></div><h2 class="sectionTitle">Employees at this location</h2>${
     emps === null
       ? '<p class="muted small">Loading employees…</p>'
-      : emps.map((e) => `<div class="person"><span class="initials">${esc(initials(e.name))}</span><span><strong>${esc(e.name)}</strong><small>${esc(e.id)} · ${esc(e.role)}</small></span>${isAdmin ? `<button class="outlineBtn dangerText" data-del-emp="${esc(e.id)}" data-name="${esc(e.name)}">Remove</button>` : ''}</div>`).join('') || '<p class="muted small">No employees assigned yet.</p>'
-  }<button class="primary" data-use-loc="${esc(l.id)}">Mark attendance here</button>${isAdmin ? `<button class="secondary dangerText" style="margin-top:10px" data-del-loc="${esc(l.id)}" data-name="${esc(l.name)}">Remove location</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="locations">Back to locations</button></p></div>${nav()}${message()}`;
+      : emps.map((e) => `<div class="person ${e.active && l.active ? '' : 'disabledRow'}"><span class="initials">${esc(initials(e.name))}</span><span><strong>${esc(e.name)} ${e.active && l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${esc(e.id)} · ${esc(e.role)}</small></span>${empButton(e)}</div>`).join('') || '<p class="muted small">No employees assigned yet.</p>'
+  }${l.active ? `<button class="primary" data-use-loc="${esc(l.id)}">Mark attendance here</button>` : '<p class="helper">Enable this location to mark attendance here again.</p>'}${isAdmin ? (l.active ? `<button class="secondary dangerText" style="margin-top:10px" data-del-loc="${esc(l.id)}" data-name="${esc(l.name)}">Disable location</button>` : `<button class="secondary" style="margin-top:10px" data-en-loc="${esc(l.id)}" data-name="${esc(l.name)}">Enable location</button>`) : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="locations">Back to locations</button></p></div>${nav()}${message()}`;
 }
 function attendanceLocationPicker() {
-  return state.locations.length > 1
-    ? `<div class="field"><label for="attendanceLocation">Attendance location</label><select id="attendanceLocation">${state.locations.map((l) => `<option value="${esc(l.id)}" ${state.location?.id === l.id ? 'selected' : ''}>${esc(l.name)} · ${esc(l.area)}</option>`).join('')}</select></div>`
+  const usable = state.locations.filter((l) => l.active);
+  return usable.length > 1
+    ? `<div class="field"><label for="attendanceLocation">Attendance location</label><select id="attendanceLocation">${usable.map((l) => `<option value="${esc(l.id)}" ${state.location?.id === l.id ? 'selected' : ''}>${esc(l.name)} · ${esc(l.area)}</option>`).join('')}</select></div>`
     : '';
 }
 function attendance() {
@@ -352,7 +359,7 @@ function checkout() {
 async function dashboard() {
   if (!state.dashboard) state.dashboard = await api('/api/dashboard');
   const d = state.dashboard;
-  return `<div class="page">${header()}<h1>Attendance overview</h1><p class="sub">Today's summary across all assigned locations.</p><div class="grid2"><div class="dashStat"><strong>${d.employees}</strong><span>Employees</span></div><div class="dashStat"><strong style="color:var(--green)">${d.checked_in}</strong><span>Checked in</span></div><div class="dashStat"><strong>${d.completed}</strong><span>Completed</span></div><div class="dashStat"><strong style="color:var(--amber)">${d.not_checked_in}</strong><span>Not checked in</span></div></div><h2 class="sectionTitle">Location breakdown</h2>${d.locations.map((l) => `<div class="card listCard"><span><strong>${esc(l.name.split(' - ')[1] || l.name)}</strong><small>${plural(l.assigned_count, 'employee')}</small></span><span style="text-align:right"><span class="badge green">${l.today.checked_in} checked in</span><small>${l.today.completed} completed</small></span></div>`).join('')}<h2 class="sectionTitle">Quick actions</h2><button class="primary" data-go="reports">View attendance report</button></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Attendance overview</h1><p class="sub">Today's summary across all assigned locations.</p><div class="grid2"><div class="dashStat"><strong>${d.employees}</strong><span>Employees</span></div><div class="dashStat"><strong style="color:var(--green)">${d.checked_in}</strong><span>Checked in</span></div><div class="dashStat"><strong>${d.completed}</strong><span>Completed</span></div><div class="dashStat"><strong style="color:var(--amber)">${d.not_checked_in}</strong><span>Not checked in</span></div></div><h2 class="sectionTitle">Location breakdown</h2>${d.locations.map((l) => `<div class="card listCard ${l.active ? '' : 'disabledCard'}"><span><strong>${esc(l.name.split(' - ')[1] || l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${plural(l.assigned_count, 'employee')}</small></span><span style="text-align:right"><span class="badge green">${l.today.checked_in} checked in</span><small>${l.today.completed} completed</small></span></div>`).join('')}<h2 class="sectionTitle">Quick actions</h2><button class="primary" data-go="reports">View attendance report</button></div>${nav()}${message()}`;
 }
 function menu() {
   return `<div class="navPanel">${header()}<h1>Navigation</h1><p class="sub">${esc(state.user?.name || '')} · ${esc(state.location?.name.split(' - ')[1] || 'All locations')}</p>${[
@@ -377,6 +384,21 @@ function employees() {
       (e.name + ' ' + e.id + ' ' + e.role).toLowerCase().includes(state.employeeQuery.toLowerCase()),
   );
   const locationName = (id) => (id ? state.locations.find((l) => l.id === id)?.name || id : 'No location yet');
+  // A disabled location makes its employees effectively disabled: greyed, no new attendance.
+  const locationActive = (id) => {
+    const loc = id ? state.locations.find((l) => l.id === id) : null;
+    return loc ? !!loc.active : true;
+  };
+  const empRow = (e) => {
+    const enabled = e.active && locationActive(e.location_id);
+    const action =
+      state.user?.role !== 'admin' || !locationActive(e.location_id)
+        ? ''
+        : e.active
+          ? `<button class="outlineBtn dangerText" data-del-emp="${esc(e.id)}" data-name="${esc(e.name)}">Disable</button>`
+          : `<button class="outlineBtn" data-en-emp="${esc(e.id)}" data-name="${esc(e.name)}">Enable</button>`;
+    return `<div class="person ${enabled ? '' : 'disabledRow'}"><span class="initials">${esc(initials(e.name))}</span><span><strong>${esc(e.name)} ${enabled ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${esc(e.id)} · ${esc(e.role)} · ${esc(locationName(e.location_id))}</small></span>${action}</div>`;
+  };
   const form =
     state.user?.role === 'admin' && state.showEmployeeForm
       ? `<div class="card addCard"><strong>Add employee</strong><p>Create an employee record. Location is optional and can be assigned later.</p><form id="employeeForm"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><div class="field"><label>Location (optional)</label><select name="location_id"><option value="" selected>Assign location later</option>${state.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div><button class="secondary">Save employee</button></form></div>`
@@ -396,7 +418,7 @@ function employees() {
     )
     .join(
       '',
-    )}${state.user?.role === 'admin' ? '<input type="file" id="importFile" accept=".csv,text/csv" style="display:none">' : ''}${form}<input class="search" id="empSearch" placeholder="Search name, role or employee ID" value="${esc(state.employeeQuery)}"><div id="directoryList">${shown.map((e) => `<div class="person"><span class="initials">${esc(initials(e.name))}</span><span><strong>${esc(e.name)}</strong><small>${esc(e.id)} · ${esc(e.role)} · ${esc(locationName(e.location_id))}</small></span>${state.user?.role === 'admin' ? `<button class="outlineBtn dangerText" data-del-emp="${esc(e.id)}" data-name="${esc(e.name)}">Remove</button>` : ''}</div>`).join('') || '<p class="muted small">No employees match.</p>'}</div></div>${nav()}${message()}`;
+    )}${state.user?.role === 'admin' ? '<input type="file" id="importFile" accept=".csv,text/csv" style="display:none">' : ''}${form}<input class="search" id="empSearch" placeholder="Search name, role or employee ID" value="${esc(state.employeeQuery)}"><div id="directoryList">${shown.map(empRow).join('') || '<p class="muted small">No employees match.</p>'}</div></div>${nav()}${message()}`;
 }
 // Reports screen: Day / Month / History tabs. Everything it shows comes from
 // state.report; loadReport() fetches the data for the open tab.
@@ -649,7 +671,9 @@ function locationSheet(r) {
     .map((l) => {
       const on = l.id === current;
       const meta = l.id
-        ? [locCity(l.name), l.area, plural(l.assigned_count, 'guard')].filter(Boolean).join(' · ')
+        ? [locCity(l.name), l.area, plural(l.assigned_count, 'guard'), l.active ? '' : 'Disabled']
+            .filter(Boolean)
+            .join(' · ')
         : l.area;
       return `<button role="radio" aria-checked="${on}" class="rpOption ${on ? 'active' : ''}" data-rloc="${esc(l.id)}"><span><strong>${esc(l.id ? shortLoc(l.name) : l.name)}</strong><small>${esc(meta)}</small></span>${on ? ICON.check : ''}</button>`;
     })
@@ -693,7 +717,7 @@ function settings() {
   if (d && state.settingsView === 'profile')
     panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">My profile</h2><form id="profileForm"><div class="field"><label>Name</label><input name="name" value="${esc(d.profile.name)}" required></div><div class="field"><label>User ID</label><input value="${esc(d.profile.id)}" disabled></div><button class="secondary">Save profile</button></form></div>`;
   if (d && state.settingsView === 'locations')
-    panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">Locations</h2>${d.locations.map((l) => `<div class="person"><span><strong>${esc(l.name)}</strong><small>${esc(l.area)} · ${plural(l.assigned_count, 'employee')} · ${esc(shiftLabel(l))}</small></span></div>`).join('') || '<p class="muted small">No locations yet. Add the first branch below.</p>'}${state.user.role === 'admin' ? `<form id="locationForm" style="margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Area</label><input name="area" required></div>${shiftFields()}${locationSupervisorField()}<button class="secondary" ${!Array.isArray(state.settings?.access) ? 'disabled' : ''}>Add location</button></form>` : '<p class="muted small">Supervisors can view assigned locations. Admins manage branches.</p>'}</div>`;
+    panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">Locations</h2>${d.locations.map((l) => `<div class="person ${l.active ? '' : 'disabledRow'}"><span><strong>${esc(l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${esc(l.area)} · ${plural(l.assigned_count, 'employee')} · ${esc(shiftLabel(l))}</small></span></div>`).join('') || '<p class="muted small">No locations yet. Add the first branch below.</p>'}${state.user.role === 'admin' ? `<form id="locationForm" style="margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Area</label><input name="area" required></div>${shiftFields()}${locationSupervisorField()}<button class="secondary" ${!Array.isArray(state.settings?.access) ? 'disabled' : ''}>Add location</button></form>` : '<p class="muted small">Supervisors can view assigned locations. Admins manage branches.</p>'}</div>`;
   if (d && state.settingsView === 'access')
     panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">User access</h2>${d.access.map((u) => `<div class="person"><span><strong>${esc(u.name)}</strong><small>${esc(u.id)} · ${esc(u.role)} · ${esc(u.role === 'admin' ? 'All locations' : u.location_ids.join(', ') || 'No locations')}</small></span></div>`).join('')}${state.user.role === 'admin' ? `<form id="accessForm" style="margin-top:14px"><div class="field"><label>User ID</label><input name="id" required></div><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Temporary password (12+ characters)</label><input name="password" type="password" required></div><div class="field"><label>Locations</label><select name="location_ids" multiple size="3">${d.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div><button class="secondary">Create supervisor</button></form>` : '<p class="muted small">Only admins can create or change access.</p>'}</div>`;
   return `<div class="page">${header()}<h1>Settings</h1><p class="sub">Manage your account and app preferences.</p>${[
@@ -769,10 +793,16 @@ function bind() {
       }),
   );
   document.querySelectorAll('[data-del-emp]').forEach(
-    (b) => (b.onclick = () => askRemoveEmployee(b.dataset.delEmp, b.dataset.name)),
+    (b) => (b.onclick = () => askDisableEmployee(b.dataset.delEmp, b.dataset.name)),
+  );
+  document.querySelectorAll('[data-en-emp]').forEach(
+    (b) => (b.onclick = () => setEmployeeActive(b.dataset.enEmp, true)),
   );
   document.querySelectorAll('[data-del-loc]').forEach(
-    (b) => (b.onclick = () => askRemoveLocation(b.dataset.delLoc, b.dataset.name)),
+    (b) => (b.onclick = () => askDisableLocation(b.dataset.delLoc, b.dataset.name)),
+  );
+  document.querySelectorAll('[data-en-loc]').forEach(
+    (b) => (b.onclick = () => setLocationActive(b.dataset.enLoc, true)),
   );
   document.querySelectorAll('[data-edittime]').forEach(
     (b) =>
@@ -1062,7 +1092,9 @@ async function doLogin(e) {
 async function bootstrap() {
   ++attendanceGeneration;
   state.locations = await api('/api/locations');
-  state.location = state.locations.some((l) => l.id === state.location?.id) ? state.location : state.locations[0];
+  // Attendance runs only on active locations; disabled ones stay visible elsewhere, greyed out.
+  const usable = state.locations.filter((l) => l.active);
+  state.location = usable.some((l) => l.id === state.location?.id) ? state.location : usable[0] || null;
   state.showLocationForm = !state.locations.length && state.user?.role === 'admin';
   state.dashboard = null;
   state.report = null;
@@ -1472,63 +1504,71 @@ async function saveTimeEdit(e) {
   }
 }
 // Admin removals. Records are retired, never erased, so attendance history is kept.
-function askRemoveEmployee(id, name) {
+function askDisableEmployee(id, name) {
   state.confirm = {
-    title: 'Remove ' + (name || id) + '?',
+    title: 'Disable ' + (name || id) + '?',
     lines: [
       { label: 'Employee', value: id },
-      { label: 'Note', value: 'Their attendance history is kept.' },
+      { label: 'Note', value: 'They stay in the list, greyed out. New attendance stops. History is kept.' },
     ],
-    okLabel: 'Remove employee',
+    okLabel: 'Disable employee',
     danger: true,
-    onOk: async () => {
-      try {
-        await api('/api/employees/' + encodeURIComponent(id), { method: 'DELETE' });
-        state.locations = await api('/api/locations');
-        state.dashboard = null;
-        if (state.detail?.location) {
-          state.detail = {
-            location: state.detail.location,
-            employees: await api('/api/employees?location_id=' + encodeURIComponent(state.detail.location.id)),
-          };
-        }
-        await loadEmployees(false);
-        await loadAttendance();
-        toast('Employee removed');
-      } catch (err) {
-        state.error = err.message;
-      }
-      render();
-    },
+    onOk: () => setEmployeeActive(id, false),
   };
   render();
 }
-function askRemoveLocation(id, name) {
+async function setEmployeeActive(id, active) {
+  try {
+    await api('/api/employees/' + encodeURIComponent(id) + (active ? '/enable' : ''), {
+      method: active ? 'POST' : 'DELETE',
+    });
+    state.locations = await api('/api/locations');
+    state.dashboard = null;
+    if (state.detail?.location) {
+      state.detail = {
+        location:
+          state.locations.find((l) => l.id === state.detail.location.id) || state.detail.location,
+        employees: await api('/api/employees?location_id=' + encodeURIComponent(state.detail.location.id)),
+      };
+    }
+    await loadEmployees(false);
+    await loadAttendance();
+    toast(active ? 'Employee enabled' : 'Employee disabled');
+  } catch (err) {
+    state.error = err.message;
+  }
+  render();
+}
+function askDisableLocation(id, name) {
   state.confirm = {
-    title: 'Remove ' + (name || id) + '?',
+    title: 'Disable ' + (name || id) + '?',
     lines: [
       { label: 'Location', value: id },
-      { label: 'Note', value: 'Attendance history is kept. Supervisor access to it ends.' },
+      {
+        label: 'Note',
+        value: 'It stays in the list, greyed out. Supervisors keep seeing it. History is kept.',
+      },
     ],
-    okLabel: 'Remove location',
+    okLabel: 'Disable location',
     danger: true,
-    onOk: async () => {
-      try {
-        await api('/api/settings/locations/' + encodeURIComponent(id), { method: 'DELETE' });
-        state.locations = await api('/api/locations');
-        if (state.location?.id === id) state.location = state.locations[0] || null;
-        state.detail = null;
-        state.dashboard = null;
-        state.settings = await api('/api/settings');
-        go('locations');
-        toast('Location removed');
-      } catch (err) {
-        state.error = err.message;
-        render();
-      }
-    },
+    onOk: () => setLocationActive(id, false),
   };
   render();
+}
+async function setLocationActive(id, active) {
+  try {
+    await api('/api/settings/locations/' + encodeURIComponent(id) + (active ? '/enable' : ''), {
+      method: active ? 'POST' : 'DELETE',
+    });
+    await bootstrap();
+    state.detail = null;
+    state.settings = await api('/api/settings');
+    go('locations');
+    toast(active ? 'Location enabled' : 'Location disabled');
+  } catch (err) {
+    state.error = err.message;
+    render();
+  }
 }
 async function importLocations(file) {
   try {

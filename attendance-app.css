@@ -386,6 +386,36 @@ button {
   background: #e8f1ff;
   color: var(--blue);
 }
+/* Disabled records: grey badge and greyed rows/cards (they stay visible to both roles). */
+.badge.grey {
+  background: #eceff3;
+  color: #57667c;
+  font-weight: 700;
+  text-transform: none;
+}
+.locationCard .badge.grey {
+  display: inline-block;
+  width: auto;
+  margin-left: 6px;
+}
+.locationCard.disabledCard .locIcon {
+  background: #eef1f5;
+  color: var(--muted);
+}
+.locationCard.disabledCard strong {
+  color: var(--muted);
+}
+.person.disabledRow {
+  background: #f7f9fc;
+}
+.person.disabledRow .initials {
+  background: #eef1f5;
+  color: var(--muted);
+}
+.person.disabledRow strong,
+.person.disabledRow small {
+  color: var(--muted);
+}
 .selectBtn {
   margin-left: auto;
   border: 0;

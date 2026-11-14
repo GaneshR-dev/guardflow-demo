@@ -49,13 +49,21 @@ def test_location_create_with_shift_visible_to_both_roles_then_remove():
         json={"id": "loc-bad-shift", "name": "Bad Shift", "area": "Area", "shift_start": "9am"},
     )
     assert bad.status_code == 422
-    # Admin removal retires the branch from both roles' lists.
+    # Admin disable keeps the branch visible (greyed out in the app) for both roles.
     assert client.delete("/api/settings/locations/loc-shift-test", headers=headers).status_code == 200
-    assert all(loc["id"] != "loc-shift-test" for loc in client.get("/api/locations", headers=headers).json())
-    assert all(loc["id"] != "loc-shift-test" for loc in client.get("/api/locations", headers=sup).json())
-    # Second removal is a clean 404, and supervisors can never remove a location.
+    admin_row = next(
+        loc for loc in client.get("/api/locations", headers=headers).json() if loc["id"] == "loc-shift-test"
+    )
+    assert admin_row["active"] == 0
+    sup_row = next(loc for loc in client.get("/api/locations", headers=sup).json() if loc["id"] == "loc-shift-test")
+    assert sup_row["active"] == 0
+    # Re-enable restores it; a second disable after that is a clean 200 again, and
+    # disabling an already disabled branch is a 404. Supervisors can never disable.
+    assert client.post("/api/settings/locations/loc-shift-test/enable", headers=headers).status_code == 200
+    assert client.delete("/api/settings/locations/loc-shift-test", headers=headers).status_code == 200
     assert client.delete("/api/settings/locations/loc-shift-test", headers=headers).status_code == 404
     assert client.delete("/api/settings/locations/loc-hsr", headers=sup).status_code == 403
+    assert client.post("/api/settings/locations/loc-shift-test/enable", headers=headers).status_code == 200
 
 
 def test_employee_location_optional_at_creation_and_admin_remove():
@@ -78,22 +86,23 @@ def test_employee_location_optional_at_creation_and_admin_remove():
     )
     assert blocked.status_code == 409
     assert "no location assigned" in blocked.json()["detail"].lower()
-    # Admin removal retires the record; a second removal is a 404.
+    # Admin disable keeps the record visible (greyed out in the app); a second disable is a 404.
     assert client.delete(f"/api/employees/{employee_id}", headers=headers).status_code == 200
-    assert all(e["id"] != employee_id for e in client.get("/api/employees", headers=headers).json())
+    disabled = next(e for e in client.get("/api/employees", headers=headers).json() if e["id"] == employee_id)
+    assert disabled["active"] == 0
     assert client.delete(f"/api/employees/{employee_id}", headers=headers).status_code == 404
-    # Supervisors can never remove employees.
+    # Supervisors can never disable employees.
     assert client.delete("/api/employees/EMP1024", headers=auth("supervisor.demo")).status_code == 403
 
 
-def test_location_removal_guard_then_removal_keeps_attendance_history():
+def test_location_disable_guard_then_disable_keeps_attendance_history():
     headers = auth()
     mysuru_emps = client.get("/api/employees?location_id=loc-mysuru", headers=headers).json()
     assert mysuru_emps, "seeded employees expected"
     today_rows = client.get("/api/attendance?location_id=loc-mysuru", headers=headers).json()["rows"]
     not_in = next((r for r in today_rows if r["status"] == "not_in"), None)
     target_id = not_in["employee_id"] if not_in else None
-    # An open check-in blocks removal with an actionable message, never a silent disappearance.
+    # An open check-in blocks disable with an actionable message, never a silent disappearance.
     if target_id:
         assert (
             client.post(
@@ -106,12 +115,11 @@ def test_location_removal_guard_then_removal_keeps_attendance_history():
     blocked = client.delete("/api/settings/locations/loc-mysuru", headers=headers)
     assert blocked.status_code == 409
     detail = blocked.json()["detail"].lower()
-    assert "reassign" in detail and "cannot remove" in detail
-    if target_id:
-        assert "check-in" in detail
+    assert "cannot disable" in detail and "check-out" in detail
     # The location and its employees are untouched while blocked.
-    assert any(loc["id"] == "loc-mysuru" for loc in client.get("/api/locations", headers=headers).json())
-    assert client.get("/api/employees?location_id=loc-mysuru", headers=headers).json(), "employees must stay put"
+    assert any(
+        loc["id"] == "loc-mysuru" and loc["active"] == 1 for loc in client.get("/api/locations", headers=headers).json()
+    )
     if target_id:
         assert (
             client.post(
@@ -124,27 +132,20 @@ def test_location_removal_guard_then_removal_keeps_attendance_history():
     month = local_today().isoformat()[:7]
     before = client.get(f"/api/reports/monthly?month={month}&location_id=loc-mysuru", headers=headers).json()
     assert before["rows"], "seeded Mysuru history expected"
-    # Assigned employees still block removal even with no open attendance.
-    blocked2 = client.delete("/api/settings/locations/loc-mysuru", headers=headers)
-    assert blocked2.status_code == 409
-    assert "employee" in blocked2.json()["detail"].lower() and "reassign" in blocked2.json()["detail"].lower()
-    # Reassign everyone to HSR through the import path, which keeps IDs and updates locations.
-    rows = [
-        {"id": e["id"], "name": e["name"], "phone": e["phone"], "role": e["role"], "location_id": "loc-hsr"}
-        for e in mysuru_emps
-    ]
-    imported = client.post("/api/employees/import", headers=headers, json={"rows": rows})
-    assert imported.status_code == 200
-    assert imported.json()["updated"] == len(rows)
-    # Now removal succeeds: the branch retires, employees stay visible at their new branch.
+    # Assigned employees do not block disable: they stay assigned and visible, greyed out.
     assert client.delete("/api/settings/locations/loc-mysuru", headers=headers).status_code == 200
-    assert client.get("/api/employees?location_id=loc-mysuru", headers=headers).json() == []
-    assert all(e["location_id"] != "loc-mysuru" for e in client.get("/api/employees", headers=headers).json())
+    stayed = client.get("/api/employees?location_id=loc-mysuru", headers=headers).json()
+    assert len(stayed) == len(mysuru_emps)
     after = client.get(f"/api/reports/monthly?month={month}&location_id=loc-mysuru", headers=headers).json()
-    assert len(after["rows"]) == len(before["rows"]), "attendance history must survive removal"
+    assert len(after["rows"]) == len(before["rows"]), "attendance history must survive disable"
     dashboard = client.get("/api/dashboard", headers=headers).json()
-    assert all(loc["id"] != "loc-mysuru" for loc in dashboard["locations"])
+    disabled_card = next(loc for loc in dashboard["locations"] if loc["id"] == "loc-mysuru")
+    assert disabled_card["active"] == 0
     assert client.delete("/api/settings/locations/loc-mysuru", headers=headers).status_code == 404
+    # Re-enable restores the branch with its employees still assigned.
+    assert client.post("/api/settings/locations/loc-mysuru/enable", headers=headers).status_code == 200
+    restored = next(loc for loc in client.get("/api/locations", headers=headers).json() if loc["id"] == "loc-mysuru")
+    assert restored["active"] == 1
 
 
 def test_admin_time_edit_converts_ist_to_utc_and_is_admin_only():
@@ -373,8 +374,8 @@ def test_supervisor_cannot_see_or_use_unassigned_employees():
     assert any(e["id"] == employee_id for e in client.get("/api/employees", headers=headers).json())
 
 
-def test_employee_removal_guard_blocks_open_checkin_and_keeps_history():
-    """Symmetric with the location guard: removal cannot strand an open check-in."""
+def test_employee_disable_guard_blocks_open_checkin_and_keeps_history():
+    """Symmetric with the location guard: disable cannot strand an open check-in."""
     headers = auth()
     sup = auth("supervisor.demo")
     today = local_today().isoformat()
@@ -390,17 +391,17 @@ def test_employee_removal_guard_blocks_open_checkin_and_keeps_history():
         ).status_code
         == 200
     )
-    # Removal is blocked with a clear check-out-first message.
+    # Disable is blocked with a clear check-out-first message.
     blocked = client.delete(f"/api/employees/{employee_id}", headers=headers)
     assert blocked.status_code == 409
     detail = blocked.json()["detail"].lower()
-    assert "check-out" in detail and "cannot remove" in detail
+    assert "check-out" in detail and "cannot disable" in detail
     # The employee, their UI row and the open record are all untouched.
     assert any(e["id"] == employee_id for e in client.get("/api/employees", headers=headers).json())
     ui_rows = client.get("/api/attendance?location_id=loc-hsr", headers=sup).json()["rows"]
     shown = next(r for r in ui_rows if r["employee_id"] == employee_id)
     assert shown["status"] == "checked_in"
-    # After checkout, removal succeeds and history/reporting are preserved.
+    # After checkout, disable succeeds and history/reporting are preserved.
     assert (
         client.post(
             "/api/attendance/checkout",
@@ -410,7 +411,10 @@ def test_employee_removal_guard_blocks_open_checkin_and_keeps_history():
         == 200
     )
     assert client.delete(f"/api/employees/{employee_id}", headers=headers).status_code == 200
-    assert all(e["id"] != employee_id for e in client.get("/api/employees", headers=headers).json())
+    disabled = next(e for e in client.get("/api/employees", headers=headers).json() if e["id"] == employee_id)
+    assert disabled["active"] == 0
     report = client.get(f"/api/reports/monthly?month={month}&location_id=loc-hsr", headers=headers).json()
     kept = next((r for r in report["rows"] if r["employee_id"] == employee_id and r["day"] == today), None)
     assert kept is not None and kept["status"] == "completed" and kept["employee_name"]
+    # Restore the seed state: re-enable the employee for the tests that follow.
+    assert client.post(f"/api/employees/{employee_id}/enable", headers=headers).status_code == 200

@@ -230,13 +230,13 @@ def location_rows(user):
     with engine.connect() as c:
         if user["role"] == "admin":
             return [
-                dict(r) for r in c.execute(text("SELECT * FROM demo_locations WHERE active=1 ORDER BY name")).mappings()
+                dict(r) for r in c.execute(text("SELECT * FROM demo_locations ORDER BY active DESC, name")).mappings()
             ]
         return [
             dict(r)
             for r in c.execute(
                 text(
-                    "SELECT l.* FROM demo_locations l JOIN demo_user_locations a ON a.location_id=l.id WHERE a.user_id=:user AND l.active=1 ORDER BY l.name"
+                    "SELECT l.* FROM demo_locations l JOIN demo_user_locations a ON a.location_id=l.id WHERE a.user_id=:user ORDER BY l.active DESC, l.name"
                 ),
                 {"user": user["id"]},
             ).mappings()
@@ -331,13 +331,9 @@ def locations(user=Depends(current_user)):
 
 @app.get("/api/employees")
 def employees(location_id: str | None = None, q: str = "", user=Depends(current_user)):
-    # Employees of removed locations and unassigned employees stay out of branch lists; the
-    # directory still shows unassigned ones so admins can place them later.
-    sql = (
-        "SELECT * FROM demo_employees WHERE active=1 "
-        "AND (location_id IS NULL OR location_id IN (SELECT id FROM demo_locations WHERE active=1)) AND "
-        + scoped_sql(user, "location_id")
-    )
+    # Disabled employees stay visible (greyed out in the app) so both roles can see them
+    # and their history. Unassigned employees stay in the directory so admins can place them.
+    sql = "SELECT * FROM demo_employees WHERE " + scoped_sql(user, "location_id")
     params = scope_params(user)
     with engine.connect() as c:
         if location_id:
@@ -345,7 +341,7 @@ def employees(location_id: str | None = None, q: str = "", user=Depends(current_
             sql += " AND location_id=:location"
             params["location"] = location_id
         sql = add_name_search(sql, params, "name", "id", q)
-        sql += " ORDER BY name"
+        sql += " ORDER BY active DESC, name"
         return [dict(r) for r in c.execute(text(sql), params).mappings()]
 
 
@@ -416,8 +412,8 @@ def add_employee(body: EmployeeBody, user=Depends(current_user)):
 
 
 @app.delete("/api/employees/{employee_id}")
-def remove_employee(employee_id: str, user=Depends(current_user)):
-    """Admin removal. The record is retired (active=0) so attendance history is kept."""
+def disable_employee(employee_id: str, user=Depends(current_user)):
+    """Admin disable. The record stays (active=0), visible greyed out, and history is kept."""
     if user["role"] != "admin":
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
@@ -438,8 +434,8 @@ def remove_employee(employee_id: str, user=Depends(current_user)):
         if open_checkins:
             raise HTTPException(
                 409,
-                "Cannot remove this employee yet: they still have an open check-in. "
-                "Record their check-out first, then remove them. Their attendance history is kept either way.",
+                "Cannot disable this employee yet: they still have an open check-in. "
+                "Record their check-out first, then disable them. Their attendance history is kept either way.",
             )
         c.execute(text("UPDATE demo_employees SET active=0 WHERE id=:id"), {"id": employee_id})
         if row["location_id"]:
@@ -449,8 +445,37 @@ def remove_employee(employee_id: str, user=Depends(current_user)):
                 ),
                 {"id": row["location_id"]},
             )
-        audit(c, user, "employee.delete", {"employee_id": employee_id, "location_id": row["location_id"]})
-    return {"id": employee_id, "status": "removed"}
+        audit(c, user, "employee.disable", {"employee_id": employee_id, "location_id": row["location_id"]})
+    return {"id": employee_id, "status": "disabled"}
+
+
+@app.post("/api/employees/{employee_id}/enable")
+def enable_employee(employee_id: str, user=Depends(current_user)):
+    """Admin re-enable of a disabled employee. Their location must be active first."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        row = (
+            c.execute(text("SELECT * FROM demo_employees WHERE id=:id AND active=0" + row_lock()), {"id": employee_id})
+            .mappings()
+            .first()
+        )
+        if not row:
+            raise HTTPException(404, "Disabled employee not found")
+        if row["location_id"]:
+            location_active = c.execute(
+                text("SELECT active FROM demo_locations WHERE id=:id"), {"id": row["location_id"]}
+            ).scalar()
+            if not location_active:
+                raise HTTPException(409, "Enable their location first, then enable this employee.")
+        c.execute(text("UPDATE demo_employees SET active=1 WHERE id=:id"), {"id": employee_id})
+        if row["location_id"]:
+            c.execute(
+                text("UPDATE demo_locations SET assigned_count=assigned_count+1 WHERE id=:id"),
+                {"id": row["location_id"]},
+            )
+        audit(c, user, "employee.enable", {"employee_id": employee_id, "location_id": row["location_id"]})
+    return {"id": employee_id, "status": "active"}
 
 
 @app.post("/api/employees/import")
@@ -519,19 +544,23 @@ def check_in(body: CheckBody, user=Depends(current_user)):
     stamp = utcnow().isoformat()
     with engine.begin() as c:
         emp = (
-            c.execute(
-                text("SELECT * FROM demo_employees WHERE id=:id AND active=1" + row_lock()), {"id": body.employee_id}
-            )
+            c.execute(text("SELECT * FROM demo_employees WHERE id=:id" + row_lock()), {"id": body.employee_id})
             .mappings()
             .first()
         )
         if not emp:
             raise HTTPException(404, "Employee not found")
+        if not emp["active"]:
+            raise HTTPException(
+                409, "This employee is disabled. An admin can enable them again in the Employees screen."
+            )
         if not emp["location_id"]:
             raise HTTPException(409, "Employee has no location assigned yet. Ask an admin to assign one.")
         if emp["location_id"] != body.location_id:
             raise HTTPException(409, "Employee is assigned to another location")
-        require_location_access(c, user, body.location_id, lock=True)
+        location = require_location_access(c, user, body.location_id, lock=True)
+        if not location["active"]:
+            raise HTTPException(409, "This location is disabled. An admin can enable it again in the Locations screen.")
         existing = (
             c.execute(
                 text("SELECT * FROM demo_attendance WHERE employee_id=:employee AND day=:day"),
@@ -665,13 +694,21 @@ def dashboard(user=Depends(current_user)):
     today = local_today().isoformat()
     scope = scoped_sql(user, "location_id")
     params = {"day": today, **scope_params(user)}
+    # Only employees of active branches count as expected today; disabled branches pause attendance.
+    on_active_branch = "(location_id IS NULL OR location_id IN (SELECT id FROM demo_locations WHERE active=1))"
     with engine.connect() as c:
         total_employees = (
-            c.execute(text("SELECT COUNT(*) FROM demo_employees WHERE active=1 AND " + scope), params).scalar() or 0
+            c.execute(
+                text("SELECT COUNT(*) FROM demo_employees WHERE active=1 AND " + on_active_branch + " AND " + scope),
+                params,
+            ).scalar()
+            or 0
         )
         employee_rows = c.execute(
             text(
                 "SELECT location_id,COUNT(*) count FROM demo_employees WHERE active=1 AND "
+                + on_active_branch
+                + " AND "
                 + scope
                 + " GROUP BY location_id"
             ),
@@ -853,7 +890,11 @@ def month_summary(
     totals = _new_bucket()
     by_location = {
         loc["id"]: _new_bucket(
-            id=loc["id"], name=loc["name"], area=loc["area"], assigned_count=loc.get("assigned_count", 0)
+            id=loc["id"],
+            name=loc["name"],
+            area=loc["area"],
+            assigned_count=loc.get("assigned_count", 0),
+            active=loc["active"],
         )
         for loc in locations
     }
@@ -1030,8 +1071,9 @@ def create_location(body: LocationBody, user=Depends(current_user)):
 
 
 @app.delete("/api/settings/locations/{location_id}")
-def remove_location(location_id: str, user=Depends(current_user)):
-    """Admin removal. The branch is retired (active=0) so attendance history is kept."""
+def disable_location(location_id: str, user=Depends(current_user)):
+    """Admin disable. The branch stays (active=0): both roles still see it, greyed out, and
+    attendance history is kept. Supervisor grants stay, so access resumes on re-enable."""
     if user["role"] != "admin":
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
@@ -1042,12 +1084,6 @@ def remove_location(location_id: str, user=Depends(current_user)):
         )
         if not row:
             raise HTTPException(404, "Location not found")
-        assigned = (
-            c.execute(
-                text("SELECT COUNT(*) FROM demo_employees WHERE location_id=:id AND active=1"), {"id": location_id}
-            ).scalar()
-            or 0
-        )
         open_checkins = (
             c.execute(
                 text("SELECT COUNT(*) FROM demo_attendance WHERE location_id=:id AND status='checked_in'"),
@@ -1055,28 +1091,34 @@ def remove_location(location_id: str, user=Depends(current_user)):
             ).scalar()
             or 0
         )
-        if assigned or open_checkins:
-            blockers = []
-            if assigned:
-                blockers.append(f"{assigned} employee(s) are still assigned here")
-            if open_checkins:
-                blockers.append(f"{open_checkins} check-in(s) are still open")
+        if open_checkins:
             raise HTTPException(
                 409,
-                "Cannot remove this branch yet: "
-                + " and ".join(blockers)
-                + ". Reassign employees to another branch (Employees > Import keeps their IDs and updates their "
-                "location) or remove them, and record the open check-outs first. Attendance history is kept either way.",
+                f"Cannot disable this branch yet: {open_checkins} check-in(s) are still open. "
+                "Record the open check-outs first. Attendance history is kept either way.",
             )
         c.execute(text("UPDATE demo_locations SET active=0 WHERE id=:id"), {"id": location_id})
-        c.execute(text("DELETE FROM demo_user_locations WHERE location_id=:id"), {"id": location_id})
-        audit(
-            c,
-            user,
-            "settings.location.delete",
-            {"location_id": location_id, "name": row["name"], "grants_removed": True},
+        audit(c, user, "settings.location.disable", {"location_id": location_id, "name": row["name"]})
+    return {"id": location_id, "status": "disabled"}
+
+
+@app.post("/api/settings/locations/{location_id}/enable")
+def enable_location(location_id: str, user=Depends(current_user)):
+    """Admin re-enable of a disabled branch. Its employees stay assigned but disabled records
+    keep their own state: an employee disabled one by one stays disabled until enabled."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        row = (
+            c.execute(text("SELECT * FROM demo_locations WHERE id=:id AND active=0" + row_lock()), {"id": location_id})
+            .mappings()
+            .first()
         )
-    return {"id": location_id, "status": "removed"}
+        if not row:
+            raise HTTPException(404, "Disabled location not found")
+        c.execute(text("UPDATE demo_locations SET active=1 WHERE id=:id"), {"id": location_id})
+        audit(c, user, "settings.location.enable", {"location_id": location_id, "name": row["name"]})
+    return {"id": location_id, "status": "active"}
 
 
 def generated_location_id(name: str) -> str:

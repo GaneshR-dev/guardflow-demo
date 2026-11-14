@@ -58,7 +58,9 @@ def test_checkout_asks_for_confirmation_with_time_and_hours(tmp_path):
         if path == "/api/attendance/checkout":
             posts.append(route.request.post_data_json)
         body = {
-            "/api/locations": [{"id": "loc-test", "name": "Test Branch", "area": "Area", "assigned_count": 1}],
+            "/api/locations": [
+                {"id": "loc-test", "name": "Test Branch", "area": "Area", "assigned_count": 1, "active": 1}
+            ],
             "/api/attendance": {"rows": [row], "summary": {"checked_in": 1, "completed": 0, "not_in": 0}},
         }.get(path, {})
         route.fulfill(content_type="application/json", body=json.dumps(body))
@@ -98,6 +100,7 @@ def test_location_detail_shows_shift_and_employees_to_both_roles(role, tmp_path)
         "name": "Test Branch",
         "area": "Test Area",
         "assigned_count": 1,
+        "active": 1,
         "shift_start": "09:00",
         "shift_end": "18:30",
     }
@@ -137,6 +140,51 @@ def test_location_detail_shows_shift_and_employees_to_both_roles(role, tmp_path)
         browser.close()
 
 
+@pytest.mark.parametrize("role", ["admin", "supervisor"])
+def test_disabled_location_greys_its_employees_for_both_roles(role, tmp_path):
+    """Employees of a disabled branch are effectively disabled: greyed, badged, no per-row actions."""
+    user = {"id": role + ".demo", "name": role.title() + " Demo", "role": role}
+    location = {
+        "id": "loc-test",
+        "name": "Test Branch",
+        "area": "Test Area",
+        "assigned_count": 1,
+        "active": 0,
+        "shift_start": "09:00",
+        "shift_end": "18:30",
+    }
+    employee = {"id": "EMP9001", "name": "Detail Guard", "role": "Guard", "location_id": "loc-test", "active": 1}
+
+    def respond(route):
+        path = urlsplit(route.request.url).path
+        if fulfill_frontend(route):
+            return
+        body = {
+            "/api/locations": [location],
+            "/api/attendance": {"rows": [], "summary": {}},
+            "/api/employees": [employee],
+        }.get(path, {})
+        route.fulfill(content_type="application/json", body=json.dumps(body))
+
+    with playwright.sync_playwright() as p:
+        browser, page = open_page(p, user, respond)
+        page.wait_for_selector(".card")
+        page.evaluate("go('locations')")
+        page.wait_for_selector("[data-loc]")
+        page.locator("[data-loc]").first.click()
+        page.wait_for_function("document.body.innerText.includes('Detail Guard')")
+        # The employee is greyed with a Disabled badge although their own flag is active.
+        assert page.locator(".person.disabledRow").count() == 1
+        assert page.locator(".person.disabledRow .badge.grey").count() == 1
+        # No per-employee Disable button while the branch is disabled, for either role.
+        assert page.locator("[data-del-emp]").count() == 0
+        # No "Mark attendance here"; admins get the branch-level Enable instead.
+        assert page.locator("[data-use-loc]").count() == 0
+        assert page.locator("[data-en-loc]").count() == (1 if role == "admin" else 0)
+        page.screenshot(path=str(tmp_path / (role + "-disabled-location-detail.png")))
+        browser.close()
+
+
 def test_admin_edit_times_form_posts_ist_values(tmp_path):
     user = {"id": "admin.demo", "name": "Admin Demo", "role": "admin"}
     row = {
@@ -157,7 +205,9 @@ def test_admin_edit_times_form_posts_ist_values(tmp_path):
             patches.append(body)
             return route.fulfill(json=body)
         body = {
-            "/api/locations": [{"id": "loc-test", "name": "Test Branch", "area": "Area", "assigned_count": 1}],
+            "/api/locations": [
+                {"id": "loc-test", "name": "Test Branch", "area": "Area", "assigned_count": 1, "active": 1}
+            ],
             "/api/attendance": {"rows": [row], "summary": {"checked_in": 1, "completed": 0, "not_in": 0}},
         }.get(path, {})
         route.fulfill(content_type="application/json", body=json.dumps(body))
@@ -183,7 +233,7 @@ def test_admin_edit_times_form_posts_ist_values(tmp_path):
 
 def test_shift_button_and_optional_employee_location(tmp_path):
     user = {"id": "admin.demo", "name": "Admin Demo", "role": "admin"}
-    locations = [{"id": "loc-old", "name": "Old Branch", "area": "Old Area", "assigned_count": 0}]
+    locations = [{"id": "loc-old", "name": "Old Branch", "area": "Old Area", "assigned_count": 0, "active": 1}]
     location_posts = []
     employee_posts = []
 
