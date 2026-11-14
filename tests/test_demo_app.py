@@ -223,7 +223,9 @@ def test_month_summary_totals_scope_and_location_days():
     scoped = client.get(f"/api/reports/summary?month={month}", headers=supervisor).json()
     assert {loc["id"] for loc in scoped["locations"]} == {"loc-hsr", "loc-whitefield"}
     assert scoped["totals"]["records"] < admin["totals"]["records"]
-    assert client.get(f"/api/reports/summary?month={month}&location_id=loc-mysuru", headers=supervisor).status_code == 403
+    assert (
+        client.get(f"/api/reports/summary?month={month}&location_id=loc-mysuru", headers=supervisor).status_code == 403
+    )
 
     detail = client.get(f"/api/reports/summary?month={month}&location_id=loc-hsr", headers=supervisor).json()
     assert [loc["id"] for loc in detail["locations"]] == ["loc-hsr"]

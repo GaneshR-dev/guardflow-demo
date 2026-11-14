@@ -3,3 +3,5 @@ uvicorn==0.54.0
 SQLAlchemy==2.0.44
 psycopg[binary]==3.3.6
 openpyxl==3.1.5
+# Time zone data. Windows has no system time zone database for zoneinfo.
+tzdata==2026.6

@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-14 · Repository setup for collaboration · Claude Code · feat/reports
+- Request: Add the six suggested items for safe collaboration.
+- Changed: `.gitignore` (`.venv/`, `*.db`), `.gitattributes` (LF), `backend/requirements.txt` (`tzdata`), `requirements-dev.txt`, `.github/workflows/ci.yml`, `.github/pull_request_template.md`, `README.md`, `AGENTS.md`, `tests/test_demo_app.py` (Ruff format only)
+- Tests: `pytest -q tests/` without the 2 browser test files → 35 passed. Ruff check and format → passed. `tests/test_security_regression.py` was not run this time (blocked).
+- Open items: CI has not run on GitHub yet. Protect the `main` branch in GitHub.
+
 ## 2026-11-14 · Figma rule for AI tools · Claude Code · feat/reports
 - Request: Make other AI tools use the Figma file.
 - Changed: `AGENTS.md` (Figma section), `docs/UI-GUIDE.md` (how to get access)

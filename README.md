@@ -41,9 +41,12 @@ Open `http://127.0.0.1:8000/app` and sign in with one of the demo accounts shown
 From the repository root:
 
 ```bash
-python3 -m pip install pytest
+python3 -m pip install -r requirements-dev.txt
 python3 -m pytest -q tests/
+python3 -m ruff check . && python3 -m ruff format --check .
 ```
+
+Browser tests use Playwright. They skip when Playwright is not installed (see `requirements-dev.txt`). GitHub Actions runs the tests and Ruff for each pull request (`.github/workflows/ci.yml`).
 
 Covers login (including throttling and server-side logout revocation), scoped locations, dashboard, check-in/check-out, duplicate prevention, employee creation/import with validation and rollback, reports with computed hours, settings, permissions and six-month sample history.
 

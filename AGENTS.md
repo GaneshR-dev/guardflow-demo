@@ -73,10 +73,14 @@ Run and test commands are in `README.md`.
 - Add tests for each backend change. Use unit tests for functions and API tests for endpoints.
 - Put tests in `tests/`. Use the existing pattern: `DATABASE_URL=sqlite:///:memory:`, `TestClient(app)` and an `auth()` helper. See `tests/test_report_summary.py`.
 - Make sure that tests do not depend on their order. All test files share one in-memory database. Remove the data that your test adds, or check the change (before and after), not exact totals.
-- Run all tests before each commit:
+- Install the test packages from `requirements-dev.txt`.
+- Run all tests and Ruff before each commit:
   ```bash
-  .venv\Scripts\python.exe -m pytest -q tests/
+  python -m pytest -q tests/
+  python -m ruff check .
+  python -m ruff format --check .
   ```
+- GitHub Actions runs the same checks for each pull request (`.github/workflows/ci.yml`). Do not merge when CI fails.
 - Tell the collaborator the real result. If a test fails or does not run, say so.
 - Browser tests (Playwright) are optional. They skip when Playwright is not installed.
 
@@ -96,4 +100,4 @@ At the end of each task, add an entry at the top of `docs/WORKLOG.md`. Use the t
 
 - Write the message in STE100.
 - Make small commits. Put one change in one commit.
-- In the pull request text, tell what changed, why, and the test result.
+- In the pull request text, tell what changed, why, and the test result. Fill in `.github/pull_request_template.md`.
