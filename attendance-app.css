@@ -1234,20 +1234,50 @@ button {
   }
 }
 
-/* Shift timing row inside the Add location form. */
+/* Shift timing slots inside the location forms: inline repeatable cards
+   (reference UI picked by the user): titled slot card, start/end side by side
+   on wide screens, stacked on phones, counter + dashed add button. */
+.shiftFieldHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
 .shiftRow {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-top: 8px;
+}
+.shiftSlotHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.shiftTimes {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+.shiftTimes > div {
+  flex: 1 1 45%;
+  min-width: 140px;
+}
+.shiftAdd {
+  display: block;
+  width: 100%;
+  text-align: center;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 10px;
   margin-top: 8px;
 }
-.shiftRow > div {
-  flex: 1 1 30%;
-  min-width: 100px;
-}
-.shiftRow .shiftRemove {
-  flex: 0 0 auto;
-  align-self: end;
+
+/* On phones the two time fields stack full-width so they stay readable. */
+@media (max-width: 480px) {
+  .shiftTimes > div {
+    flex: 1 1 100%;
+  }
 }
 
 /* Location detail rows (shift timing). */
