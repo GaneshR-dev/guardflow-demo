@@ -34,9 +34,7 @@ def test_location_create_with_shift_visible_to_both_roles_then_remove():
     )
     assert created.status_code == 200
     assert created.json()["shift_start"] == "09:00"
-    row = next(
-        loc for loc in client.get("/api/locations", headers=headers).json() if loc["id"] == "loc-shift-test"
-    )
+    row = next(loc for loc in client.get("/api/locations", headers=headers).json() if loc["id"] == "loc-shift-test")
     assert row["shift_start"] == "09:00" and row["shift_end"] == "18:00" and row["active"] == 1
     # The assigned supervisor sees the same location with its shift.
     sup = auth("supervisor.demo")
@@ -240,7 +238,9 @@ def test_sqlite_migration_preserves_existing_data(tmp_path, monkeypatch):
                 "CREATE TABLE demo_employees (id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT NOT NULL, role TEXT NOT NULL, location_id TEXT NOT NULL, active INTEGER NOT NULL)"
             )
         )
-        c.execute(sql_text("INSERT INTO demo_employees VALUES ('emp-old','Old Guard','9000000099','Guard','loc-hsr',1)"))
+        c.execute(
+            sql_text("INSERT INTO demo_employees VALUES ('emp-old','Old Guard','9000000099','Guard','loc-hsr',1)")
+        )
         c.execute(
             sql_text(
                 "CREATE TABLE demo_locations (id TEXT PRIMARY KEY, name TEXT NOT NULL, area TEXT NOT NULL, assigned_count INTEGER NOT NULL)"
@@ -268,7 +268,11 @@ def test_sqlite_migration_preserves_existing_data(tmp_path, monkeypatch):
         c.execute(sql_text("INSERT INTO demo_employees VALUES ('emp-new','New Guard','9000000098','Guard',NULL,1)"))
         location_columns = demo_db._columns(c, "demo_locations")
         assert "shift_start" in location_columns and "shift_end" in location_columns and "active" in location_columns
-        loc = c.execute(sql_text("SELECT assigned_count, active FROM demo_locations WHERE id='loc-old'")).mappings().first()
+        loc = (
+            c.execute(sql_text("SELECT assigned_count, active FROM demo_locations WHERE id='loc-old'"))
+            .mappings()
+            .first()
+        )
         assert loc["assigned_count"] == 3 and loc["active"] == 1
 
 
@@ -344,9 +348,7 @@ def test_supervisor_cannot_see_or_use_unassigned_employees():
     sup = auth("supervisor.demo")
     # Invisible in the supervisor directory, both overall and per branch.
     assert all(e["id"] != employee_id for e in client.get("/api/employees", headers=sup).json())
-    assert all(
-        e["id"] != employee_id for e in client.get("/api/employees?location_id=loc-hsr", headers=sup).json()
-    )
+    assert all(e["id"] != employee_id for e in client.get("/api/employees?location_id=loc-hsr", headers=sup).json())
     # A supervisor cannot check them in anywhere.
     attempt = client.post(
         "/api/attendance/checkin",
@@ -359,7 +361,12 @@ def test_supervisor_cannot_see_or_use_unassigned_employees():
     denied = client.patch(
         "/api/attendance/times",
         headers=sup,
-        json={"employee_id": employee_id, "location_id": "loc-hsr", "day": local_today().isoformat(), "check_in": "09:00"},
+        json={
+            "employee_id": employee_id,
+            "location_id": "loc-hsr",
+            "day": local_today().isoformat(),
+            "check_in": "09:00",
+        },
     )
     assert denied.status_code == 403
     # Admins still see the unassigned employee so they can place them later.

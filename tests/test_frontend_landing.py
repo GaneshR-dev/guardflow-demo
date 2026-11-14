@@ -375,6 +375,12 @@ def test_excel_report_download_keeps_selected_filters(tmp_path):
             "/api/locations": [{"id": "loc-test", "name": "Test Site", "area": "Test Area", "assigned_count": 0}],
             "/api/attendance": {"rows": [], "summary": {}},
             "/api/reports/months": [{"month": "2026-11", "total_records": 1, "completed": 1}],
+            "/api/reports/summary": {
+                "month": "2026-11",
+                "totals": {"records": 1, "completed": 1, "checked_in": 0, "not_in": 0, "avg_hours": 10},
+                "locations": [],
+                "days": [],
+            },
             "/api/reports/monthly": {
                 "rows": [
                     {
@@ -402,19 +408,27 @@ def test_excel_report_download_keeps_selected_filters(tmp_path):
         page.locator("#loginForm .primary").click()
         page.wait_for_selector("#attSearch")
         page.locator("[data-nav=reports]").click()
-        page.locator("[data-report=daily]").click()
-        page.locator("#reportFilters [name=period]").fill("2026-11-10")
-        page.locator("#reportFilters button").click()
-        page.wait_for_function("state.monthly.rows[0].day==='2026-11-10'")
+        page.wait_for_selector(".rpStats")
+        # The date picker is a hidden native input behind the date button.
+        page.evaluate(
+            "() => { const i = document.getElementById('reportPeriod'); i.value = '2026-11-10';"
+            " i.dispatchEvent(new Event('change')); }"
+        )
+        page.wait_for_function("state.report.date==='2026-11-10' && !state.report.loading")
         page.screenshot(path=str(tmp_path / "excel-report-phone.png"), full_page=True)
         with page.expect_download() as pending:
-            page.locator("#exportFilteredReport").click()
+            page.locator("#reportExport").click()
         assert pending.value.suggested_filename == "guardian-attendance-2026-11-10.xlsx"
         assert calls[-1] == (
             {"month": ["2026-11"], "day": ["2026-11-10"], "location_id": ["loc-test"]},
             "Bearer test-token",
         )
+        # The status figures filter the list without a new request.
+        page.locator("[data-rstatus=completed]").click()
+        assert page.locator(".rpRow").count() == 1
         # A month-history export must not accidentally inherit the daily filter.
+        page.locator("[data-rtab=history]").click()
+        page.wait_for_selector('[data-export="2026-11"]')
         with page.expect_download():
             page.locator('[data-export="2026-11"]').click()
         assert calls[-1][0] == {"month": ["2026-11"]}
