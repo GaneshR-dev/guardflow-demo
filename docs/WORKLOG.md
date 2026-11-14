@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-14 · HTTP status in api(), 401, 403 and 404 handling · Claude Code · feat/reports
+- Request: Add `err.status` to `api()` and handle 401 and 404.
+- Changed: `attendance-app.js`: `api()` errors carry `status` (`httpError()`); a 401 (not on sign-in) calls `endSession()`, which clears the session and shows "Your session ended. Sign in again."; the Excel export does the same on 401; the Reports error state shows "No access to this location" (403) and "Location not found" (404) with "Choose location", and a clear message for 400/422.
+- Tests: `pytest -q tests/` without the 3 browser test files → 48 passed. Ruff → passed. Manual check with Playwright on the local app: 403, 404, 401 on a request, 401 on export, wrong password → all correct, no page errors.
+- Open items: Other screens (attendance, settings) still show the generic error banner for 403 and 404. Only the session-ended handling applies to all screens.
+
 ## 2026-11-14 · Rules for errors, loaders and toasts · Claude Code · feat/reports
 - Request: Tell AI tools to always handle 404, API failures, network failures, loaders and toasts.
 - Changed: `AGENTS.md` (new section "Errors, loading and feedback"), `docs/UI-GUIDE.md` (states table and checklist)

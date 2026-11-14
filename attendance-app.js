@@ -153,13 +153,43 @@ async function api(path, opts = {}) {
     data = { detail: text };
   }
   if (!res.ok) {
-    if (path === '/api/login' && res.status === 401) throw new Error('Wrong password or user ID. Try again.');
+    if (path === '/api/login' && res.status === 401) throw httpError(401, 'Wrong password or user ID. Try again.');
+    // Any other 401 means the server no longer accepts this session (expired, revoked
+    // or signed out on another device). /api/logout handles its own 401.
+    if (res.status === 401 && path !== '/api/logout') {
+      endSession();
+      throw httpError(401, SESSION_ENDED);
+    }
     const detail = Array.isArray(data.detail)
       ? data.detail.map((x) => x.msg || x.message || String(x)).join('; ')
       : data.detail;
-    throw new Error(detail || 'Request failed');
+    throw httpError(res.status, detail || 'Request failed');
   }
   return data;
+}
+// Errors from api() carry the HTTP status, so screens can show the right state
+// (403 no access, 404 not found, 409/422 input problems, 5xx server errors).
+function httpError(status, message) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+const SESSION_ENDED = 'Your session ended. Sign in again.';
+// Clear a session the server refused and show the sign-in screen with a clear message.
+function endSession() {
+  ++attendanceGeneration;
+  localStorage.removeItem('gf_token');
+  localStorage.removeItem('gf_user');
+  state.token = '';
+  state.user = null;
+  state.report = null;
+  state.dashboard = null;
+  state.settings = null;
+  state.notice = '';
+  state.error = SESSION_ENDED;
+  state.screen = 'login';
+  history.replaceState({ gfScreen: 'login' }, '', '#login');
+  render();
 }
 // Screen templates: each returns an HTML string for one screen. Nothing here
 // touches the network; data comes from `state`.
@@ -369,6 +399,29 @@ function emptyState(icon, title, text, cta = '', tone = '') {
   return `<div class="rpEmpty ${tone}" ${tone === 'rpError' ? 'role="alert"' : ''}><span class="rpEmptyIcon">${icon}</span><h2>${esc(title)}</h2><p>${esc(text)}</p>${cta}</div>`;
 }
 function reportError(r) {
+  const choose = '<button class="secondary rpCta" data-rchoose>Choose location</button>';
+  if (r.errorStatus === 403)
+    return emptyState(
+      ICON.emptyPin,
+      'No access to this location',
+      'Ask an admin for access, or choose another location.',
+      choose,
+    );
+  if (r.errorStatus === 404)
+    return emptyState(
+      ICON.emptyPin,
+      'Location not found',
+      'This location no longer exists. Choose another location.',
+      choose,
+    );
+  if (r.errorStatus === 400 || r.errorStatus === 422)
+    return emptyState(
+      ICON.emptyDay,
+      'Could not show this report',
+      r.error,
+      '<button class="primary rpCta" data-rtoday>Go to today</button>',
+      'rpError',
+    );
   return emptyState(
     ICON.wifiOff,
     'Could not load the report',
@@ -1042,6 +1095,7 @@ async function loadReport() {
   const seq = ++r.seq;
   r.loading = true;
   r.error = '';
+  r.errorStatus = 0;
   render();
   try {
     let data = null;
@@ -1066,6 +1120,7 @@ async function loadReport() {
   } catch (e) {
     if (seq !== r.seq || state.report !== r) return;
     r.error = e.message;
+    r.errorStatus = e.status || 0;
   }
   r.loading = false;
   render();
@@ -1178,6 +1233,22 @@ function bindReports() {
       }),
   );
   document.querySelectorAll('[data-rretry]').forEach((b) => (b.onclick = () => loadReport()));
+  // 403/404: refresh the location list (a location may be removed), then let the user pick again.
+  document.querySelectorAll('[data-rchoose]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        b.disabled = true;
+        try {
+          state.locations = await api('/api/locations');
+        } catch (e) {
+          // Keep the old list when the refresh fails; the sheet still opens.
+          if (e.status === 401) return;
+        }
+        r.detail = '';
+        r.sheet = true;
+        render();
+      }),
+  );
   const exportButton = document.getElementById('reportExport');
   if (exportButton) exportButton.onclick = exportCurrentReport;
 }
@@ -1415,6 +1486,10 @@ async function exportReport(month, day = '', location = '') {
     const r = await fetch(API + '/api/reports/export.xlsx?' + q, {
       headers: { Authorization: 'Bearer ' + state.token },
     });
+    if (r.status === 401) {
+      endSession();
+      return;
+    }
     if (!r.ok) {
       let message = 'Excel export failed';
       try {
