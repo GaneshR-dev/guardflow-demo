@@ -540,7 +540,7 @@ function employees() {
 }
 // Reports screen: Day / Month / History tabs. Everything it shows comes from
 // state.report; loadReport() fetches the data for the open tab.
-const STATUS_LABEL = { checked_in: 'On duty', completed: 'Done', not_in: 'Not in' };
+const STATUS_LABEL = { checked_in: 'Checked in', completed: 'Completed', not_in: 'Not checked in' };
 const STATUS_TONE = { checked_in: 'green', completed: 'blue', not_in: 'amber' };
 const shortLoc = (name) => (name || '').split(' - ')[1] || name || '';
 const locCity = (name) => ((name || '').includes(' - ') ? name.split(' - ')[0] : '');
@@ -666,7 +666,9 @@ function guardRow(x) {
         ? 'In ' + fmtTime(x.check_in)
         : '—';
   const badge =
-    x.status === 'completed' && x.hours ? `Done · ${Number(x.hours).toFixed(1)} h` : STATUS_LABEL[x.status] || x.status;
+    x.status === 'completed' && x.hours
+      ? `Completed · ${Number(x.hours).toFixed(1)} h`
+      : STATUS_LABEL[x.status] || x.status;
   return `<div class="rpRow"><span class="rpAvatar ${x.status === 'not_in' ? 'amber' : ''}" aria-hidden="true">${esc(initials(x.employee_name))}</span><span class="rpWho"><strong>${esc(x.employee_name)}</strong><small>${esc(x.employee_id)}</small></span><span class="rpWhen"><span>${time}</span><span class="badge ${STATUS_TONE[x.status] || 'blue'}">${esc(badge)}</span></span></div>`;
 }
 function dayReport(r) {
@@ -698,9 +700,9 @@ function dayReport(r) {
   const count = (s) => rows.filter((x) => s === 'all' || x.status === s).length;
   const stats = [
     ['all', 'All'],
-    ['checked_in', 'On duty'],
-    ['completed', 'Done'],
-    ['not_in', 'Not in'],
+    ['checked_in', 'Checked in'],
+    ['completed', 'Completed'],
+    ['not_in', 'Not checked in'],
   ]
     .map(
       ([k, l]) =>
@@ -764,7 +766,7 @@ function reportDetail(r) {
       const open = x.checked_in || x.not_in;
       const missing = assigned - x.records;
       const sub = open
-        ? `${x.completed} done · ${x.checked_in} on duty · ${x.not_in} not in`
+        ? `${x.completed} completed · ${x.checked_in} checked in · ${x.not_in} not checked in`
         : `All shifts completed${missing > 0 ? ` · ${missing} no record` : ''}`;
       return `<button class="rpDay" data-rday="${esc(x.day)}"><span class="rpDate"><strong>${dt.getDate()}</strong><small>${new Intl.DateTimeFormat('en-GB', { weekday: 'short' }).format(dt)}</small></span><span class="rpWho"><strong>${present} of ${assigned || x.records} present</strong><small>${esc(sub)}</small></span>${x.day === today ? '<span class="badge amber">Today</span>' : ''}${ICON.chevRight}</button>`;
     })
