@@ -105,6 +105,8 @@ const state = {
   query: '',
   locationQuery: '',
   addQuery: '',
+  outQuery: '',
+  lookupMatches: null,
   employeeQuery: '',
   showEmployeeForm: false,
   filter: 'all',
@@ -346,28 +348,42 @@ function editTimeForm() {
   if (!r) return '';
   return `<div class="card addCard" id="timeEditCard"><strong>Edit times - ${esc(r.name)}</strong><p class="muted small">Only admins can modify attendance times. Times are Indian Standard Time. Each correction is saved with your reason in the activity log. Shifts over 24 hours are unusual - double-check the dates.</p><form id="timeEditForm"><div class="field"><label>Date</label><input name="day" type="date" value="${todayISO()}" required></div><div class="field"><label>Check-in time (IST)</label><input name="check_in" type="time" value="${toHHMM(r.check_in)}" required></div><div class="field"><label>Check-out time (IST, leave empty if still working)</label><input name="check_out" type="time" value="${toHHMM(r.check_out)}"></div><div class="field"><label>Check-out date (IST, pick the next day for overnight shifts)</label><input name="check_out_day" type="date" value="${todayISO()}"></div><div class="field"><label>Reason for the correction</label><input name="reason" placeholder="Example: guard forgot to check out" minlength="3" maxlength="200" required></div><button class="secondary">Save times</button> <button type="button" class="link" id="cancelTimeEdit">Cancel</button></form></div>`;
 }
+// A name/ID lookup can match several people: let the supervisor pick the right one.
+function lookupMatchesView(action) {
+  if (!state.lookupMatches) return '';
+  return `<div class="card addCard"><strong>Several employees match. Pick the right person:</strong>${state.lookupMatches
+    .map(
+      (m) =>
+        `<div class="person"><span class="initials">${esc(initials(m.name))}</span><span><strong>${esc(m.name)}</strong><small>${esc(m.id)}${m.location_name ? ' · ' + esc(m.location_name) : ''}</small></span><button class="selectBtn" data-pick-${action}="${esc(m.id)}">Select</button></div>`,
+    )
+    .join('')}</div>`;
+}
 function add() {
   const available = state.attendance.filter(
     (r) =>
       r.status === 'not_in' &&
       (!state.addQuery || (r.name + ' ' + r.employee_id).toLowerCase().includes(state.addQuery.toLowerCase())),
   );
-  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Employee enters their EMP ID, or pick a waiting employee below.</p><form id="idCheckin" style="display:flex;gap:8px"><input class="search" name="empid" placeholder="Enter EMP ID, e.g. EMP1024" style="flex:1;min-width:0" autocomplete="off" required><button class="secondary" style="flex:0 0 auto;width:auto;padding:0 20px">Find</button></form><input class="search" id="addSearch" placeholder="Search name or employee ID" value="${esc(state.addQuery)}"><h2 class="sectionTitle">Pre-assigned employees waiting here</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}${r.adhoc ? ' · ad-hoc' : ''}</small></span><button class="selectBtn" data-select="${esc(r.employee_id)}">Select</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${state.user?.role === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}${state.selected ? `<div class="selected"><b>Selected employee: ${esc(state.selected.name)}</b><br>${esc(state.selected.employee_id)} · ${esc(state.location.name)}${state.selected.adhoc ? ' · ad-hoc shift' : ''}</div><button class="primary" id="doCheckin">Mark Check-in · ${nowTime()}</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Employee enters their EMP ID or name, or pick a waiting employee below.</p><form id="idCheckin" style="display:flex;gap:8px"><input class="search" name="empid" placeholder="Enter EMP ID or name, e.g. EMP1024" style="flex:1;min-width:0" autocomplete="off" required><button class="secondary" style="flex:0 0 auto;width:auto;padding:0 20px">Find</button></form>${lookupMatchesView('checkin')}<input class="search" id="addSearch" placeholder="Search name or employee ID" value="${esc(state.addQuery)}"><h2 class="sectionTitle">Pre-assigned employees waiting here</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}${r.adhoc ? ' · ad-hoc' : ''}</small></span><button class="selectBtn" data-select="${esc(r.employee_id)}">Select</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${state.user?.role === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}${state.selected ? `<div class="selected"><b>Selected employee: ${esc(state.selected.name)}</b><br>${esc(state.selected.employee_id)} · ${esc(state.location.name)}${state.selected.adhoc ? ' · ad-hoc shift' : ''}</div><button class="primary" id="doCheckin">Mark Check-in · ${nowTime()}</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
 }
 function confirmed() {
   const r = state.lastCheck;
   return `<div class="page">${header()}<h1>Check-in recorded</h1><p class="sub">Attendance has been successfully updated.</p><div class="card confirmCard"><div class="successIcon">✓</div><h2>${esc(r?.name || 'Employee')}</h2><p class="muted small">${esc(r?.employee_id || '')} · ${esc(state.location?.name.split(' - ')[1] || '')}</p><span class="badge green">CHECKED IN</span><div class="timeLabel">CHECK-IN TIME (IST)</div><div class="bigTime">${fmtTime(r?.check_in)}</div><div class="muted small">${fmtDate(istNow())}</div></div><button class="primary" data-go="add">+ Add another employee</button><p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
 }
 function checkout() {
-  const stale = state.staleOpen || [];
-  const rows = state.attendance.filter((r) => r.status === 'checked_in');
-  const total = rows.length + stale.length;
+  const staleAll = state.staleOpen || [];
+  const checkedIn = state.attendance.filter((r) => r.status === 'checked_in');
+  const matchOut = (r) =>
+    !state.outQuery || (r.name + ' ' + r.employee_id).toLowerCase().includes(state.outQuery.toLowerCase());
+  const stale = staleAll.filter(matchOut);
+  const rows = checkedIn.filter(matchOut);
+  const total = checkedIn.length + staleAll.length;
   const person = (r, extra) =>
     `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>In: ${fmtTime(r.check_in)}${extra}</small></span><button class="outlineBtn" data-checkout="${esc(r.employee_id)}">Check out</button></div>`;
   const staleList = stale.length
     ? `<h2 class="sectionTitle">Left open from earlier days</h2><p class="muted small">These check-ins were never closed. Check out each one, then an admin can fix the times with a reason.</p>${stale.map((r) => person(r, ` · since ${esc(r.day)}`)).join('')}`
     : '';
-  return `<div class="page">${header()}<h1>Manage check-outs</h1><p class="sub">Employees currently checked in at ${esc(state.location?.name.split(' - ')[1] || '')} (IST).</p><form id="idCheckout" style="display:flex;gap:8px"><input class="search" name="empid" placeholder="Enter EMP ID to check out" style="flex:1;min-width:0" autocomplete="off" required><button class="secondary" style="flex:0 0 auto;width:auto;padding:0 20px">Find</button></form><div class="hero"><small>STILL CHECKED IN</small><strong>${total}</strong> <span>${plural(total, 'employee')}</span></div><input class="search" id="outSearch" placeholder="Search checked-in employees">${rows.map((r) => person(r, '')).join('') || (stale.length ? '' : '<p class="muted small">No checked-in employees remain.</p>')}${staleList}<p style="text-align:center;margin-top:18px"><button class="link" data-go="attendance">View attendance list</button></p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Manage check-outs</h1><p class="sub">Employees currently checked in at ${esc(state.location?.name.split(' - ')[1] || '')} (IST).</p><form id="idCheckout" style="display:flex;gap:8px"><input class="search" name="empid" placeholder="Enter EMP ID or name to check out" style="flex:1;min-width:0" autocomplete="off" required><button class="secondary" style="flex:0 0 auto;width:auto;padding:0 20px">Find</button></form>${lookupMatchesView('checkout')}<div class="hero"><small>STILL CHECKED IN</small><strong>${total}</strong> <span>${plural(total, 'employee')}</span></div><input class="search" id="outSearch" placeholder="Search name or employee ID" value="${esc(state.outQuery)}">${rows.map((r) => person(r, '')).join('') || (stale.length ? '' : '<p class="muted small">' + (state.outQuery ? 'No checked-in employees match.' : 'No checked-in employees remain.') + '</p>')}${staleList}<p style="text-align:center;margin-top:18px"><button class="link" data-go="attendance">View attendance list</button></p></div>${nav()}${message()}`;
 }
 async function dashboard() {
   if (!state.dashboard) state.dashboard = await api('/api/dashboard');
@@ -817,8 +833,26 @@ async function render() {
       html = screenErrorView();
     } else html = login();
   }
+  // Keep the caret (and the mobile keyboard) where the user was typing: re-rendering
+  // replaces the DOM, so restore focus and selection to the same field afterwards.
+  const active = document.activeElement;
+  const focusId = active && active.id ? active.id : '';
+  const selStart = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
+  const selEnd = active && typeof active.selectionEnd === 'number' ? active.selectionEnd : null;
   $app.innerHTML = html + confirmModal();
   bind();
+  if (focusId) {
+    const el = document.getElementById(focusId);
+    if (el) {
+      el.focus({ preventScroll: true });
+      if (selStart !== null && typeof el.setSelectionRange === 'function')
+        try {
+          el.setSelectionRange(selStart, selEnd);
+        } catch (err) {
+          // Some input types (date, time) do not support selection ranges.
+        }
+    }
+  }
 }
 // Wire up clicks/inputs on the freshly rendered markup. One branch per screen.
 function bind() {
@@ -900,6 +934,7 @@ function bind() {
     al.onchange = async (e) => {
       state.location = state.locations.find((l) => l.id === e.target.value);
       state.selected = null;
+      state.lookupMatches = null;
       state.query = '';
       state.filter = 'all';
       state.attendance = [];
@@ -948,6 +983,33 @@ function bind() {
       state.addQuery = e.target.value;
       render();
     };
+  const os = document.getElementById('outSearch');
+  if (os)
+    os.oninput = (e) => {
+      state.outQuery = e.target.value;
+      render();
+    };
+  document.querySelectorAll('[data-pick-checkin]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        const m = (state.lookupMatches || []).find((x) => x.id === b.dataset.pickCheckin);
+        state.lookupMatches = null;
+        if (!m) return;
+        state.selected = { employee_id: m.id, name: m.name, adhoc: m.location_id !== state.location.id };
+        state.error = null;
+        render();
+        document.querySelector('.selected')?.scrollIntoView({ block: 'center', behavior: 'instant' });
+      }),
+  );
+  document.querySelectorAll('[data-pick-checkout]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        const m = (state.lookupMatches || []).find((x) => x.id === b.dataset.pickCheckout);
+        state.lookupMatches = null;
+        if (!m) return;
+        startCheckoutFor(m);
+      }),
+  );
   document.querySelectorAll('[data-select]').forEach(
     (b) =>
       (b.onclick = () => {
@@ -1071,6 +1133,7 @@ function startHistory(screen) {
 }
 function go(screen, opts = {}) {
   state.error = '';
+  state.lookupMatches = null;
   state.notice = '';
   state.screenError = null;
   if (screen === 'home') screen = state.user?.role === 'admin' ? 'dashboard' : 'attendance';
@@ -1190,16 +1253,26 @@ async function loadEmployees(renderNow = true) {
   state.employees = await api('/api/employees');
   if (renderNow) render();
 }
-// EMP-ID entry: resolve any active employee (ad hoc included) in the supervisor session.
-async function lookupEmployee(empid) {
-  const emp = await api('/api/employee-lookup?employee_id=' + encodeURIComponent(empid.trim()));
+// EMP-ID or name entry: resolve any active employee (ad hoc included) in the
+// supervisor session. A name matching several people returns a pick list.
+async function lookupEmployee(query) {
+  const emp = await api('/api/employee-lookup?employee_id=' + encodeURIComponent(query.trim()));
+  if (emp.matches) return emp;
   if (!emp.active) throw Object.assign(new Error('This employee is disabled. An admin can enable them again.'), { handled: true });
   return emp;
+}
+// Several active employees matched a name search: show them for picking.
+function showLookupMatches(r) {
+  state.lookupMatches = r.matches.filter((m) => m.active);
+  state.error = state.lookupMatches.length ? null : 'No active employee matches that name.';
+  render();
 }
 async function lookupForCheckin(e) {
   e.preventDefault();
   try {
     const emp = await lookupEmployee(new FormData(e.target).get('empid'));
+    if (emp.matches) return showLookupMatches(emp);
+    state.lookupMatches = null;
     state.selected = { employee_id: emp.id, name: emp.name, adhoc: emp.location_id !== state.location.id };
     state.error = null;
     render();
@@ -1213,19 +1286,25 @@ async function lookupForCheckout(e) {
   e.preventDefault();
   try {
     const emp = await lookupEmployee(new FormData(e.target).get('empid'));
-    const row =
-      state.attendance.find((r) => r.employee_id === emp.id && r.status === 'checked_in') ||
-      (state.staleOpen || []).find((r) => r.employee_id === emp.id);
-    if (!row) {
-      state.error = emp.name + ' is not currently checked in at this location.';
-      return render();
-    }
-    state.error = null;
-    askCheckout(emp.id);
+    if (emp.matches) return showLookupMatches(emp);
+    state.lookupMatches = null;
+    startCheckoutFor(emp);
   } catch (err) {
     state.error = err.message;
     render();
   }
+}
+// Shared by the checkout Find form and the name-match picker.
+function startCheckoutFor(emp) {
+  const row =
+    state.attendance.find((r) => r.employee_id === emp.id && r.status === 'checked_in') ||
+    (state.staleOpen || []).find((r) => r.employee_id === emp.id);
+  if (!row) {
+    state.error = emp.name + ' is not currently checked in at this location.';
+    return render();
+  }
+  state.error = null;
+  askCheckout(emp.id);
 }
 async function doCheckin() {
   try {

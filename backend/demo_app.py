@@ -351,9 +351,11 @@ def locations(user=Depends(current_user)):
 
 @app.get("/api/employee-lookup")
 def employee_lookup(employee_id: str, user=Depends(current_user)):
-    # Resolve an EMP ID so an employee can check in/out at the site the signed-in
-    # supervisor manages, including ad-hoc shifts away from their home site. Returns the
-    # minimum needed to confirm the person; deliberately no phone or other private fields.
+    # Resolve an EMP ID or name so an employee can check in/out at the site the
+    # signed-in supervisor manages, including ad-hoc shifts away from their home
+    # site. Returns the minimum needed to confirm the person; deliberately no
+    # phone or other private fields. A name matching several people returns a
+    # short pick list instead of guessing.
     with engine.connect() as c:
         emp = (
             c.execute(
@@ -367,9 +369,24 @@ def employee_lookup(employee_id: str, user=Depends(current_user)):
             .mappings()
             .first()
         )
-    if not emp:
-        raise HTTPException(404, "No employee with that EMP ID")
-    return dict(emp)
+        if emp:
+            return dict(emp)
+        matches = [
+            dict(r)
+            for r in c.execute(
+                text(
+                    "SELECT e.id,e.name,e.role,e.location_id,e.active,l.name location_name "
+                    "FROM demo_employees e LEFT JOIN demo_locations l ON l.id=e.location_id "
+                    "WHERE lower(e.name) LIKE :q ORDER BY e.active DESC, e.name LIMIT 8"
+                ),
+                {"q": f"%{employee_id.strip().lower()}%"},
+            ).mappings()
+        ]
+    if len(matches) == 1:
+        return matches[0]
+    if matches:
+        return {"matches": matches}
+    raise HTTPException(404, "No employee matches that name or EMP ID")
 
 
 @app.get("/api/employees")
