@@ -1731,3 +1731,38 @@ fieldset {
 button {
   min-width: 44px;
 }
+/* Longer, consistent status labels remain readable on narrow phones. */
+.rpStats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.rpStat {
+  min-height: 64px;
+}
+.rpStat span {
+  line-height: 1.4;
+}
+.rpWho strong {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 379px) {
+  .rpRow {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 4px 10px;
+  }
+  .rpRow .rpAvatar {
+    grid-row: 1 / 3;
+    align-self: start;
+  }
+  .rpRow .rpWhen {
+    grid-column: 2;
+    align-items: flex-start;
+    flex-direction: row;
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+  .rpRow .rpWho strong {
+    overflow-wrap: normal;
+  }
+}
