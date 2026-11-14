@@ -183,3 +183,48 @@ def test_admin_time_edit_converts_ist_to_utc_and_is_admin_only():
         },
     )
     assert missing.status_code == 404
+
+
+def test_sqlite_migration_preserves_existing_data(tmp_path, monkeypatch):
+    """A pre-feature SQLite database keeps its rows when location_id becomes optional."""
+    import demo_db
+    import sqlalchemy
+    from sqlalchemy import text as sql_text
+
+    old_engine = sqlalchemy.create_engine(f"sqlite:///{tmp_path}/old.db")
+    with old_engine.begin() as c:
+        c.execute(
+            sql_text(
+                "CREATE TABLE demo_employees (id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT NOT NULL, role TEXT NOT NULL, location_id TEXT NOT NULL, active INTEGER NOT NULL)"
+            )
+        )
+        c.execute(sql_text("INSERT INTO demo_employees VALUES ('emp-old','Old Guard','9000000099','Guard','loc-hsr',1)"))
+        c.execute(
+            sql_text(
+                "CREATE TABLE demo_locations (id TEXT PRIMARY KEY, name TEXT NOT NULL, area TEXT NOT NULL, assigned_count INTEGER NOT NULL)"
+            )
+        )
+        c.execute(sql_text("INSERT INTO demo_locations VALUES ('loc-old','Old Branch','Old Area',3)"))
+    monkeypatch.setattr(demo_db, "engine", old_engine)
+    demo_db.migrate_db()
+    demo_db.migrate_db()  # second run must be a no-op
+    with old_engine.begin() as c:
+        employee_columns = demo_db._columns(c, "demo_employees")
+        assert employee_columns["location_id"] is True
+        rows = c.execute(sql_text("SELECT * FROM demo_employees")).mappings().all()
+        assert [dict(r) for r in rows] == [
+            {
+                "id": "emp-old",
+                "name": "Old Guard",
+                "phone": "9000000099",
+                "role": "Guard",
+                "location_id": "loc-hsr",
+                "active": 1,
+            }
+        ]
+        # After the rebuild, an unassigned employee can be inserted.
+        c.execute(sql_text("INSERT INTO demo_employees VALUES ('emp-new','New Guard','9000000098','Guard',NULL,1)"))
+        location_columns = demo_db._columns(c, "demo_locations")
+        assert "shift_start" in location_columns and "shift_end" in location_columns and "active" in location_columns
+        loc = c.execute(sql_text("SELECT assigned_count, active FROM demo_locations WHERE id='loc-old'")).mappings().first()
+        assert loc["assigned_count"] == 3 and loc["active"] == 1
