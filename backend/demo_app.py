@@ -8,6 +8,7 @@ The seed data is fictional sample history for the demo, never real business reco
 from __future__ import annotations
 
 import csv
+import hashlib
 import hmac
 import io
 import json
@@ -15,11 +16,12 @@ import os
 import re
 import secrets
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from datetime import time as dt_time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
@@ -91,7 +93,8 @@ class EmployeeBody(BaseModel):
     name: str = Field(min_length=2, max_length=80)
     phone: str = Field(min_length=7, max_length=25, pattern=r"^[0-9+() -]+$")
     role: str = Field(default="Guard", max_length=40)
-    location_id: str = Field(min_length=2, max_length=40)
+    # Optional: an employee can be created first and assigned to a location later.
+    location_id: str | None = Field(default=None, min_length=2, max_length=40)
 
     @field_validator("role")
     @classmethod
@@ -114,12 +117,17 @@ class ProfileBody(BaseModel):
     name: str = Field(min_length=2, max_length=80)
 
 
+SHIFT_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
+
+
 class LocationBody(BaseModel):
     supervisor_id: str | None = Field(default=None, min_length=3, max_length=80)
     id: str = Field(min_length=2, max_length=40, pattern=r"^[a-z0-9-]+$")
     name: str = Field(min_length=3, max_length=100)
     area: str = Field(min_length=2, max_length=100)
     assigned_count: int = Field(default=0, ge=0, le=10000)
+    shift_start: str | None = Field(default=None, pattern=SHIFT_PATTERN)
+    shift_end: str | None = Field(default=None, pattern=SHIFT_PATTERN)
 
 
 class AccessBody(BaseModel):
@@ -132,6 +140,18 @@ class AccessBody(BaseModel):
 
 class ResetBody(BaseModel):
     confirm: str = Field(min_length=1, max_length=40)
+
+
+class AttendanceTimeBody(BaseModel):
+    """Admin correction of an existing record's check-in/check-out times (IST wall clock)."""
+
+    employee_id: str = Field(min_length=2, max_length=40)
+    location_id: str = Field(min_length=2, max_length=40)
+    day: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    check_in: str = Field(pattern=SHIFT_PATTERN)
+    check_out: str | None = Field(default=None, pattern=SHIFT_PATTERN)
+    # Overnight corrections: checkout can land on a later IST date than the check-in record.
+    check_out_day: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
 
 
 class LocationImportRow(BaseModel):
@@ -209,12 +229,15 @@ def audit(c, user, action: str, details: dict) -> None:
 def location_rows(user):
     with engine.connect() as c:
         if user["role"] == "admin":
-            return [dict(r) for r in c.execute(text("SELECT * FROM demo_locations ORDER BY name")).mappings()]
+            return [
+                dict(r)
+                for r in c.execute(text("SELECT * FROM demo_locations WHERE active=1 ORDER BY name")).mappings()
+            ]
         return [
             dict(r)
             for r in c.execute(
                 text(
-                    "SELECT l.* FROM demo_locations l JOIN demo_user_locations a ON a.location_id=l.id WHERE a.user_id=:user ORDER BY l.name"
+                    "SELECT l.* FROM demo_locations l JOIN demo_user_locations a ON a.location_id=l.id WHERE a.user_id=:user AND l.active=1 ORDER BY l.name"
                 ),
                 {"user": user["id"]},
             ).mappings()
@@ -231,8 +254,17 @@ def scope_params(user: dict) -> dict:
     return {} if user["role"] == "admin" else {"__scope_user": user["id"]}
 
 
-def require_location_access(c, user: dict, location_id: str):
-    row = c.execute(text("SELECT * FROM demo_locations WHERE id=:id"), {"id": location_id}).mappings().first()
+def row_lock() -> str:
+    """Dialect-safe row-lock suffix: serializes check-in against admin removals on PostgreSQL."""
+    return " FOR UPDATE" if engine.dialect.name != "sqlite" else ""
+
+
+def require_location_access(c, user: dict, location_id: str, lock: bool = False):
+    row = (
+        c.execute(text("SELECT * FROM demo_locations WHERE id=:id" + (row_lock() if lock else "")), {"id": location_id})
+        .mappings()
+        .first()
+    )
     if not row:
         raise HTTPException(404, "Location not found")
     if (
@@ -300,7 +332,13 @@ def locations(user=Depends(current_user)):
 
 @app.get("/api/employees")
 def employees(location_id: str | None = None, q: str = "", user=Depends(current_user)):
-    sql = "SELECT * FROM demo_employees WHERE active=1 AND " + scoped_sql(user, "location_id")
+    # Employees of removed locations and unassigned employees stay out of branch lists; the
+    # directory still shows unassigned ones so admins can place them later.
+    sql = (
+        "SELECT * FROM demo_employees WHERE active=1 "
+        "AND (location_id IS NULL OR location_id IN (SELECT id FROM demo_locations WHERE active=1)) AND "
+        + scoped_sql(user, "location_id")
+    )
     params = scope_params(user)
     with engine.connect() as c:
         if location_id:
@@ -321,12 +359,15 @@ def reject_duplicate_import_ids(ids, kind):
 
 
 def insert_employee_row(c, employee_id, name, phone, role, location_id):
-    """Create an active employee and count them against their location."""
+    """Create an active employee and count them against their location, when assigned."""
     c.execute(
-        text("INSERT INTO demo_employees VALUES (:id,:name,:phone,:role,:location,1)"),
+        text(
+            "INSERT INTO demo_employees (id,name,phone,role,location_id,active) VALUES (:id,:name,:phone,:role,:location,1)"
+        ),
         {"id": employee_id, "name": name, "phone": phone, "role": role, "location": location_id},
     )
-    c.execute(text("UPDATE demo_locations SET assigned_count=assigned_count+1 WHERE id=:id"), {"id": location_id})
+    if location_id:
+        c.execute(text("UPDATE demo_locations SET assigned_count=assigned_count+1 WHERE id=:id"), {"id": location_id})
 
 
 def update_employee_row(c, employee_id, name, phone, role, location_id):
@@ -361,7 +402,8 @@ def add_employee(body: EmployeeBody, user=Depends(current_user)):
         raise HTTPException(403, "Admin required")
     require_role_write(user, body.role)
     with engine.begin() as c:
-        require_location_access(c, user, body.location_id)
+        if body.location_id:
+            require_location_access(c, user, body.location_id)
         employee_id = new_employee_id(c)
         insert_employee_row(c, employee_id, body.name, body.phone, body.role, body.location_id)
         audit(c, user, "employee.create", {"employee_id": employee_id, "location_id": body.location_id})
@@ -374,6 +416,46 @@ def add_employee(body: EmployeeBody, user=Depends(current_user)):
         }
 
 
+@app.delete("/api/employees/{employee_id}")
+def remove_employee(employee_id: str, user=Depends(current_user)):
+    """Admin removal. The record is retired (active=0) so attendance history is kept."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        row = (
+            c.execute(
+                text("SELECT * FROM demo_employees WHERE id=:id AND active=1" + row_lock()), {"id": employee_id}
+            )
+            .mappings()
+            .first()
+        )
+        if not row:
+            raise HTTPException(404, "Employee not found")
+        open_checkins = (
+            c.execute(
+                text("SELECT COUNT(*) FROM demo_attendance WHERE employee_id=:id AND status='checked_in'"),
+                {"id": employee_id},
+            ).scalar()
+            or 0
+        )
+        if open_checkins:
+            raise HTTPException(
+                409,
+                "Cannot remove this employee yet: they still have an open check-in. "
+                "Record their check-out first, then remove them. Their attendance history is kept either way.",
+            )
+        c.execute(text("UPDATE demo_employees SET active=0 WHERE id=:id"), {"id": employee_id})
+        if row["location_id"]:
+            c.execute(
+                text(
+                    "UPDATE demo_locations SET assigned_count=CASE WHEN assigned_count>0 THEN assigned_count-1 ELSE 0 END WHERE id=:id"
+                ),
+                {"id": row["location_id"]},
+            )
+        audit(c, user, "employee.delete", {"employee_id": employee_id, "location_id": row["location_id"]})
+    return {"id": employee_id, "status": "removed"}
+
+
 @app.post("/api/employees/import")
 def import_employees(body: EmployeeImportBody, user=Depends(current_user)):
     if user["role"] != "admin":
@@ -383,7 +465,8 @@ def import_employees(body: EmployeeImportBody, user=Depends(current_user)):
     with engine.begin() as c:
         for row in body.rows:
             require_role_write(user, row.role)
-            require_location_access(c, user, row.location_id)
+            if row.location_id:
+                require_location_access(c, user, row.location_id)
             employee_id = row.id or new_employee_id(c)
             existing = (
                 c.execute(text("SELECT * FROM demo_employees WHERE id=:id"), {"id": employee_id}).mappings().first()
@@ -439,15 +522,19 @@ def check_in(body: CheckBody, user=Depends(current_user)):
     stamp = utcnow().isoformat()
     with engine.begin() as c:
         emp = (
-            c.execute(text("SELECT * FROM demo_employees WHERE id=:id AND active=1"), {"id": body.employee_id})
+            c.execute(
+                text("SELECT * FROM demo_employees WHERE id=:id AND active=1" + row_lock()), {"id": body.employee_id}
+            )
             .mappings()
             .first()
         )
         if not emp:
             raise HTTPException(404, "Employee not found")
+        if not emp["location_id"]:
+            raise HTTPException(409, "Employee has no location assigned yet. Ask an admin to assign one.")
         if emp["location_id"] != body.location_id:
             raise HTTPException(409, "Employee is assigned to another location")
-        require_location_access(c, user, body.location_id)
+        require_location_access(c, user, body.location_id, lock=True)
         existing = (
             c.execute(
                 text("SELECT * FROM demo_attendance WHERE employee_id=:employee AND day=:day"),
@@ -506,6 +593,74 @@ def check_out(body: CheckBody, user=Depends(current_user)):
         )
         audit(c, user, "attendance.checkout", body.model_dump())
         return {"employee_id": body.employee_id, "name": row["name"], "status": "completed", "check_out": stamp}
+
+
+def ist_stamp(day_text: str, hhmm: str) -> str:
+    """Convert an IST wall-clock day + HH:MM into the stored UTC ISO timestamp."""
+    hour, minute = (int(part) for part in hhmm.split(":"))
+    local_value = datetime.combine(date.fromisoformat(day_text), dt_time(hour, minute), tzinfo=LOCAL_TZ)
+    return local_value.astimezone(timezone.utc).isoformat()
+
+
+@app.patch("/api/attendance/times")
+def edit_attendance_times(body: AttendanceTimeBody, user=Depends(current_user)):
+    """Admin-only time correction for an existing attendance record."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Only admins can modify attendance times")
+    try:
+        parsed_day = date.fromisoformat(body.day)
+    except ValueError:
+        raise HTTPException(400, "Invalid day") from None
+    out_day_text = body.check_out_day or body.day
+    try:
+        out_day = date.fromisoformat(out_day_text)
+    except ValueError:
+        raise HTTPException(400, "Invalid check-out date") from None
+    if body.check_out and out_day < parsed_day:
+        raise HTTPException(400, "Check-out date cannot be before the check-in date")
+    check_in = ist_stamp(body.day, body.check_in)
+    check_out = ist_stamp(out_day_text, body.check_out) if body.check_out else None
+    if check_out and check_out <= check_in:
+        raise HTTPException(400, "Check-out must be after the check-in time")
+    with engine.begin() as c:
+        require_location_access(c, user, body.location_id)
+        row = (
+            c.execute(
+                text("SELECT * FROM demo_attendance WHERE employee_id=:employee AND day=:day"),
+                {"employee": body.employee_id, "day": parsed_day.isoformat()},
+            )
+            .mappings()
+            .first()
+        )
+        if not row or row["location_id"] != body.location_id:
+            raise HTTPException(404, "No attendance record to modify for this employee and day")
+        status = "completed" if check_out else "checked_in"
+        c.execute(
+            text(
+                "UPDATE demo_attendance SET status=:status,check_in=:cin,check_out=:cout,source='admin edit' WHERE id=:id"
+            ),
+            {"status": status, "cin": check_in, "cout": check_out, "id": row["id"]},
+        )
+        audit(
+            c,
+            user,
+            "attendance.times.edit",
+            {
+                "employee_id": body.employee_id,
+                "location_id": body.location_id,
+                "day": parsed_day.isoformat(),
+                "before": {"check_in": row["check_in"], "check_out": row["check_out"], "status": row["status"]},
+                "after": {"check_in": check_in, "check_out": check_out, "status": status},
+            },
+        )
+    return {
+        "employee_id": body.employee_id,
+        "day": parsed_day.isoformat(),
+        "check_out_day": out_day.isoformat() if check_out else None,
+        "status": status,
+        "check_in": check_in,
+        "check_out": check_out,
+    }
 
 
 @app.get("/api/dashboard")
@@ -854,8 +1009,17 @@ def create_location(body: LocationBody, user=Depends(current_user)):
             if supervisor != "supervisor":
                 raise HTTPException(400, "Choose an existing supervisor")
         c.execute(
-            text("INSERT INTO demo_locations VALUES (:id,:name,:area,:count)"),
-            {"id": body.id, "name": body.name, "area": body.area, "count": body.assigned_count},
+            text(
+                "INSERT INTO demo_locations (id,name,area,assigned_count,shift_start,shift_end,active) VALUES (:id,:name,:area,:count,:shift_start,:shift_end,1)"
+            ),
+            {
+                "id": body.id,
+                "name": body.name,
+                "area": body.area,
+                "count": body.assigned_count,
+                "shift_start": body.shift_start,
+                "shift_end": body.shift_end,
+            },
         )
         if body.supervisor_id is not None:
             c.execute(
@@ -864,6 +1028,58 @@ def create_location(body: LocationBody, user=Depends(current_user)):
             )
         audit(c, user, "settings.location.create", body.model_dump())
     return body.model_dump()
+
+
+@app.delete("/api/settings/locations/{location_id}")
+def remove_location(location_id: str, user=Depends(current_user)):
+    """Admin removal. The branch is retired (active=0) so attendance history is kept."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        row = (
+            c.execute(
+                text("SELECT * FROM demo_locations WHERE id=:id AND active=1" + row_lock()), {"id": location_id}
+            )
+            .mappings()
+            .first()
+        )
+        if not row:
+            raise HTTPException(404, "Location not found")
+        assigned = (
+            c.execute(
+                text("SELECT COUNT(*) FROM demo_employees WHERE location_id=:id AND active=1"), {"id": location_id}
+            ).scalar()
+            or 0
+        )
+        open_checkins = (
+            c.execute(
+                text("SELECT COUNT(*) FROM demo_attendance WHERE location_id=:id AND status='checked_in'"),
+                {"id": location_id},
+            ).scalar()
+            or 0
+        )
+        if assigned or open_checkins:
+            blockers = []
+            if assigned:
+                blockers.append(f"{assigned} employee(s) are still assigned here")
+            if open_checkins:
+                blockers.append(f"{open_checkins} check-in(s) are still open")
+            raise HTTPException(
+                409,
+                "Cannot remove this branch yet: "
+                + " and ".join(blockers)
+                + ". Reassign employees to another branch (Employees > Import keeps their IDs and updates their "
+                "location) or remove them, and record the open check-outs first. Attendance history is kept either way.",
+            )
+        c.execute(text("UPDATE demo_locations SET active=0 WHERE id=:id"), {"id": location_id})
+        c.execute(text("DELETE FROM demo_user_locations WHERE location_id=:id"), {"id": location_id})
+        audit(
+            c,
+            user,
+            "settings.location.delete",
+            {"location_id": location_id, "name": row["name"], "grants_removed": True},
+        )
+    return {"id": location_id, "status": "removed"}
 
 
 def generated_location_id(name: str) -> str:
@@ -885,13 +1101,17 @@ def import_locations(body: LocationImportBody, user=Depends(current_user)):
             )
             if existing:
                 c.execute(
-                    text("UPDATE demo_locations SET name=:name,area=:area,assigned_count=:count WHERE id=:id"),
+                    text(
+                        "UPDATE demo_locations SET name=:name,area=:area,assigned_count=:count,active=1 WHERE id=:id"
+                    ),
                     {"id": location_id, "name": row.name, "area": row.area, "count": row.assigned_count},
                 )
                 updated += 1
             else:
                 c.execute(
-                    text("INSERT INTO demo_locations VALUES (:id,:name,:area,:count)"),
+                    text(
+                        "INSERT INTO demo_locations (id,name,area,assigned_count,shift_start,shift_end,active) VALUES (:id,:name,:area,:count,NULL,NULL,1)"
+                    ),
                     {"id": location_id, "name": row.name, "area": row.area, "count": row.assigned_count},
                 )
                 created += 1
@@ -921,9 +1141,25 @@ def create_access(body: AccessBody, user=Depends(current_user)):
 
 
 # The frontend is three static files: this HTML shell plus its stylesheet and script below.
+# The shell references the assets with a content fingerprint (?v=...) so a deploy that
+# changes them gets a fresh URL, and the shell itself is no-cache so clients always
+# pick up the current fingerprint.
+def _asset_version(*paths: Path) -> str:
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:12]
+
+
+ASSET_VERSION = _asset_version(ROOT / "attendance-app.js", ROOT / "attendance-app.css")
+
+
 @app.get("/app")
 def frontend():
-    return FileResponse(ROOT / "attendance-app.html")
+    html = (ROOT / "attendance-app.html").read_text(encoding="utf-8")
+    html = html.replace('href="/attendance-app.css"', f'href="/attendance-app.css?v={ASSET_VERSION}"')
+    html = html.replace('src="/attendance-app.js"', f'src="/attendance-app.js?v={ASSET_VERSION}"')
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/attendance-app.css")

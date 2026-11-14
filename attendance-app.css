@@ -1191,3 +1191,87 @@ button {
     gap: 7px;
   }
 }
+
+/* Shift timing row inside the Add location form. */
+.shiftRow {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+.shiftRow > div {
+  flex: 1;
+}
+
+/* Location detail rows (shift timing). */
+.detailRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 2px;
+  font-size: 13px;
+}
+.detailRow span {
+  color: var(--muted, #6b7280);
+}
+
+/* Small edit affordance on attendance rows. */
+.iconBtn {
+  margin-left: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--blue);
+  padding: 6px 9px;
+  font-size: 12px;
+}
+
+/* Destructive actions. */
+.dangerText {
+  color: #c0392b !important;
+  border-color: #e5b8b2 !important;
+}
+.dangerBtn {
+  background: #c0392b !important;
+}
+
+/* Confirmation overlay (check-out, removals). */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 50;
+}
+.modalCard {
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px;
+  width: 100%;
+  max-width: 340px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.25);
+}
+.modalCard h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+.confirmLine {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.confirmLine span {
+  color: var(--muted, #6b7280);
+}
+.modalActions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+.modalActions button {
+  flex: 1;
+}
