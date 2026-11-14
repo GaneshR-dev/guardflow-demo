@@ -482,3 +482,128 @@ def test_concurrent_replacements_leave_one_consistent_set():
     assert got in (option_a, option_b), got
     # And the legacy mirror matches the surviving first window.
     assert row["shift_start"] == got[0][1] and row["shift_end"] == got[0][2]
+
+
+def test_equal_time_pair_rejected_on_both_create_paths():
+    headers = auth()
+    # Legacy pair path: the 422 comes from request validation, not an unhandled 500.
+    created = client.post(
+        "/api/settings/locations",
+        headers=headers,
+        json={"id": "loc-eq-pair", "name": "Equal Pair", "area": "Area", "shift_start": "06:00", "shift_end": "06:00"},
+    )
+    assert created.status_code == 422, created.text
+    # Explicit list path: same rule through the shifts field.
+    created = client.post(
+        "/api/settings/locations",
+        headers=headers,
+        json={
+            "id": "loc-eq-list",
+            "name": "Equal List",
+            "area": "Area",
+            "shifts": [{"shift_start": "06:00", "shift_end": "06:00"}],
+        },
+    )
+    assert created.status_code == 422, created.text
+    assert location_row_or_none(headers, "loc-eq-pair") is None
+    assert location_row_or_none(headers, "loc-eq-list") is None
+
+
+def location_row_or_none(headers, location_id):
+    rows = client.get("/api/locations", headers=headers).json()
+    return next((loc for loc in rows if loc["id"] == location_id), None)
+
+
+def test_labels_round_trip_through_replace():
+    # A label set through the API (import, older UI) survives an edit-save that sends
+    # the returned rows back unchanged - the UI must not null labels out.
+    headers = auth()
+    put = client.put(
+        "/api/settings/locations/loc-legacy-pair/shifts",
+        headers=headers,
+        json={
+            "shifts": [
+                {"label": "Morning", "shift_start": "06:00", "shift_end": "14:00"},
+                {"label": "Night", "shift_start": "22:00", "shift_end": "06:00"},
+            ]
+        },
+    )
+    assert put.status_code == 200, put.text
+    row = location_row(headers, "loc-legacy-pair")
+    assert [s["label"] for s in row["shifts"]] == ["Morning", "Night"]
+    # Round-trip: send exactly what the GET returned (what the slot UI now does).
+    put = client.put(
+        "/api/settings/locations/loc-legacy-pair/shifts", headers=headers, json={"shifts": row["shifts"]}
+    )
+    assert put.status_code == 200, put.text
+    assert [s["label"] for s in location_row(headers, "loc-legacy-pair")["shifts"]] == ["Morning", "Night"]
+
+
+def _pg_boot_after(ddl_statements):
+    """Drop the shift table and any adversarial decoys, apply DDL, boot in a subprocess."""
+    with engine.begin() as c:
+        c.execute(text("DROP TABLE IF EXISTS demo_location_shifts CASCADE"))
+        c.execute(text("DROP TABLE IF EXISTS demo_shifts_decoy CASCADE"))
+        for ddl in ddl_statements:
+            c.execute(text(ddl))
+    return subprocess.run(
+        [sys.executable, "-c", "import demo_db; demo_db.init_db()"],
+        check=False,
+        cwd=os.path.join(os.path.dirname(__file__), "..", "backend"),
+        env=dict(os.environ),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+@pytest.mark.skipif(engine.dialect.name == "sqlite", reason="requires isolated PostgreSQL")
+def test_adversarial_existing_objects_fail_boot_closed():
+    good_table = "CREATE TABLE demo_location_shifts (id TEXT PRIMARY KEY, location_id TEXT NOT NULL, label TEXT, shift_start TEXT NOT NULL, shift_end TEXT NOT NULL, position INTEGER NOT NULL)"
+    scenarios = [
+        # Shape deviations: names alone are not a compatibility check.
+        ("nullable required column", [good_table.replace("shift_start TEXT NOT NULL", "shift_start TEXT")]),
+        ("wrong column type", [good_table.replace("position INTEGER NOT NULL", "position TEXT NOT NULL")]),
+        (
+            "extra NOT NULL column without default",
+            [good_table.replace("position INTEGER NOT NULL)", "position INTEGER NOT NULL, tenant TEXT NOT NULL)")],
+        ),
+        ("missing primary key", [good_table.replace("id TEXT PRIMARY KEY", "id TEXT NOT NULL")]),
+        # Index deviations: a same-name index proves nothing about the guarantee.
+        ("same-name non-unique index", [good_table, "CREATE INDEX demo_location_shifts_loc_pos ON demo_location_shifts (location_id, position)"]),
+        ("same-name wrong-column index", [good_table, "CREATE UNIQUE INDEX demo_location_shifts_loc_pos ON demo_location_shifts (location_id)"]),
+        ("index name taken by another table", [good_table, "CREATE TABLE demo_shifts_decoy (id TEXT PRIMARY KEY)", "CREATE UNIQUE INDEX demo_location_shifts_loc_pos ON demo_shifts_decoy (id)"]),
+    ]
+    for label, ddl in scenarios:
+        try:
+            result = _pg_boot_after(ddl)
+            assert result.returncode != 0, f"boot accepted {label}:\n{result.stdout}\n{result.stderr}"
+            combined = result.stdout + result.stderr
+            assert "refusing to boot" in combined, f"unclear failure for {label}:\n{combined[-800:]}"
+            # The failed boot leaves the foreign objects untouched (whole-transaction rollback).
+            with engine.connect() as c:
+                count = c.execute(
+                    text(
+                        "SELECT count(*) FROM information_schema.tables "
+                        "WHERE table_schema=current_schema() AND table_name='demo_location_shifts'"
+                    )
+                ).scalar()
+            assert count == 1, f"boot modified the pre-existing table for {label}"
+        finally:
+            _pg_boot_after([])  # no foreign object survives into the next scenario
+    # Equivalent enforcement under a different index name is accepted as-is.
+    result = _pg_boot_after(
+        [good_table, "CREATE UNIQUE INDEX my_existing_uq ON demo_location_shifts (location_id, position)"]
+    )
+    assert result.returncode == 0, f"boot rejected an equivalent index:\n{result.stderr[-800:]}"
+    with engine.connect() as c:
+        ours = c.execute(
+            text(
+                "SELECT count(*) FROM pg_indexes WHERE schemaname=current_schema() "
+                "AND tablename='demo_location_shifts' AND indexname='demo_location_shifts_loc_pos'"
+            )
+        ).scalar()
+    assert ours == 0, "redundant second unique index created"
+    # Clean boot afterwards leaves the shared database usable for the rest of the suite.
+    result = _pg_boot_after([])
+    assert result.returncode == 0, f"clean boot failed after adversarial scenarios:\n{result.stderr[-800:]}"
