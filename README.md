@@ -47,6 +47,14 @@ python3 -m pytest -q tests/
 
 Covers login (including throttling and server-side logout revocation), scoped locations, dashboard, check-in/check-out, duplicate prevention, employee creation/import with validation and rollback, reports with computed hours, settings, permissions and six-month sample history.
 
+## Working with AI tools
+
+Collaborators work in this repository through AI tools. Each AI tool must obey these files:
+
+- `AGENTS.md`: rules for all AI tools (ASD-STE100, UX, UI theme, tests, commits). `CLAUDE.md` loads it for Claude Code.
+- `docs/UI-GUIDE.md`: colour tokens and existing components.
+- `docs/WORKLOG.md`: one entry for each task, newest first.
+
 ## Security notes
 
 - HTML escaping on all dynamic values rendered by the frontend; parameterized SQL throughout the backend.
