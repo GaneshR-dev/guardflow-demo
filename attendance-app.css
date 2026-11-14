@@ -1277,25 +1277,25 @@ button {
   flex-wrap: wrap;
   gap: 10px;
 }
+/* Start and end stay side by side, including on phones: two equal columns
+   that are allowed to shrink so the time inputs never overflow the card. */
 .shiftTimes > div {
-  flex: 1 1 45%;
-  min-width: 140px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.shiftTimes input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 .shiftAdd {
   display: block;
   width: 100%;
   text-align: center;
-  border: 1px dashed var(--line);
-  border-radius: 12px;
-  padding: 10px;
-  margin-top: 8px;
-}
-
-/* On phones the two time fields stack full-width so they stay readable. */
-@media (max-width: 480px) {
-  .shiftTimes > div {
-    flex: 1 1 100%;
-  }
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 12px;
+  margin-top: 10px;
 }
 
 /* Location detail rows (shift timing). */
