@@ -62,6 +62,24 @@ app = FastAPI(
 bearer = HTTPBearer(auto_error=False)
 
 
+SECURITY_HEADERS = {
+    # The frontend is one self-contained HTML file with inline style/script, so CSP allows inline for those only.
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    # Browsers ignore HSTS on plain-HTTP responses, so this is safe to send unconditionally.
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+}
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
 
 class LoginBody(BaseModel):
     username: str = Field(min_length=1, max_length=80)
@@ -319,8 +337,12 @@ def import_employees(body: EmployeeImportBody, user=Depends(current_user)):
 
 
 @app.get("/api/attendance")
-def attendance(location_id: str, day: str | None = None, q: str = "", status: str = "", user=Depends(current_user)):
+def attendance(location_id: str, day: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"), q: str = "", status: str = "", user=Depends(current_user)):
     selected_day = day or local_today().isoformat()
+    try:
+        parsed_day = date.fromisoformat(selected_day)
+    except ValueError:
+        raise HTTPException(400, "Invalid day")
     sql = """
       SELECT a.id,e.id employee_id,e.name,e.phone,e.role,e.location_id,
              COALESCE(a.status,'not_in') status,a.check_in,a.check_out,
@@ -338,7 +360,7 @@ def attendance(location_id: str, day: str | None = None, q: str = "", status: st
     with engine.connect() as c:
         require_location_access(c, user, location_id)
         rows = [dict(r) for r in c.execute(text(sql), params).mappings()]
-        summary = attendance_summary(c, location_id, date.fromisoformat(selected_day))
+        summary = attendance_summary(c, location_id, parsed_day)
     return {"day": selected_day, "summary": summary, "rows": rows}
 
 
@@ -477,13 +499,21 @@ def export_rows(month, day, location_id, user):
         return [dict(r) for r in c.execute(text(sql), params).mappings()]
 
 
+def csv_cell_safe(value):
+    """Keep user-controlled text from opening as a formula in spreadsheet apps (CSV export only)."""
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
 @app.get("/api/reports/export.csv")
 def export_csv(month: str = Query(pattern=r"^\d{4}-\d{2}$"), location_id: str = "", day: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"), user=Depends(current_user)):
     # Existing CSV consumers retain the original field names and timestamp values.
     rows = export_rows(month, day, location_id, user)
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=["day", "employee_id", "name", "location", "status", "check_in", "check_out", "source"])
-    writer.writeheader(); writer.writerows(rows)
+    writer.writeheader()
+    writer.writerows({key: csv_cell_safe(value) for key, value in row.items()} for row in rows)
     return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=guardian-{day or month}.csv"})
 
 
