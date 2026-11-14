@@ -881,32 +881,34 @@ function siteName(d, id) {
 function accessRow(u, d) {
   const isAdmin = state.user.role === 'admin';
   const disabled = u.active === 0;
+  const editing = state.editAccess === u.id;
   const scope =
     u.role === 'admin'
       ? 'All locations'
-      : u.location_ids.map((id) => siteName(d, id)).join(', ') || 'No locations';
+      : u.location_ids.map((id) => siteName(d, id)).join(', ') || 'No sites assigned';
   let actions = '';
-  if (isAdmin && u.role === 'supervisor') {
-    actions = `<span style="margin-left:auto;flex-shrink:0;display:flex;flex-direction:column;gap:8px;text-align:right">${
+  if (isAdmin && u.role === 'supervisor' && !editing) {
+    actions = `<div class="accessActions">${
       disabled
         ? `<button class="link" data-en-access="${esc(u.id)}" data-name="${esc(u.name)}">Enable</button>`
         : `<button class="link" data-edit-access="${esc(u.id)}">Edit sites</button><button class="link dangerText" data-del-access="${esc(u.id)}" data-name="${esc(u.name)}">Disable</button>`
-    }</span>`;
+    }</div>`;
   }
-  const editForm =
-    state.editAccess === u.id
-      ? `<form id="accessEditForm" data-user="${esc(u.id)}" style="margin:4px 0 10px"><div class="field"><label>Sites ${esc(
-          u.name,
-        )} can work at</label><select name="location_ids" multiple size="${Math.min(
-          Math.max(d.locations.length, 2),
-          6,
-        )}">${d.locations
-          .map((l) => `<option value="${esc(l.id)}" ${u.location_ids.includes(l.id) ? 'selected' : ''}>${esc(l.name)}</option>`)
-          .join('')}</select><small class="helper" style="display:block;margin-top:4px">Takes effect on their next request. Saving with none selected leaves them with "No location access assigned" until you add a site. Attendance history is not affected.</small></div><button class="secondary">Save sites</button> <button type="button" class="link" id="cancelAccessEdit">Cancel</button></form>`
-      : '';
-  return `<div class="person ${disabled ? 'disabledRow' : ''}"><span style="flex:1;min-width:0"><strong>${esc(u.name)} ${
+  const editForm = editing
+    ? `<div class="accessEdit"><form id="accessEditForm" data-user="${esc(u.id)}"><div class="field"><label>Sites ${esc(
+        u.name,
+      )} can work at</label><select name="location_ids" multiple size="${Math.min(
+        Math.max(d.locations.length, 2),
+        6,
+      )}">${d.locations
+        .map((l) => `<option value="${esc(l.id)}" ${u.location_ids.includes(l.id) ? 'selected' : ''}>${esc(l.name)}</option>`)
+        .join('')}</select><small class="helper" style="display:block;margin-top:4px">Takes effect on their next request. Saving with none selected leaves them with "No location access assigned" until you add a site. Attendance history is not affected.</small></div><button class="secondary">Save sites</button> <button type="button" class="link" id="cancelAccessEdit">Cancel</button></form></div>`
+    : '';
+  return `<div class="person accessCard ${disabled ? 'disabledRow' : ''}"><span class="accessTop"><span class="initials">${esc(
+    initials(u.name),
+  )}</span><span class="accessInfo"><strong>${esc(u.name)} ${
     disabled ? '<span class="badge grey">Disabled</span>' : ''
-  }</strong><small>${esc(u.id)} · ${esc(u.role)} · ${esc(scope)}</small></span>${actions}</div>${editForm}`;
+  }</strong><small>${esc(u.id)} · ${esc(u.role)}</small><small>${esc(scope)}</small></span></span>${actions}${editForm}</div>`;
 }
 function settings() {
   const d = state.settings;
