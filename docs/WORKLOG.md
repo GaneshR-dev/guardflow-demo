@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-14 · Shared error state on all screens · Claude Code · feat/reports
+- Request: Use the 403 and 404 states on the other screens too.
+- Changed: `attendance-app.js`: new `showScreenError()`, `screenErrorView()` and `friendlyError()`; Attendance, Check-in, Check-out, Home, Employees and Settings show the shared state for 403, 404, no network and server errors; check-in and check-out 403/404 show it too (409 stays in the banner); server errors show a plain message (also on Reports); some loaders had no error handling before. `AGENTS.md`, `docs/UI-GUIDE.md`: the new helpers.
+- Tests: `pytest -q tests/` without the 3 browser test files → 48 passed. Ruff → passed. Manual Playwright checks on the local app: Attendance 403/404/network + Try again, Choose location, check-in 409 and 404, Home 500 + Try again, Employees 500, Settings network + Try again, all Reports cases → all correct, no page errors.
+- Open items: None.
+
 ## 2026-11-14 · HTTP status in api(), 401, 403 and 404 handling · Claude Code · feat/reports
 - Request: Add `err.status` to `api()` and handle 401 and 404.
 - Changed: `attendance-app.js`: `api()` errors carry `status` (`httpError()`); a 401 (not on sign-in) calls `endSession()`, which clears the session and shows "Your session ended. Sign in again."; the Excel export does the same on 401; the Reports error state shows "No access to this location" (403) and "Location not found" (404) with "Choose location", and a clear message for 400/422.

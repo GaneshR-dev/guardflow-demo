@@ -208,6 +208,64 @@ function header() {
 function message() {
   return `${state.error && state.screen !== 'login' ? `<div class="error">${esc(state.error)}</div>` : ''}${state.notice ? `<div class="toast">${esc(state.notice)}</div>` : ''}`;
 }
+// Shared error state for a screen that could not load its data. Form and action
+// errors (400, 409, 422) stay in the error banner from message(); a 401 ends the session.
+const SCREEN_TITLES = {
+  attendance: 'Mark attendance',
+  add: 'Employee check-in',
+  checkout: 'Manage check-outs',
+  confirmed: 'Check-in recorded',
+  dashboard: 'Attendance overview',
+  home: 'Attendance overview',
+  employees: 'Employees',
+  locations: 'Locations',
+  settings: 'Settings',
+  menu: 'Menu',
+};
+const LOCATION_SCREENS = ['attendance', 'add', 'checkout', 'confirmed'];
+// Server errors (5xx) can carry internal text; show a plain message instead.
+const friendlyError = (status, message) =>
+  status >= 500 ? 'The server had a problem. Try again in a moment.' : message;
+function showScreenError(e, screen = state.screen) {
+  if (e?.status === 401 || !state.token) return;
+  state.screenError = { screen, status: e?.status || 0, message: e?.message || 'Request failed' };
+  state.screen = screen;
+  render();
+}
+function screenErrorView() {
+  const e = state.screenError;
+  const atLocation = LOCATION_SCREENS.includes(e.screen);
+  const choose = '<button class="secondary rpCta" data-screen-locations>Choose location</button>';
+  const home = '<button class="secondary rpCta" data-go="home">Go to Home</button>';
+  let body;
+  if (e.status === 403)
+    body = atLocation
+      ? emptyState(
+          ICON.emptyPin,
+          'No access to this location',
+          'Ask an admin for access, or choose another location.',
+          choose,
+        )
+      : emptyState(ICON.emptyPin, 'No access', 'Your account cannot open this page. Ask an admin for access.', home);
+  else if (e.status === 404)
+    body = atLocation
+      ? emptyState(
+          ICON.emptyPin,
+          'Location not found',
+          'This location no longer exists. Choose another location.',
+          choose,
+        )
+      : emptyState(ICON.emptyPin, 'Not found', 'This item no longer exists.', home);
+  else
+    body = emptyState(
+      ICON.wifiOff,
+      'Could not load this page',
+      friendlyError(e.status, e.message),
+      `<button class="primary rpCta" data-screen-retry>${ICON.retry}Try again</button>`,
+      'rpError',
+    );
+  return `<div class="page rp">${header()}<h1>${esc(SCREEN_TITLES[e.screen] || 'Guardian')}</h1>${body}</div>${nav()}`;
+}
 function login() {
   return `<div class="page noNav login"><div class="logo">G</div><h1>Guardian</h1><p class="sub">Sign in to manage today's attendance</p>${state.error ? `<div class="error" role="alert" style="margin-bottom:16px">${esc(state.error)}</div>` : ''}<form id="loginForm"><div class="field"><label>User ID</label><input name="username" placeholder="Enter your user ID" autocomplete="username" required></div><div class="field"><label>Password</label><input name="password" type="password" placeholder="Enter your password" autocomplete="current-password" required></div><div class="forgot"><button type="button" class="link" id="forgot">Forgot password?</button></div><button class="primary">Sign in</button></form><div class="demoBox"><b>DEMO ACCESS</b>Admin: admin.demo / demo123<br>Supervisor: supervisor.demo / demo123</div><div class="footerNote">© 2026 Guardian</div></div>${message()}`;
 }
@@ -425,7 +483,7 @@ function reportError(r) {
   return emptyState(
     ICON.wifiOff,
     'Could not load the report',
-    r.error + ' Your filters stay the same.',
+    friendlyError(r.errorStatus, r.error) + ' Your filters stay the same.',
     `<button class="primary rpCta" data-rretry>${ICON.retry}Try again</button>${r.loadedAt ? `<small>Last loaded at ${esc(r.loadedAt)}</small>` : ''}`,
     'rpError',
   );
@@ -646,6 +704,7 @@ async function render() {
   let html = '';
   try {
     if (!state.token) html = login();
+    else if (state.screenError?.screen === state.screen) html = screenErrorView();
     else if (state.screen === 'locations') {
       if (state.showLocationForm && state.user?.role === 'admin' && !state.settings)
         state.settings = await api('/api/settings');
@@ -662,8 +721,12 @@ async function render() {
     else if (state.screen === 'settings') html = settings();
     else html = locations();
   } catch (e) {
-    state.error = e.message;
-    html = state.token ? locations() : login();
+    // A screen could not load its data (for example the Home dashboard): show the
+    // shared error state for that screen. A 401 has already cleared the token.
+    if (state.token) {
+      state.screenError = { screen: state.screen, status: e.status || 0, message: e.message };
+      html = screenErrorView();
+    } else html = login();
   }
   $app.innerHTML = html + confirmModal();
   bind();
@@ -676,7 +739,7 @@ function bind() {
     (b) =>
       (b.onclick = () => {
         state.filter = b.dataset.filter;
-        loadAttendance();
+        loadAttendance().catch((e) => showScreenError(e, 'attendance'));
       }),
   );
   const lf = document.getElementById('loginForm');
@@ -688,7 +751,6 @@ function bind() {
         state.location = state.locations.find((l) => l.id === b.dataset.useLoc);
         state.selected = null;
         state.detail = null;
-        await loadAttendance();
         go('attendance');
       }),
   );
@@ -737,10 +799,7 @@ function bind() {
     };
   const cl = document.getElementById('continueLoc');
   if (cl)
-    cl.onclick = async () => {
-      await loadAttendance();
-      go('attendance');
-    };
+    cl.onclick = () => go('attendance');
   const al = document.getElementById('attendanceLocation');
   if (al)
     al.onchange = async (e) => {
@@ -754,8 +813,7 @@ function bind() {
       try {
         await loadAttendance();
       } catch (err) {
-        state.error = err.message;
-        render();
+        showScreenError(err, 'attendance');
       }
     };
   const as = document.getElementById('attSearch');
@@ -763,7 +821,7 @@ function bind() {
     as.oninput = (e) => {
       state.query = e.target.value;
       clearTimeout(window.q);
-      window.q = setTimeout(loadAttendance, 250);
+      window.q = setTimeout(() => loadAttendance().catch((e) => showScreenError(e, 'attendance')), 250);
     };
   const ls = document.getElementById('locSearch');
   if (ls)
@@ -847,6 +905,30 @@ function bind() {
   if (ef) ef.onsubmit = createEmployee;
   const acf = document.getElementById('accessForm');
   if (acf) acf.onsubmit = createAccess;
+  document.querySelectorAll('[data-screen-retry]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        const screen = state.screenError?.screen || state.screen;
+        state.screenError = null;
+        if (screen === 'settings') openSettings(state.settingsView || '');
+        else go(screen, { replace: true });
+      }),
+  );
+  // 403/404 on a location screen: reload the location list (the location may be
+  // removed or no longer assigned), then let the user choose again.
+  document.querySelectorAll('[data-screen-locations]').forEach(
+    (b) =>
+      (b.onclick = async () => {
+        b.disabled = true;
+        try {
+          await bootstrap();
+        } catch (e) {
+          if (e.status === 401) return;
+          // Keep the old list when the reload fails; the Locations screen still opens.
+        }
+        go('locations');
+      }),
+  );
   bindReports();
 }
 // In-app history: hash changes (#attendance, #reports, ...) are kept in sync with
@@ -888,6 +970,7 @@ function startHistory(screen) {
 function go(screen, opts = {}) {
   state.error = '';
   state.notice = '';
+  state.screenError = null;
   if (screen === 'home') screen = state.user?.role === 'admin' ? 'dashboard' : 'attendance';
   if (screen === 'settings' && !state.settings) {
     openSettings(state.settingsView || '');
@@ -903,11 +986,13 @@ function go(screen, opts = {}) {
   }
   if (!opts.fromPop) pushCurrent(opts.replace);
   if (['attendance', 'add', 'checkout'].includes(screen)) {
-    loadAttendance().then(render);
+    loadAttendance()
+      .then(render)
+      .catch((e) => showScreenError(e, screen));
     return;
   }
   if (screen === 'employees') {
-    loadEmployees();
+    loadEmployees().catch((e) => showScreenError(e, 'employees'));
     return;
   }
   if (screen === 'reports') {
@@ -1011,6 +1096,7 @@ async function doCheckin() {
     await loadAttendance();
     go('confirmed');
   } catch (e) {
+    if (e.status === 403 || e.status === 404) return showScreenError(e, 'attendance');
     state.error = e.message;
     render();
   }
@@ -1047,6 +1133,7 @@ async function doCheckout(id) {
     state.screen = 'checkout';
     toast('Check-out recorded');
   } catch (e) {
+    if (e.status === 403 || e.status === 404) return showScreenError(e, 'attendance');
     state.error = e.message;
     render();
   }
@@ -1264,8 +1351,8 @@ async function openSettings(kind) {
     state.settings = await api('/api/settings');
     go('settings', { settingsView: kind });
   } catch (e) {
-    state.error = e.message;
-    render();
+    state.settingsView = kind;
+    showScreenError(e, 'settings');
   }
 }
 async function saveProfile(e) {

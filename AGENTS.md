@@ -59,8 +59,9 @@ Each screen and each action must handle loading, success and all failures. Do no
 
 **Requests**
 - Call the backend only with `api()` in `attendance-app.js`. Do not write a second fetch wrapper.
-- `api()` turns a network failure into a readable message (`err.network`). It also turns the server `detail` into the message.
-- If you need the HTTP status code, add `err.status` in `api()` one time. Then use it everywhere.
+- `api()` turns a network failure into a readable message (`err.network`). It also turns the server `detail` into the message, and puts the HTTP code in `err.status`.
+- `api()` handles 401 for you: `endSession()` clears the session and shows the sign-in screen. Do not handle 401 again.
+- When a screen cannot load its data, call `showScreenError(err, screen)`. It shows the correct state for 403, 404, no network and server errors. Do not write a new error screen.
 - Ignore old answers when the user changes a filter quickly. Use a request number, as `loadReport()` does with `seq`.
 
 **Loading**

@@ -58,7 +58,10 @@ Darker text colours for badges and selected states. Use them to keep text contra
 | `esc(value)` | Escapes a value for HTML. Use it for each dynamic value. |
 | `fmtDate()`, `fmtMonth()`, `fmtTime()` | Date and time text (en-GB) |
 | `initials(name)`, `plural(n, word)` | Avatar initials, "1 guard" / "2 guards" |
-| `api(path, options)` | Calls the backend with the session token. Gives readable errors. |
+| `api(path, options)` | Calls the backend with the session token. Gives readable errors with `err.status`. Ends the session on 401. |
+| `showScreenError(err, screen)` | Shows the shared error state for a screen that could not load (403, 404, no network, server error) |
+| `friendlyError(status, message)` | Gives a plain message for server errors (5xx) instead of internal text |
+| `endSession()` | Clears a refused session and shows the sign-in screen. `api()` calls it on 401. |
 
 ### CSS classes (`attendance-app.css`)
 
