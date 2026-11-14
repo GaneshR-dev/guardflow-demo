@@ -248,7 +248,7 @@ function attendance() {
 function editTimeForm() {
   const r = state.editTimes;
   if (!r) return '';
-  return `<div class="card addCard" id="timeEditCard"><strong>Edit times - ${esc(r.name)}</strong><p class="muted small">Only admins can modify attendance times. Times are Indian Standard Time.</p><form id="timeEditForm"><div class="field"><label>Date</label><input name="day" type="date" value="${todayISO()}" required></div><div class="field"><label>Check-in time (IST)</label><input name="check_in" type="time" value="${toHHMM(r.check_in)}" required></div><div class="field"><label>Check-out time (IST, leave empty if still working)</label><input name="check_out" type="time" value="${toHHMM(r.check_out)}"></div><button class="secondary">Save times</button> <button type="button" class="link" id="cancelTimeEdit">Cancel</button></form></div>`;
+  return `<div class="card addCard" id="timeEditCard"><strong>Edit times - ${esc(r.name)}</strong><p class="muted small">Only admins can modify attendance times. Times are Indian Standard Time.</p><form id="timeEditForm"><div class="field"><label>Date</label><input name="day" type="date" value="${todayISO()}" required></div><div class="field"><label>Check-in time (IST)</label><input name="check_in" type="time" value="${toHHMM(r.check_in)}" required></div><div class="field"><label>Check-out time (IST, leave empty if still working)</label><input name="check_out" type="time" value="${toHHMM(r.check_out)}"></div><div class="field"><label>Check-out date (IST, pick the next day for overnight shifts)</label><input name="check_out_day" type="date" value="${todayISO()}"></div><button class="secondary">Save times</button> <button type="button" class="link" id="cancelTimeEdit">Cancel</button></form></div>`;
 }
 function add() {
   const available = state.attendance.filter(
@@ -969,6 +969,7 @@ async function saveTimeEdit(e) {
         day: f.day,
         check_in: f.check_in,
         check_out: f.check_out || null,
+        check_out_day: f.check_out ? f.check_out_day || null : null,
       }),
     });
     state.editTimes = null;
