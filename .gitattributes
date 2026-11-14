@@ -1,0 +1,12 @@
+# Keep LF line endings in the repository and in every working copy,
+# so that different editors and AI tools do not change whole files.
+* text=auto eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.xlsx binary
+*.db binary

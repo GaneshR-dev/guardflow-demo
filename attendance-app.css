@@ -575,18 +575,599 @@ button {
 .small {
   font-size: 11px;
 }
-.reportRow {
+/* Reports screen (Day / Month / History). Colours follow the :root tokens; the
+   darker status text colours keep badge text at 4.5:1 or more on its tint. */
+.rp .top {
+  margin-bottom: 14px;
+}
+.rpTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.page .rpTitle h1 {
+  margin: 0;
+}
+.rp button:focus-visible,
+.rpSheet button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.rpExport {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--blue);
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.rpExport:disabled {
+  background: #f6f9fd;
+  color: #8a97a8;
+  cursor: not-allowed;
+}
+.rpTabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  background: #e6edf6;
+}
+.rpTab {
+  flex: 1;
+  min-height: 40px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #56657b;
+  font-size: 14px;
+  font-weight: 600;
+}
+.rpTab.active {
+  background: #fff;
+  color: var(--navy);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(20, 45, 90, 0.12);
+}
+.rpFilters {
   display: grid;
-  grid-template-columns: 1.1fr 0.7fr 0.7fr 0.8fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
 }
-.reportRow.employee {
-  grid-template-columns: 0.85fr 1.15fr 0.65fr 0.65fr 0.55fr;
+.rpPeriod {
+  position: relative;
 }
-/* Cleanup note: a `.reportRow.head` header style (small bold muted text) used to sit
-   here, but a malformed chunk before it (`gap:8px; ... font-size:11px}` with no opening
-   brace) swallowed it into an invalid selector, so browsers never applied it. Both the
-   malformed chunk and the unreachable rule were removed so rendering stays identical.
-   Re-add a styled `.reportRow.head` deliberately if report headers should look different. */
+.rpSelect {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+.rpSelect span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rpSelect svg {
+  flex: none;
+  color: #56657b;
+}
+.rpHiddenInput {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.rpStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+}
+.rpStat {
+  min-height: 58px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  text-align: left;
+}
+.rpStat strong {
+  font-size: 20px;
+  line-height: 1.2;
+}
+.rpStat span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.rpStat.active {
+  background: #e5eefc;
+}
+.rpStat.active strong,
+.rpStat.active span {
+  color: #1c4fb8;
+}
+.rpStat.active span {
+  font-weight: 600;
+}
+.rpStat.not_in.active {
+  background: var(--amberSoft);
+}
+.rpStat.not_in.active strong,
+.rpStat.not_in.active span {
+  color: #7d4900;
+}
+.rpHint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.rpHint.center {
+  margin-top: 12px;
+  text-align: center;
+}
+.rpListHead {
+  min-height: 44px;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.rpListHead span {
+  color: var(--muted);
+}
+.rpListHead .link {
+  min-height: 44px;
+  font-weight: 600;
+}
+.rpListTitle {
+  font-size: 16px;
+}
+.rpList {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+}
+.rpRow,
+.rpDay,
+.rpMonth {
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  background: #fff;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+}
+.rpRow + .rpRow,
+.rpDay + .rpDay,
+.rpMonth + .rpMonth {
+  border-top: 1px solid #edf1f7;
+}
+.rpDay svg {
+  flex: none;
+  color: var(--muted);
+}
+.rpAvatar {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--soft);
+  color: var(--blue);
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rpAvatar.amber {
+  background: var(--amberSoft);
+  color: #7d4900;
+}
+.rpWho {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rpWho strong {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rpWho small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.rpWhen {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rp .badge {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.rp .badge.green {
+  color: #0b6b42;
+}
+.rp .badge.amber {
+  color: #7d4900;
+}
+.rp .badge.blue {
+  background: #e5eefc;
+  color: #1c4fb8;
+}
+.rpNone {
+  margin: 0;
+  padding: 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.rpSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rpSummaryLine {
+  display: flex;
+  justify-content: space-between;
+  font-size: 15px;
+  font-weight: 600;
+}
+.rpSummary small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.rpOpen {
+  color: #7d4900;
+  font-weight: 600;
+}
+.rpBar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf1f7;
+}
+.rpBar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--blue);
+}
+.rpLoc .rpBar,
+.rpMonth .rpBar {
+  height: 6px;
+}
+.rpSection {
+  margin: 20px 0 10px;
+  font-size: 16px;
+  font-weight: 700;
+}
+.rpLoc {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+.rpLocHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.rpLocHead > span:first-child {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rpLocHead strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.rpLocHead small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.rpLocHead svg {
+  flex: none;
+  color: var(--muted);
+}
+.rpFigures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.rpFigures strong {
+  display: block;
+  font-size: 15px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.rpBackBar {
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.rpBack {
+  min-height: 44px;
+  padding: 0 8px 0 0;
+  border: 0;
+  background: none;
+  color: var(--blue);
+  font-size: 15px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.page h1.rpDetailTitle {
+  margin: 0;
+  font-size: 26px;
+}
+.rpDetailSub {
+  margin: 2px 0 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.rpDate {
+  width: 44px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+}
+.rpDate strong {
+  font-size: 17px;
+}
+.rpDate small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.rpMonthTitle {
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rpIconBtn {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rpIconBtn:disabled {
+  color: #8a97a8;
+}
+.rpEmpty {
+  padding: 56px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.rpEmptyIcon {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: var(--soft);
+  color: var(--blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rpEmpty.rpError .rpEmptyIcon {
+  background: #fdecee;
+  color: #b3263a;
+}
+.rpEmpty h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.rpEmpty p {
+  max-width: 300px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.rpEmpty small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.rpCta.primary,
+.rpCta.secondary {
+  width: auto;
+  height: auto;
+  min-height: 48px;
+  margin-top: 8px;
+  padding: 0 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.rpSkel {
+  display: block;
+  border-radius: 6px;
+  background: #e6edf6;
+  animation: rpPulse 1.2s ease-in-out infinite;
+}
+.rpSkel.round {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 50%;
+}
+@keyframes rpPulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rpSkel {
+    animation: none;
+  }
+}
+.rpScrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(16, 40, 76, 0.45);
+}
+.rpSheet {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  z-index: 31;
+  width: min(430px, 100%);
+  box-sizing: border-box;
+  padding: 10px 20px 28px;
+  border-radius: 24px 24px 0 0;
+  background: #fff;
+  box-shadow: 0 -8px 30px rgba(16, 40, 76, 0.18);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rpHandle {
+  align-self: center;
+  width: 40px;
+  height: 4px;
+  margin-bottom: 6px;
+  border-radius: 2px;
+  background: var(--line);
+}
+.rpSheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.rpSheetHead h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.rpSheet p {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.rpClose {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--soft);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rpOption {
+  width: 100%;
+  min-height: 64px;
+  margin-bottom: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+}
+.rpOption > span {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rpOption strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.rpOption small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.rpOption.active {
+  padding: 9px 13px;
+  border: 2px solid var(--blue);
+  background: #f3f7fe;
+}
+.rpOption svg {
+  color: var(--blue);
+}
 .toast {
   position: fixed;
   left: 50%;

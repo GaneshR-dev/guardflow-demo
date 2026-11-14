@@ -230,8 +230,7 @@ def location_rows(user):
     with engine.connect() as c:
         if user["role"] == "admin":
             return [
-                dict(r)
-                for r in c.execute(text("SELECT * FROM demo_locations WHERE active=1 ORDER BY name")).mappings()
+                dict(r) for r in c.execute(text("SELECT * FROM demo_locations WHERE active=1 ORDER BY name")).mappings()
             ]
         return [
             dict(r)
@@ -423,9 +422,7 @@ def remove_employee(employee_id: str, user=Depends(current_user)):
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
         row = (
-            c.execute(
-                text("SELECT * FROM demo_employees WHERE id=:id AND active=1" + row_lock()), {"id": employee_id}
-            )
+            c.execute(text("SELECT * FROM demo_employees WHERE id=:id AND active=1" + row_lock()), {"id": employee_id})
             .mappings()
             .first()
         )
@@ -710,6 +707,35 @@ def dashboard(user=Depends(current_user)):
     }
 
 
+def unrecorded_today(c, user: dict, location_id: str = "") -> list[dict]:
+    """Active employees with no attendance row today, as "not_in" report rows.
+
+    The attendance screen counts these employees as "not in" (attendance_summary);
+    reports include them for today so both screens agree. Past days are not filled
+    in, because the employee list may have changed since then.
+    """
+    today = local_today().isoformat()
+    params = {"day": today, **scope_params(user)}
+    sql = (
+        "SELECT e.id employee_id,e.name employee_name,e.location_id,l.name location_name "
+        "FROM demo_employees e JOIN demo_locations l ON l.id=e.location_id "
+        "WHERE e.active=1 AND l.active=1 AND " + scoped_sql(user, "e.location_id") + " AND NOT EXISTS "
+        "(SELECT 1 FROM demo_attendance a WHERE a.employee_id=e.id AND a.day=:day)"
+    )
+    if location_id:
+        sql += " AND e.location_id=:location"
+        params["location"] = location_id
+    return [
+        {**dict(r), "day": today, "status": "not_in", "check_in": None, "check_out": None, "source": "not recorded"}
+        for r in c.execute(text(sql), params).mappings()
+    ]
+
+
+def includes_today(month: str, day: str | None) -> bool:
+    today = local_today().isoformat()
+    return day == today if day else today.startswith(month + "-")
+
+
 @app.get("/api/reports/monthly")
 def monthly_report(
     month: str = Query(pattern=r"^\d{4}-\d{2}$"),
@@ -739,6 +765,13 @@ def monthly_report(
             params["location"] = location_id
         sql += " ORDER BY a.day DESC,l.name,e.name LIMIT 500"
         rows = [dict(r) for r in c.execute(text(sql), params).mappings()]
+        # Only the Day report (day=today) lists unrecorded employees. A whole-month list
+        # stays a list of stored attendance history.
+        if day and includes_today(month, day):
+            rows += unrecorded_today(c, user, location_id)
+            rows.sort(key=lambda r: (r["location_name"], r["employee_name"]))
+            rows.sort(key=lambda r: r["day"], reverse=True)
+            rows = rows[:500]
     for row in rows:
         row["hours"] = worked_hours(row.get("check_in"), row.get("check_out"))
     return {"month": month, "day": day, "rows": rows, "data_notice": "Fictional sample data only"}
@@ -772,8 +805,72 @@ def month_history(months: int = Query(6, ge=1, le=12), user=Depends(current_user
             )
             counts = {"checked_in": 0, "completed": 0, "not_in": 0}
             counts.update({r["status"]: r["count"] for r in rows})
+            if includes_today(item, None):
+                counts["not_in"] += len(unrecorded_today(c, user))
             result.append({"month": item, **counts, "total_records": sum(counts.values())})
     return result
+
+
+def _tally(bucket: dict, row: dict) -> None:
+    bucket["records"] += 1
+    bucket[row["status"]] = bucket.get(row["status"], 0) + 1
+    hours = worked_hours(row.get("check_in"), row.get("check_out"))
+    if hours:
+        bucket["_hours"].append(hours)
+
+
+def _new_bucket(**extra) -> dict:
+    return {"records": 0, "completed": 0, "checked_in": 0, "not_in": 0, "_hours": [], **extra}
+
+
+def _finish(bucket: dict) -> dict:
+    hours = bucket.pop("_hours")
+    bucket["avg_hours"] = round(sum(hours) / len(hours), 1) if hours else None
+    return bucket
+
+
+@app.get("/api/reports/summary")
+def month_summary(
+    month: str = Query(pattern=r"^\d{4}-\d{2}$"),
+    location_id: str = "",
+    user=Depends(current_user),
+):
+    """Whole-month totals (no row limit) for the Month report and its location detail."""
+    params = {"month": month + "-%", **scope_params(user)}
+    sql = (
+        "SELECT day,location_id,status,check_in,check_out FROM demo_attendance WHERE day LIKE :month AND "
+        + scoped_sql(user, "location_id")
+    )
+    with engine.connect() as c:
+        if location_id:
+            require_location_access(c, user, location_id)
+            sql += " AND location_id=:location"
+            params["location"] = location_id
+        rows = list(c.execute(text(sql), params).mappings().all())
+        if includes_today(month, None):
+            rows += unrecorded_today(c, user, location_id)
+    locations = [loc for loc in location_rows(user) if not location_id or loc["id"] == location_id]
+    totals = _new_bucket()
+    by_location = {
+        loc["id"]: _new_bucket(
+            id=loc["id"], name=loc["name"], area=loc["area"], assigned_count=loc.get("assigned_count", 0)
+        )
+        for loc in locations
+    }
+    by_day: dict = {}
+    for row in rows:
+        _tally(totals, row)
+        if row["location_id"] in by_location:
+            _tally(by_location[row["location_id"]], row)
+        if location_id:
+            _tally(by_day.setdefault(row["day"], _new_bucket(day=row["day"])), row)
+    return {
+        "month": month,
+        "location_id": location_id or None,
+        "totals": _finish(totals),
+        "locations": [_finish(b) for b in by_location.values()],
+        "days": [_finish(by_day[d]) for d in sorted(by_day, reverse=True)],
+    }
 
 
 def export_rows(month, day, location_id, user):
@@ -793,7 +890,23 @@ def export_rows(month, day, location_id, user):
             sql += " AND a.location_id=:location"
             params["location"] = location_id
         sql += " ORDER BY a.day,e.id"
-        return [dict(r) for r in c.execute(text(sql), params).mappings()]
+        rows = [dict(r) for r in c.execute(text(sql), params).mappings()]
+        if includes_today(month, day):
+            rows += [
+                {
+                    "day": r["day"],
+                    "employee_id": r["employee_id"],
+                    "name": r["employee_name"],
+                    "location": r["location_name"],
+                    "status": r["status"],
+                    "check_in": None,
+                    "check_out": None,
+                    "source": r["source"],
+                }
+                for r in unrecorded_today(c, user, location_id)
+            ]
+            rows.sort(key=lambda r: (r["day"], r["employee_id"]))
+        return rows
 
 
 def csv_cell_safe(value):
@@ -923,9 +1036,7 @@ def remove_location(location_id: str, user=Depends(current_user)):
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
         row = (
-            c.execute(
-                text("SELECT * FROM demo_locations WHERE id=:id AND active=1" + row_lock()), {"id": location_id}
-            )
+            c.execute(text("SELECT * FROM demo_locations WHERE id=:id AND active=1" + row_lock()), {"id": location_id})
             .mappings()
             .first()
         )
@@ -987,9 +1098,7 @@ def import_locations(body: LocationImportBody, user=Depends(current_user)):
             )
             if existing:
                 c.execute(
-                    text(
-                        "UPDATE demo_locations SET name=:name,area=:area,assigned_count=:count,active=1 WHERE id=:id"
-                    ),
+                    text("UPDATE demo_locations SET name=:name,area=:area,assigned_count=:count,active=1 WHERE id=:id"),
                     {"id": location_id, "name": row.name, "area": row.area, "count": row.assigned_count},
                 )
                 updated += 1
