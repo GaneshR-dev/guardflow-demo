@@ -1,0 +1,20 @@
+# Shared lint/format config for the Guardian demo. Run from the repo root:
+#   ruff check --fix . && ruff format .
+line-length = 120
+target-version = "py310"
+
+[lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "PLW", "FURB"]
+ignore = [
+    # FastAPI idiom: dependencies and validated query params live in default arguments.
+    "B008",
+    # datetime.UTC needs Python 3.11; the project supports 3.10+.
+    "UP017",
+    # fromisoformat('Z') handling stays explicit for 3.10 compatibility.
+    "FURB162",
+]
+
+[lint.per-file-ignores]
+# The restart probe builds its subprocess program with % formatting and checks
+# the return code itself.
+"tests/test_security_regression.py" = ["UP031", "PLW1510"]
