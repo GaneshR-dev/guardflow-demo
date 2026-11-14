@@ -95,11 +95,29 @@ The Reports screen has the newest components. Use them again in new screens.
 | Bottom sheet | `.rpScrim`, `.rpSheet`, `.rpOption` | Pick one item from a short list |
 | Icons | `ICON.*`, `svgIcon(path)` | Inline stroke icons. Do not use emoji as icons. |
 
+## States and feedback
+
+Use these components for each state. The full rules are in `AGENTS.md` ("Errors, loading and feedback").
+
+| State | Component | Example text |
+|---|---|---|
+| Loading | `skeletonRows(n)`, `.rpSkel`, status line `.rpHint` | "Loading the HSR Layout report…" |
+| Empty | `emptyState(icon, title, text, cta)` | "No attendance for this day yet" + "Go to today" |
+| No network / server error | `reportError(r)` (tone `rpError`) + "Try again" | "Could not load the report" |
+| No access (403) | `emptyState()` without a retry button | "You have no access to this location" |
+| Not found (404) | `emptyState()` with a way back | "This location no longer exists" + "Back to locations" |
+| Form error (400, 409, 422) | Text next to the form, or `state.error` + `message()` | The server message |
+| Success of an action | `toast(text)` | "Checked in · Ananya Rao" |
+
+The Figma file has the loading, empty and error screens for Reports (row "Scenarios — Day").
+
 ## Screen checklist
 
 Before you finish a screen change, make sure that:
 - The screen works at 390 px wide, with no horizontal scroll.
 - The loading, empty and error states exist.
+- No network, 401, 403, 404 and server errors each show the correct state.
+- Each finished action shows a toast. Page loads do not.
 - All dynamic values go through `esc()`.
 - The colours come from the tables above.
 - Each touch target is 44 px or more.

@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-14 · Rules for errors, loaders and toasts · Claude Code · feat/reports
+- Request: Tell AI tools to always handle 404, API failures, network failures, loaders and toasts.
+- Changed: `AGENTS.md` (new section "Errors, loading and feedback"), `docs/UI-GUIDE.md` (states table and checklist)
+- Tests: Docs only, no code change. Tests not run.
+- Open items: `api()` does not give the HTTP status code yet. The rules tell the next AI tool to add `err.status` one time when it needs it.
+
 ## 2026-11-14 · Reports screenshots for PR #13 · Claude Code · feat/reports
 - Request: Add screenshots of the change to the pull request description.
 - Changed: `docs/screenshots/reports/` (1 before image, 8 phone screenshots at 390 × 844, fictional demo data)

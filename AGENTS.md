@@ -53,6 +53,52 @@ Run and test commands are in `README.md`.
 - Show each number one time only on a screen. Do not show the same data again on each row.
 - Escape each dynamic value with `esc()` before you put it into HTML.
 
+### Errors, loading and feedback (mandatory)
+
+Each screen and each action must handle loading, success and all failures. Do not leave a blank screen, an endless loader or raw error text.
+
+**Requests**
+- Call the backend only with `api()` in `attendance-app.js`. Do not write a second fetch wrapper.
+- `api()` turns a network failure into a readable message (`err.network`). It also turns the server `detail` into the message.
+- If you need the HTTP status code, add `err.status` in `api()` one time. Then use it everywhere.
+- Ignore old answers when the user changes a filter quickly. Use a request number, as `loadReport()` does with `seq`.
+
+**Loading**
+- Show a loader at once when a request starts. Use `skeletonRows()` and `.rpSkel` for lists. Add a short status text, for example "Loading the report…".
+- Disable the buttons that need the data (for example "Excel") until the data is loaded.
+- Prevent a second submit while an action runs.
+
+**Failures**
+
+| Failure | What to show |
+|---|---|
+| No network | Error state with "Try again". Keep the filters. Show the last load time if you have it. |
+| 401 (session ended) | Send the user to the sign-in screen. Tell them to sign in again. |
+| 403 (no access) | A clear message, for example "You have no access to this location". No "Try again". |
+| 404 (not found) | A "not found" state with a way back (for example to the list). No "Try again" loop. |
+| 400, 409, 422 (bad or conflicting input) | The server message next to the form or action. Keep the values that the user typed. |
+| 500 and other server errors | Error state with "Try again". |
+
+- Use `emptyState()` and `reportError()` for these states. Use the tone `rpError` for errors.
+- Do not show raw JSON, stack traces or internal names to the user.
+- Do not catch an error and do nothing. If you must ignore an error, write a comment that tells why.
+
+**Empty**
+- When a request succeeds but has no data, show an empty state that tells why. Give a next step if one exists (for example "Go to today").
+
+**Toasts**
+- Use `toast(text)` to confirm a finished action: saved, checked in, checked out, downloaded.
+- Keep the text short and specific, for example "Excel file is ready · guardian-attendance-2026-11-14.xlsx".
+- Do not use a toast for a failure that stops the user. Use the error state or the error banner from `message()`.
+- Do not show a toast when a screen only loads data.
+
+**Backend**
+- Return `HTTPException` with the correct code and a readable `detail`: 400 bad input, 401 not signed in, 403 no access, 404 not found, 409 conflict. FastAPI returns 422 for invalid fields.
+- Do not return 500 for a user error. Do not put internal details in the message.
+
+**Tests**
+- Test the error codes of each new or changed endpoint: 401, 403, 404 and invalid input. See `tests/test_report_summary.py`.
+
 ## 5. UI theme and existing components
 
 - Use only the colour tokens in `:root` of `attendance-app.css` and the colours in `docs/UI-GUIDE.md`. Do not add new colours without a reason.
