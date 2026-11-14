@@ -282,7 +282,7 @@ def test_location_creation_prompts_for_supervisor(entry, selection, tmp_path):
         ]
         assert select.locator("script").count() == 0
         # Missing choice blocks native form submission, not an automatic grant.
-        form.locator("button").click()
+        form.locator("button.secondary").click()
         assert posts == []
         select.select_option(selection)
         assert page.locator("#locationSupervisorSelection").inner_text() == (
@@ -292,7 +292,7 @@ def test_location_creation_prompts_for_supervisor(entry, selection, tmp_path):
         )
         form.scroll_into_view_if_needed()
         page.screenshot(path=str(tmp_path / (entry + "-assignment.png")))
-        form.locator("button").click()
+        form.locator("button.secondary").click()
         page.wait_for_function("document.body.innerText.includes('Location added as loc-new-branch')")
         assert posts == [
             {
@@ -301,6 +301,8 @@ def test_location_creation_prompts_for_supervisor(entry, selection, tmp_path):
                 "supervisor_id": None if selection == "__unassigned__" else selection,
                 "id": "loc-new-branch",
                 "assigned_count": 0,
+                "shift_start": None,
+                "shift_end": None,
             }
         ]
         assert (
@@ -347,7 +349,7 @@ def test_location_supervisor_list_empty_or_unavailable(mode, tmp_path):
             page.wait_for_selector(".error")
             assert "Service unavailable" in page.locator(".error").inner_text()
             assert page.locator("#locationSupervisor").is_disabled()
-            assert page.locator("#locationForm button").is_disabled()
+            assert page.locator("#locationForm button.secondary").is_disabled()
         page.locator("#locationForm").scroll_into_view_if_needed()
         page.screenshot(path=str(tmp_path / (mode + "-assignment.png")))
         assert posts == []

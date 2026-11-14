@@ -13,12 +13,37 @@ const esc = (v) =>
 const dayISO = (d) =>
   d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 const API = '';
-const todayISO = () => dayISO(new Date());
+// All attendance times are shown and entered in Indian Standard Time, whatever the device clock says.
+const IST_TZ = 'Asia/Kolkata';
+const istNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: IST_TZ }));
+const todayISO = () => dayISO(istNow());
 const fmtDate = (d) =>
   new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).format(d);
 const fmtMonth = (d) => new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(d);
 const fmtTime = (v) =>
-  v ? new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(v)) : '-';
+  v
+    ? new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: IST_TZ }).format(
+        new Date(v),
+      )
+    : '-';
+const nowTime = () => fmtTime(new Date().toISOString());
+// Stored UTC ISO -> "HH:MM" IST wall clock for <input type="time"> fields.
+const toHHMM = (v) =>
+  v
+    ? new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: IST_TZ }).format(
+        new Date(v),
+      )
+    : '';
+// Shift times are stored as plain IST "HH:MM" text on the location.
+const fmtShift = (v) => {
+  if (!v) return '';
+  const [h, m] = v.split(':').map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }).format(d);
+};
+const shiftLabel = (l) =>
+  l.shift_start && l.shift_end ? fmtShift(l.shift_start) + ' - ' + fmtShift(l.shift_end) + ' IST' : 'No shift set';
 const initials = (n) =>
   n
     .split(/\s+/)
@@ -84,7 +109,16 @@ const state = {
   filter: 'all',
   notice: '',
   error: '',
+  confirm: null,
+  detail: null,
+  editTimes: null,
 };
+// Shared yes/no overlay. `onOk` runs when the user confirms; Cancel just closes.
+function confirmModal() {
+  const c = state.confirm;
+  if (!c) return '';
+  return `<div class="modalOverlay"><div class="modalCard" role="dialog" aria-modal="true"><h2>${esc(c.title)}</h2>${(c.lines || []).map((l) => `<div class="confirmLine"><span>${esc(l.label)}</span><strong>${esc(l.value)}</strong></div>`).join('')}<div class="modalActions"><button class="secondary" id="confirmCancel">Cancel</button><button class="primary ${c.danger ? 'dangerBtn' : ''}" id="confirmOk">${esc(c.okLabel || 'Confirm')}</button></div></div></div>`;
+}
 // Transient confirmation banner shown at the bottom of the screen.
 function toast(msg) {
   const id = Date.now();
@@ -157,6 +191,10 @@ function locationSupervisorField() {
   const supervisors = Array.isArray(access) ? access.filter((u) => u.role === 'supervisor') : [];
   return `<div class="field"><label for="locationSupervisor">Assign to supervisor</label><select id="locationSupervisor" name="supervisor_id" required ${!Array.isArray(access) ? 'disabled' : ''}><option value="" disabled selected>Choose a supervisor or leave unassigned</option>${supervisors.map((u) => `<option value="${esc(u.id)}">${esc(u.name)} (${esc(u.id)})</option>`).join('')}<option value="__unassigned__">Leave unassigned</option></select><small id="locationSupervisorSelection" class="helper" style="display:block;margin-top:6px">No supervisor selected.</small><small class="helper" style="display:block;margin-top:4px">${!Array.isArray(access) ? 'Supervisor list unavailable. Reopen this form to retry.' : supervisors.length ? 'Only the selected supervisor gets access. Existing assignments stay unchanged.' : 'No supervisor accounts yet. Leave unassigned, then create a supervisor in Settings > User access.'}</small></div>`;
 }
+// Optional shift start/end inside the Add location forms, revealed by the Add shift button.
+function shiftFields() {
+  return `<div class="field"><label>Shift timing (optional)</label><button type="button" class="link" id="toggleShift">+ Add shift</button><div class="shiftRow" id="shiftFields" style="display:none"><div><small class="helper">Start time (IST)</small><input name="shift_start" type="time"></div><div><small class="helper">End time (IST)</small><input name="shift_end" type="time"></div></div></div>`;
+}
 function locations() {
   const shown = state.locations.filter(
     (l) => !state.locationQuery || (l.name + ' ' + l.area).toLowerCase().includes(state.locationQuery.toLowerCase()),
@@ -175,9 +213,22 @@ function locations() {
           )
           .join(
             '',
-          )}<input type="file" id="importLocationFile" accept=".csv,text/csv" style="display:none">${state.showLocationForm ? `<div class="card addCard"><strong>Add location</strong><p>Create a branch supervisors can record attendance for.</p><form id="locationForm"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Area</label><input name="area" required></div>${locationSupervisorField()}<button class="secondary" ${!Array.isArray(state.settings?.access) ? 'disabled' : ''}>Save location</button></form></div>` : ''}`
+          )}<input type="file" id="importLocationFile" accept=".csv,text/csv" style="display:none">${state.showLocationForm ? `<div class="card addCard"><strong>Add location</strong><p>Create a branch supervisors can record attendance for.</p><form id="locationForm"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Area</label><input name="area" required></div>${shiftFields()}${locationSupervisorField()}<button class="secondary" ${!Array.isArray(state.settings?.access) ? 'disabled' : ''}>Save location</button></form></div>` : ''}`
       : '';
-  return `<div class="page">${header()}<h1>Locations</h1><p class="sub">${state.user?.role === 'admin' ? 'Select, add or import the branch where you are recording attendance.' : 'View your assigned branches and choose where to record attendance.'}</p>${tools}<input class="search" id="locSearch" placeholder="Search locations" value="${esc(state.locationQuery)}"><div id="locationList">${shown.map((l) => `<button class="locationCard ${state.location?.id === l.id ? 'active' : ''}" data-loc="${esc(l.id)}"><span class="locIcon">✥</span><span><strong>${esc(l.name)}</strong><span>${esc(l.area)} · ${plural(l.assigned_count, 'employee')}</span></span><span class="chev">›</span></button>`).join('') || `<p class="muted small">${empty}</p>`}</div><button class="primary" id="continueLoc" ${state.location ? '' : 'disabled'}>Continue</button><p class="helper">You can switch locations later</p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Locations</h1><p class="sub">${state.user?.role === 'admin' ? 'Select, add or import the branch where you are recording attendance. Tap a branch for its shift and employees.' : 'View your assigned branches, their shifts and employees.'}</p>${tools}<input class="search" id="locSearch" placeholder="Search locations" value="${esc(state.locationQuery)}"><div id="locationList">${shown.map((l) => `<button class="locationCard ${state.location?.id === l.id ? 'active' : ''}" data-loc="${esc(l.id)}"><span class="locIcon">✥</span><span><strong>${esc(l.name)}</strong><span>${esc(l.area)} · ${plural(l.assigned_count, 'employee')} · ${esc(shiftLabel(l))}</span></span><span class="chev">›</span></button>`).join('') || `<p class="muted small">${empty}</p>`}</div><button class="primary" id="continueLoc" ${state.location ? '' : 'disabled'}>Continue</button><p class="helper">You can switch locations later</p></div>${nav()}${message()}`;
+}
+// Location detail: shift timing and assigned employees, visible to admins and supervisors.
+function locationDetail() {
+  const d = state.detail;
+  if (!d) return `<div class="page">${header()}<h1>Location</h1><p class="muted small">No location selected.</p><button class="link" data-go="locations">Back to locations</button></div>${nav()}${message()}`;
+  const l = d.location;
+  const isAdmin = state.user?.role === 'admin';
+  const emps = d.employees;
+  return `<div class="page">${header()}<h1>${esc(l.name)}</h1><p class="sub">${esc(l.area)} · ${plural(l.assigned_count, 'employee')}</p><div class="card"><div class="detailRow"><span>Shift timing</span><strong>${esc(shiftLabel(l))}</strong></div></div><h2 class="sectionTitle">Employees at this location</h2>${
+    emps === null
+      ? '<p class="muted small">Loading employees…</p>'
+      : emps.map((e) => `<div class="person"><span class="initials">${esc(initials(e.name))}</span><span><strong>${esc(e.name)}</strong><small>${esc(e.id)} · ${esc(e.role)}</small></span>${isAdmin ? `<button class="outlineBtn dangerText" data-del-emp="${esc(e.id)}" data-name="${esc(e.name)}">Remove</button>` : ''}</div>`).join('') || '<p class="muted small">No employees assigned yet.</p>'
+  }<button class="primary" data-use-loc="${esc(l.id)}">Mark attendance here</button>${isAdmin ? `<button class="secondary dangerText" style="margin-top:10px" data-del-loc="${esc(l.id)}" data-name="${esc(l.name)}">Remove location</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="locations">Back to locations</button></p></div>${nav()}${message()}`;
 }
 function attendanceLocationPicker() {
   return state.locations.length > 1
@@ -189,8 +240,15 @@ function attendance() {
   const rows = state.attendance;
   const total = (s.checked_in || 0) + (s.completed || 0) + (s.not_in || 0);
   if (!state.location)
-    return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(new Date())}</p><div class="card addCard"><strong>${state.user?.role === 'admin' ? 'No location set up yet' : 'No location access assigned'}</strong><p>${state.user?.role === 'admin' ? 'Attendance is recorded per branch. Add a location first, then mark check-ins here.' : 'Your admin needs to give you location access before you can view employees or mark attendance.'}</p>${state.user?.role === 'admin' ? '<button class="primary" data-go="locations">Go to Locations</button>' : ''}</div></div>${nav()}${message()}`;
-  return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(new Date())} · ${esc(state.location?.name || '')}</p>${attendanceLocationPicker()}<div class="hero"><small>TODAY'S ATTENDANCE</small><strong>${total}</strong> <span>${plural(total, 'employee')} at this location</span></div><div class="stats"><div class="stat green"><strong>${s.checked_in || 0}</strong><span>Checked in</span></div><div class="stat amber"><strong>${s.not_in || 0}</strong><span>To check in</span></div><div class="stat blue"><strong>${s.completed || 0}</strong><span>Completed</span></div></div><h2 class="sectionTitle">Employee attendance</h2><input class="search" id="attSearch" placeholder="Search by name or employee ID" value="${esc(state.query)}"><div class="filters"><button class="chip ${state.filter === 'all' ? 'active' : ''}" data-filter="all">All ${(s.checked_in || 0) + (s.completed || 0) + (s.not_in || 0)}</button><button class="chip green ${state.filter === 'checked_in' ? 'active' : ''}" data-filter="checked_in">Checked in</button><button class="chip amber ${state.filter === 'not_in' ? 'active' : ''}" data-filter="not_in">Not in</button></div>${rows.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}</small></span><span class="personTime">${r.check_in ? fmtTime(r.check_in) : '-'}<br><span class="badge ${r.status === 'checked_in' ? 'green' : r.status === 'completed' ? 'blue' : 'amber'}">${r.status === 'checked_in' ? 'Checked in' : r.status === 'completed' ? 'Completed' : 'Not checked in'}</span></span></div>`).join('') || '<p class="muted small">No employees match.</p>'}<button class="primary" data-go="add">Mark Check-in · ${new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date())}</button><button class="secondary" style="margin-top:10px" data-go="checkout">Manage check-outs</button></div>${nav()}${message()}`;
+    return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(istNow())}</p><div class="card addCard"><strong>${state.user?.role === 'admin' ? 'No location set up yet' : 'No location access assigned'}</strong><p>${state.user?.role === 'admin' ? 'Attendance is recorded per branch. Add a location first, then mark check-ins here.' : 'Your admin needs to give you location access before you can view employees or mark attendance.'}</p>${state.user?.role === 'admin' ? '<button class="primary" data-go="locations">Go to Locations</button>' : ''}</div></div>${nav()}${message()}`;
+  const canEditTimes = state.user?.role === 'admin';
+  return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(istNow())} · ${esc(state.location?.name || '')} · IST</p>${attendanceLocationPicker()}${editTimeForm()}<div class="hero"><small>TODAY'S ATTENDANCE</small><strong>${total}</strong> <span>${plural(total, 'employee')} at this location</span></div><div class="stats"><div class="stat green"><strong>${s.checked_in || 0}</strong><span>Checked in</span></div><div class="stat amber"><strong>${s.not_in || 0}</strong><span>To check in</span></div><div class="stat blue"><strong>${s.completed || 0}</strong><span>Completed</span></div></div><h2 class="sectionTitle">Employee attendance</h2><input class="search" id="attSearch" placeholder="Search by name or employee ID" value="${esc(state.query)}"><div class="filters"><button class="chip ${state.filter === 'all' ? 'active' : ''}" data-filter="all">All ${(s.checked_in || 0) + (s.completed || 0) + (s.not_in || 0)}</button><button class="chip green ${state.filter === 'checked_in' ? 'active' : ''}" data-filter="checked_in">Checked in</button><button class="chip amber ${state.filter === 'not_in' ? 'active' : ''}" data-filter="not_in">Not in</button></div>${rows.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}</small></span><span class="personTime">${r.check_in ? fmtTime(r.check_in) : '-'}<br><span class="badge ${r.status === 'checked_in' ? 'green' : r.status === 'completed' ? 'blue' : 'amber'}">${r.status === 'checked_in' ? 'Checked in' : r.status === 'completed' ? 'Completed' : 'Not checked in'}</span></span>${canEditTimes && r.status !== 'not_in' ? `<button class="iconBtn" title="Edit times" data-edittime="${esc(r.employee_id)}">✎</button>` : ''}</div>`).join('') || '<p class="muted small">No employees match.</p>'}<button class="primary" data-go="add">Mark Check-in · ${nowTime()}</button><button class="secondary" style="margin-top:10px" data-go="checkout">Manage check-outs</button></div>${nav()}${message()}`;
+}
+// Admin-only correction of an existing record's check-in/check-out times (IST).
+function editTimeForm() {
+  const r = state.editTimes;
+  if (!r) return '';
+  return `<div class="card addCard" id="timeEditCard"><strong>Edit times - ${esc(r.name)}</strong><p class="muted small">Only admins can modify attendance times. Times are Indian Standard Time.</p><form id="timeEditForm"><div class="field"><label>Date</label><input name="day" type="date" value="${todayISO()}" required></div><div class="field"><label>Check-in time (IST)</label><input name="check_in" type="time" value="${toHHMM(r.check_in)}" required></div><div class="field"><label>Check-out time (IST, leave empty if still working)</label><input name="check_out" type="time" value="${toHHMM(r.check_out)}"></div><div class="field"><label>Check-out date (IST, pick the next day for overnight shifts)</label><input name="check_out_day" type="date" value="${todayISO()}"></div><button class="secondary">Save times</button> <button type="button" class="link" id="cancelTimeEdit">Cancel</button></form></div>`;
 }
 function add() {
   const available = state.attendance.filter(
@@ -198,15 +256,15 @@ function add() {
       r.status === 'not_in' &&
       (!state.addQuery || (r.name + ' ' + r.employee_id).toLowerCase().includes(state.addQuery.toLowerCase())),
   );
-  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Choose an existing employee to record their check-in.</p><input class="search" id="addSearch" placeholder="Search name or employee ID" value="${esc(state.addQuery)}"><h2 class="sectionTitle">Available employees</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}</small></span><button class="selectBtn" data-select="${esc(r.employee_id)}">Select</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${state.user?.role === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}${state.selected ? `<div class="selected"><b>Selected employee: ${esc(state.selected.name)}</b><br>${esc(state.selected.employee_id)} · ${esc(state.location.name)}</div><button class="primary" id="doCheckin">Mark Check-in · ${new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date())}</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Choose an existing employee to record their check-in.</p><input class="search" id="addSearch" placeholder="Search name or employee ID" value="${esc(state.addQuery)}"><h2 class="sectionTitle">Available employees</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}</small></span><button class="selectBtn" data-select="${esc(r.employee_id)}">Select</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${state.user?.role === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}${state.selected ? `<div class="selected"><b>Selected employee: ${esc(state.selected.name)}</b><br>${esc(state.selected.employee_id)} · ${esc(state.location.name)}</div><button class="primary" id="doCheckin">Mark Check-in · ${nowTime()}</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
 }
 function confirmed() {
   const r = state.lastCheck;
-  return `<div class="page">${header()}<h1>Check-in recorded</h1><p class="sub">Attendance has been successfully updated.</p><div class="card confirmCard"><div class="successIcon">✓</div><h2>${esc(r?.name || 'Employee')}</h2><p class="muted small">${esc(r?.employee_id || '')} · ${esc(state.location?.name.split(' - ')[1] || '')}</p><span class="badge green">CHECKED IN</span><div class="timeLabel">CHECK-IN TIME</div><div class="bigTime">${fmtTime(r?.check_in)}</div><div class="muted small">${fmtDate(new Date())}</div></div><button class="primary" data-go="add">+ Add another employee</button><p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Check-in recorded</h1><p class="sub">Attendance has been successfully updated.</p><div class="card confirmCard"><div class="successIcon">✓</div><h2>${esc(r?.name || 'Employee')}</h2><p class="muted small">${esc(r?.employee_id || '')} · ${esc(state.location?.name.split(' - ')[1] || '')}</p><span class="badge green">CHECKED IN</span><div class="timeLabel">CHECK-IN TIME (IST)</div><div class="bigTime">${fmtTime(r?.check_in)}</div><div class="muted small">${fmtDate(istNow())}</div></div><button class="primary" data-go="add">+ Add another employee</button><p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
 }
 function checkout() {
   const rows = state.attendance.filter((r) => r.status === 'checked_in');
-  return `<div class="page">${header()}<h1>Manage check-outs</h1><p class="sub">Employees currently checked in at ${esc(state.location?.name.split(' - ')[1] || '')}.</p><div class="hero"><small>STILL CHECKED IN</small><strong>${rows.length}</strong> <span>${plural(rows.length, 'employee')}</span></div><input class="search" id="outSearch" placeholder="Search checked-in employees">${rows.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>In: ${fmtTime(r.check_in)}</small></span><button class="outlineBtn" data-checkout="${esc(r.employee_id)}">Check out</button></div>`).join('') || '<p class="muted small">No checked-in employees remain.</p>'}<p style="text-align:center;margin-top:18px"><button class="link" data-go="attendance">View attendance list</button></p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Manage check-outs</h1><p class="sub">Employees currently checked in at ${esc(state.location?.name.split(' - ')[1] || '')} (IST).</p><div class="hero"><small>STILL CHECKED IN</small><strong>${rows.length}</strong> <span>${plural(rows.length, 'employee')}</span></div><input class="search" id="outSearch" placeholder="Search checked-in employees">${rows.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>In: ${fmtTime(r.check_in)}</small></span><button class="outlineBtn" data-checkout="${esc(r.employee_id)}">Check out</button></div>`).join('') || '<p class="muted small">No checked-in employees remain.</p>'}<p style="text-align:center;margin-top:18px"><button class="link" data-go="attendance">View attendance list</button></p></div>${nav()}${message()}`;
 }
 async function dashboard() {
   if (!state.dashboard) state.dashboard = await api('/api/dashboard');
@@ -235,9 +293,10 @@ function employees() {
       !state.employeeQuery ||
       (e.name + ' ' + e.id + ' ' + e.role).toLowerCase().includes(state.employeeQuery.toLowerCase()),
   );
+  const locationName = (id) => (id ? state.locations.find((l) => l.id === id)?.name || id : 'No location yet');
   const form =
     state.user?.role === 'admin' && state.showEmployeeForm
-      ? `<div class="card addCard"><strong>Add employee</strong><p>Create an employee record for one of your locations.</p>${state.locations.length ? `<form id="employeeForm"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><div class="field"><label>Location</label><select name="location_id" required>${state.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div><button class="secondary">Save employee</button></form>` : '<p class="muted small">Add a location before adding employees.</p><button class="secondary" data-go="locations">Open locations</button>'}</div>`
+      ? `<div class="card addCard"><strong>Add employee</strong><p>Create an employee record. Location is optional and can be assigned later.</p><form id="employeeForm"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><div class="field"><label>Location (optional)</label><select name="location_id"><option value="" selected>Assign location later</option>${state.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div><button class="secondary">Save employee</button></form></div>`
       : '';
   return `<div class="page">${header()}<h1>Employees</h1><p class="sub">${state.user?.role === 'admin' ? 'Browse and manage people assigned to your locations.' : 'View employees assigned to your locations. Admins manage employee records.'}</p>${[
     ['directory', 'Employee directory', plural(state.employees.length, 'employee') + ' · Search by name or ID'],
@@ -254,7 +313,7 @@ function employees() {
     )
     .join(
       '',
-    )}${state.user?.role === 'admin' ? '<input type="file" id="importFile" accept=".csv,text/csv" style="display:none">' : ''}${form}<input class="search" id="empSearch" placeholder="Search name, role or employee ID" value="${esc(state.employeeQuery)}"><div id="directoryList">${shown.map((e) => `<div class="person"><span class="initials">${esc(initials(e.name))}</span><span><strong>${esc(e.name)}</strong><small>${esc(e.id)} · ${esc(e.role)}</small></span></div>`).join('') || '<p class="muted small">No employees match.</p>'}</div></div>${nav()}${message()}`;
+    )}${state.user?.role === 'admin' ? '<input type="file" id="importFile" accept=".csv,text/csv" style="display:none">' : ''}${form}<input class="search" id="empSearch" placeholder="Search name, role or employee ID" value="${esc(state.employeeQuery)}"><div id="directoryList">${shown.map((e) => `<div class="person"><span class="initials">${esc(initials(e.name))}</span><span><strong>${esc(e.name)}</strong><small>${esc(e.id)} · ${esc(e.role)} · ${esc(locationName(e.location_id))}</small></span>${state.user?.role === 'admin' ? `<button class="outlineBtn dangerText" data-del-emp="${esc(e.id)}" data-name="${esc(e.name)}">Remove</button>` : ''}</div>`).join('') || '<p class="muted small">No employees match.</p>'}</div></div>${nav()}${message()}`;
 }
 async function reports() {
   if (!state.history.length) state.history = await api('/api/reports/months?months=6');
@@ -296,7 +355,7 @@ function settings() {
   if (d && state.settingsView === 'profile')
     panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">My profile</h2><form id="profileForm"><div class="field"><label>Name</label><input name="name" value="${esc(d.profile.name)}" required></div><div class="field"><label>User ID</label><input value="${esc(d.profile.id)}" disabled></div><button class="secondary">Save profile</button></form></div>`;
   if (d && state.settingsView === 'locations')
-    panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">Locations</h2>${d.locations.map((l) => `<div class="person"><span><strong>${esc(l.name)}</strong><small>${esc(l.area)} · ${plural(l.assigned_count, 'employee')}</small></span></div>`).join('') || '<p class="muted small">No locations yet. Add the first branch below.</p>'}${state.user.role === 'admin' ? `<form id="locationForm" style="margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Area</label><input name="area" required></div>${locationSupervisorField()}<button class="secondary" ${!Array.isArray(state.settings?.access) ? 'disabled' : ''}>Add location</button></form>` : '<p class="muted small">Supervisors can view assigned locations. Admins manage branches.</p>'}</div>`;
+    panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">Locations</h2>${d.locations.map((l) => `<div class="person"><span><strong>${esc(l.name)}</strong><small>${esc(l.area)} · ${plural(l.assigned_count, 'employee')} · ${esc(shiftLabel(l))}</small></span></div>`).join('') || '<p class="muted small">No locations yet. Add the first branch below.</p>'}${state.user.role === 'admin' ? `<form id="locationForm" style="margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Area</label><input name="area" required></div>${shiftFields()}${locationSupervisorField()}<button class="secondary" ${!Array.isArray(state.settings?.access) ? 'disabled' : ''}>Add location</button></form>` : '<p class="muted small">Supervisors can view assigned locations. Admins manage branches.</p>'}</div>`;
   if (d && state.settingsView === 'access')
     panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">User access</h2>${d.access.map((u) => `<div class="person"><span><strong>${esc(u.name)}</strong><small>${esc(u.id)} · ${esc(u.role)} · ${esc(u.role === 'admin' ? 'All locations' : u.location_ids.join(', ') || 'No locations')}</small></span></div>`).join('')}${state.user.role === 'admin' ? `<form id="accessForm" style="margin-top:14px"><div class="field"><label>User ID</label><input name="id" required></div><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Temporary password (12+ characters)</label><input name="password" type="password" required></div><div class="field"><label>Locations</label><select name="location_ids" multiple size="3">${d.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div><button class="secondary">Create supervisor</button></form>` : '<p class="muted small">Only admins can create or change access.</p>'}</div>`;
   return `<div class="page">${header()}<h1>Settings</h1><p class="sub">Manage your account and app preferences.</p>${[
@@ -325,7 +384,8 @@ async function render() {
       if (state.showLocationForm && state.user?.role === 'admin' && !state.settings)
         state.settings = await api('/api/settings');
       html = locations();
-    } else if (state.screen === 'attendance') html = attendance();
+    } else if (state.screen === 'locationDetail') html = locationDetail();
+    else if (state.screen === 'attendance') html = attendance();
     else if (state.screen === 'add') html = add();
     else if (state.screen === 'confirmed') html = confirmed();
     else if (state.screen === 'checkout') html = checkout();
@@ -339,7 +399,7 @@ async function render() {
     state.error = e.message;
     html = state.token ? locations() : login();
   }
-  $app.innerHTML = html;
+  $app.innerHTML = html + confirmModal();
   bind();
 }
 // Wire up clicks/inputs on the freshly rendered markup. One branch per screen.
@@ -355,13 +415,60 @@ function bind() {
   );
   const lf = document.getElementById('loginForm');
   if (lf) lf.onsubmit = doLogin;
-  document.querySelectorAll('[data-loc]').forEach(
+  document.querySelectorAll('[data-loc]').forEach((b) => (b.onclick = () => openLocationDetail(b.dataset.loc)));
+  document.querySelectorAll('[data-use-loc]').forEach(
     (b) =>
-      (b.onclick = () => {
-        state.location = state.locations.find((l) => l.id === b.dataset.loc);
-        render();
+      (b.onclick = async () => {
+        state.location = state.locations.find((l) => l.id === b.dataset.useLoc);
+        state.selected = null;
+        state.detail = null;
+        await loadAttendance();
+        go('attendance');
       }),
   );
+  document.querySelectorAll('[data-del-emp]').forEach(
+    (b) => (b.onclick = () => askRemoveEmployee(b.dataset.delEmp, b.dataset.name)),
+  );
+  document.querySelectorAll('[data-del-loc]').forEach(
+    (b) => (b.onclick = () => askRemoveLocation(b.dataset.delLoc, b.dataset.name)),
+  );
+  document.querySelectorAll('[data-edittime]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        state.editTimes = state.attendance.find((r) => r.employee_id === b.dataset.edittime) || null;
+        render();
+        document.getElementById('timeEditCard')?.scrollIntoView({ behavior: 'smooth' });
+      }),
+  );
+  const tef = document.getElementById('timeEditForm');
+  if (tef) tef.onsubmit = saveTimeEdit;
+  const cte = document.getElementById('cancelTimeEdit');
+  if (cte)
+    cte.onclick = () => {
+      state.editTimes = null;
+      render();
+    };
+  const ts = document.getElementById('toggleShift');
+  if (ts)
+    ts.onclick = () => {
+      const fields = document.getElementById('shiftFields');
+      const showing = fields.style.display !== 'none';
+      fields.style.display = showing ? 'none' : 'flex';
+      ts.textContent = showing ? '+ Add shift' : 'Hide shift';
+    };
+  const cOk = document.getElementById('confirmOk');
+  if (cOk)
+    cOk.onclick = async () => {
+      const action = state.confirm?.onOk;
+      state.confirm = null;
+      if (action) await action();
+    };
+  const cCancel = document.getElementById('confirmCancel');
+  if (cCancel)
+    cCancel.onclick = () => {
+      state.confirm = null;
+      render();
+    };
   const cl = document.getElementById('continueLoc');
   if (cl)
     cl.onclick = async () => {
@@ -431,7 +538,7 @@ function bind() {
   );
   const dc = document.getElementById('doCheckin');
   if (dc) dc.onclick = doCheckin;
-  document.querySelectorAll('[data-checkout]').forEach((b) => (b.onclick = () => doCheckout(b.dataset.checkout)));
+  document.querySelectorAll('[data-checkout]').forEach((b) => (b.onclick = () => askCheckout(b.dataset.checkout)));
   const tn = document.getElementById('toggleNew');
   if (tn)
     tn.onclick = () => {
@@ -487,6 +594,7 @@ function bind() {
 // instead of leaving the app.
 const appScreens = [
   'locations',
+  'locationDetail',
   'attendance',
   'add',
   'confirmed',
@@ -643,7 +751,28 @@ async function doCheckin() {
     render();
   }
 }
+// Check-out always asks first, showing the IST check-out time and hours worked.
+function askCheckout(id) {
+  const row = state.attendance.find((r) => r.employee_id === id);
+  if (!row) return;
+  const nowMs = Date.now();
+  const inMs = row.check_in ? new Date(row.check_in).getTime() : nowMs;
+  const mins = Math.max(0, Math.round((nowMs - inMs) / 60000));
+  const hoursText = Math.floor(mins / 60) + 'h ' + String(mins % 60).padStart(2, '0') + 'm';
+  state.confirm = {
+    title: 'Are you sure you want to check out?',
+    lines: [
+      { label: 'Employee', value: row.name + ' (' + row.employee_id + ')' },
+      { label: 'Check-out time', value: nowTime() + ' IST' },
+      { label: 'Hours worked', value: hoursText },
+    ],
+    okLabel: 'Yes, check out',
+    onOk: () => doCheckout(id),
+  };
+  render();
+}
 async function doCheckout(id) {
+  state.confirm = null;
   try {
     await api('/api/attendance/checkout', {
       method: 'POST',
@@ -681,7 +810,11 @@ async function createEmployee(e) {
   e.preventDefault();
   const f = Object.fromEntries(new FormData(e.target));
   try {
-    await api('/api/employees', { method: 'POST', body: JSON.stringify({ ...f, role: 'Guard' }) });
+    // Location is optional at creation; an empty choice means "assign later".
+    await api('/api/employees', {
+      method: 'POST',
+      body: JSON.stringify({ ...f, role: 'Guard', location_id: f.location_id || null }),
+    });
     state.locations = await api('/api/locations');
     state.dashboard = null;
     await loadEmployees(false);
@@ -784,6 +917,10 @@ async function createLocation(e) {
     const body = Object.fromEntries(new FormData(e.target));
     if (!body.supervisor_id) throw new Error('Choose a supervisor or leave unassigned.');
     body.supervisor_id = body.supervisor_id === '__unassigned__' ? null : body.supervisor_id;
+    body.shift_start = body.shift_start || null;
+    body.shift_end = body.shift_end || null;
+    if ((body.shift_start && !body.shift_end) || (!body.shift_start && body.shift_end))
+      throw new Error('Add both shift start and end times, or remove the shift.');
     body.id = newLocationId(body.name);
     await api('/api/settings/locations', {
       method: 'POST',
@@ -803,6 +940,105 @@ async function createLocation(e) {
     state.error = e.message;
     render();
   }
+}
+// Location detail: shift timing plus the assigned employees, for both roles.
+async function openLocationDetail(id) {
+  const loc = state.locations.find((l) => l.id === id);
+  if (!loc) return;
+  state.detail = { location: loc, employees: null };
+  go('locationDetail');
+  try {
+    const employees = await api('/api/employees?location_id=' + encodeURIComponent(id));
+    state.detail = { location: loc, employees };
+    render();
+  } catch (e) {
+    state.error = e.message;
+    render();
+  }
+}
+// Admin corrections: save edited IST check-in/check-out times for an existing record.
+async function saveTimeEdit(e) {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  try {
+    await api('/api/attendance/times', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        employee_id: state.editTimes.employee_id,
+        location_id: state.location.id,
+        day: f.day,
+        check_in: f.check_in,
+        check_out: f.check_out || null,
+        check_out_day: f.check_out ? f.check_out_day || null : null,
+      }),
+    });
+    state.editTimes = null;
+    state.dashboard = null;
+    await loadAttendance();
+    toast('Times updated');
+  } catch (err) {
+    state.error = err.message;
+    render();
+  }
+}
+// Admin removals. Records are retired, never erased, so attendance history is kept.
+function askRemoveEmployee(id, name) {
+  state.confirm = {
+    title: 'Remove ' + (name || id) + '?',
+    lines: [
+      { label: 'Employee', value: id },
+      { label: 'Note', value: 'Their attendance history is kept.' },
+    ],
+    okLabel: 'Remove employee',
+    danger: true,
+    onOk: async () => {
+      try {
+        await api('/api/employees/' + encodeURIComponent(id), { method: 'DELETE' });
+        state.locations = await api('/api/locations');
+        state.dashboard = null;
+        if (state.detail?.location) {
+          state.detail = {
+            location: state.detail.location,
+            employees: await api('/api/employees?location_id=' + encodeURIComponent(state.detail.location.id)),
+          };
+        }
+        await loadEmployees(false);
+        await loadAttendance();
+        toast('Employee removed');
+      } catch (err) {
+        state.error = err.message;
+      }
+      render();
+    },
+  };
+  render();
+}
+function askRemoveLocation(id, name) {
+  state.confirm = {
+    title: 'Remove ' + (name || id) + '?',
+    lines: [
+      { label: 'Location', value: id },
+      { label: 'Note', value: 'Attendance history is kept. Supervisor access to it ends.' },
+    ],
+    okLabel: 'Remove location',
+    danger: true,
+    onOk: async () => {
+      try {
+        await api('/api/settings/locations/' + encodeURIComponent(id), { method: 'DELETE' });
+        state.locations = await api('/api/locations');
+        if (state.location?.id === id) state.location = state.locations[0] || null;
+        state.detail = null;
+        state.dashboard = null;
+        state.settings = await api('/api/settings');
+        go('locations');
+        toast('Location removed');
+      } catch (err) {
+        state.error = err.message;
+        render();
+      }
+    },
+  };
+  render();
 }
 async function importLocations(file) {
   try {

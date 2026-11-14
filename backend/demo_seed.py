@@ -17,14 +17,16 @@ def seed_demo() -> None:
         insert_user(c, "admin.demo", "Admin Demo", "admin", "demo123")
         insert_user(c, "supervisor.demo", "Supervisor Demo", "supervisor", "demo123")
         locations = [
-            ("loc-hsr", "Bengaluru - HSR Layout", "HSR Sector 2", 24),
-            ("loc-whitefield", "Bengaluru - Whitefield", "ITPL Main Road", 18),
-            ("loc-mysuru", "Mysuru - City Centre", "Devaraja Mohalla", 12),
+            ("loc-hsr", "Bengaluru - HSR Layout", "HSR Sector 2", 24, "09:00", "18:00"),
+            ("loc-whitefield", "Bengaluru - Whitefield", "ITPL Main Road", 18, "08:00", "20:00"),
+            ("loc-mysuru", "Mysuru - City Centre", "Devaraja Mohalla", 12, None, None),
         ]
         for row in locations:
             c.execute(
-                text("INSERT INTO demo_locations VALUES (:id,:name,:area,:count)"),
-                {"id": row[0], "name": row[1], "area": row[2], "count": row[3]},
+                text(
+                    "INSERT INTO demo_locations (id,name,area,assigned_count,shift_start,shift_end,active) VALUES (:id,:name,:area,:count,:shift_start,:shift_end,1)"
+                ),
+                {"id": row[0], "name": row[1], "area": row[2], "count": row[3], "shift_start": row[4], "shift_end": row[5]},
             )
         employees = [
             ("EMP1024", "Deepak Kumar", "+91 90000 11024", "Senior Guard", "loc-hsr"),
@@ -84,7 +86,9 @@ def seed_demo() -> None:
         ]
         for emp in employees:
             c.execute(
-                text("INSERT INTO demo_employees VALUES (:id,:name,:phone,:role,:location,1)"),
+                text(
+                    "INSERT INTO demo_employees (id,name,phone,role,location_id,active) VALUES (:id,:name,:phone,:role,:location,1)"
+                ),
                 {"id": emp[0], "name": emp[1], "phone": emp[2], "role": emp[3], "location": emp[4]},
             )
         today = local_today()
