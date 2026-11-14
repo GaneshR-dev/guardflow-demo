@@ -237,9 +237,11 @@ def login(body: LoginBody):
         # commits first and the marker check below rejects the sign-in. Without the lock a
         # login racing in the disable window could bank a session that revives on re-enable.
         lock_sql = " FOR UPDATE" if engine.dialect.name != "sqlite" else ""
-        row = c.execute(
-            text(f"SELECT * FROM demo_users WHERE id=:id{lock_sql}"), {"id": body.username}
-        ).mappings().first()
+        row = (
+            c.execute(text(f"SELECT * FROM demo_users WHERE id=:id{lock_sql}"), {"id": body.username})
+            .mappings()
+            .first()
+        )
         if not row or not hmac.compare_digest(password_hash(body.password, row["salt"]), row["password"]):
             login_throttle_record(key)
             raise HTTPException(401, "Invalid user ID or password")
@@ -1595,17 +1597,14 @@ def supervisor_row(c, user_id: str, active: int | None = None, lock: bool = Fals
     stale join result and duplicate-insert the marker.
     """
     lock_sql = " FOR UPDATE" if lock and engine.dialect.name != "sqlite" else ""
-    row = c.execute(
-        text(f"SELECT u.* FROM demo_users u WHERE u.id=:id{lock_sql}"), {"id": user_id}
-    ).mappings().first()
+    row = c.execute(text(f"SELECT u.* FROM demo_users u WHERE u.id=:id{lock_sql}"), {"id": user_id}).mappings().first()
     if not row:
         raise HTTPException(404, "Supervisor not found")
     if row["role"] != "supervisor":
         raise HTTPException(400, "Only supervisor accounts can be changed here")
     if active is not None:
         disabled = (
-            c.execute(text("SELECT 1 FROM demo_disabled_users WHERE user_id=:id"), {"id": user_id}).first()
-            is not None
+            c.execute(text("SELECT 1 FROM demo_disabled_users WHERE user_id=:id"), {"id": user_id}).first() is not None
         )
         if disabled == bool(active):
             raise HTTPException(404, "Supervisor not found")
