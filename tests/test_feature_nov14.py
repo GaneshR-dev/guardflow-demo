@@ -78,14 +78,24 @@ def test_employee_location_optional_at_creation_and_admin_remove():
     assert created.json()["location_id"] is None
     # Unassigned employees still show in the admin directory so they can be placed later.
     assert any(e["id"] == employee_id for e in client.get("/api/employees", headers=headers).json())
-    # But they cannot be checked in anywhere until assigned.
-    blocked = client.post(
+    # They can still be checked in ad hoc at a managed site: pre-assignment is a
+    # default, not a restriction (EMP-ID model).
+    adhoc = client.post(
         "/api/attendance/checkin",
         headers=headers,
         json={"employee_id": employee_id, "location_id": "loc-hsr"},
     )
-    assert blocked.status_code == 409
-    assert "no location assigned" in blocked.json()["detail"].lower()
+    assert adhoc.status_code == 200
+    assert adhoc.json()["adhoc"] is True
+    assert adhoc.json()["home_location_id"] is None
+    assert (
+        client.post(
+            "/api/attendance/checkout",
+            headers=headers,
+            json={"employee_id": employee_id, "location_id": "loc-hsr"},
+        ).status_code
+        == 200
+    )
     # Admin disable keeps the record visible (greyed out in the app); a second disable is a 404.
     assert client.delete(f"/api/employees/{employee_id}", headers=headers).status_code == 200
     disabled = next(e for e in client.get("/api/employees", headers=headers).json() if e["id"] == employee_id)
@@ -162,6 +172,7 @@ def test_admin_time_edit_converts_ist_to_utc_and_is_admin_only():
             "day": today,
             "check_in": "09:15",
             "check_out": "18:45",
+            "reason": "test correction",
         },
     )
     assert edited.status_code == 200
@@ -182,6 +193,7 @@ def test_admin_time_edit_converts_ist_to_utc_and_is_admin_only():
             "location_id": "loc-hsr",
             "day": today,
             "check_in": "09:15",
+            "reason": "test correction",
         },
     )
     assert reopened.status_code == 200
@@ -197,6 +209,7 @@ def test_admin_time_edit_converts_ist_to_utc_and_is_admin_only():
             "day": today,
             "check_in": "18:00",
             "check_out": "09:00",
+            "reason": "test correction",
         },
     )
     assert inverted.status_code == 400
@@ -209,6 +222,7 @@ def test_admin_time_edit_converts_ist_to_utc_and_is_admin_only():
             "location_id": "loc-hsr",
             "day": today,
             "check_in": "09:15",
+            "reason": "test correction",
         },
     )
     assert denied.status_code == 403
@@ -221,6 +235,7 @@ def test_admin_time_edit_converts_ist_to_utc_and_is_admin_only():
             "location_id": "loc-hsr",
             "day": "2026-01-05",
             "check_in": "09:15",
+            "reason": "test correction",
         },
     )
     assert missing.status_code == 404
@@ -294,6 +309,7 @@ def test_admin_time_edit_supports_next_day_checkout():
             "check_in": "22:00",
             "check_out": "06:00",
             "check_out_day": next_day,
+            "reason": "test correction",
         },
     )
     assert edited.status_code == 200
@@ -317,6 +333,7 @@ def test_admin_time_edit_supports_next_day_checkout():
             "check_in": "22:00",
             "check_out": "06:00",
             "check_out_day": before_day,
+            "reason": "test correction",
         },
     )
     assert backwards.status_code == 400
@@ -330,6 +347,7 @@ def test_admin_time_edit_supports_next_day_checkout():
             "day": today,
             "check_in": "22:00",
             "check_out": "06:00",
+            "reason": "test correction",
         },
     )
     assert same_day_overnight.status_code == 400
@@ -350,14 +368,23 @@ def test_supervisor_cannot_see_or_use_unassigned_employees():
     # Invisible in the supervisor directory, both overall and per branch.
     assert all(e["id"] != employee_id for e in client.get("/api/employees", headers=sup).json())
     assert all(e["id"] != employee_id for e in client.get("/api/employees?location_id=loc-hsr", headers=sup).json())
-    # A supervisor cannot check them in anywhere.
+    # A supervisor CAN check them in at a site they manage (ad-hoc EMP-ID check-in),
+    # even though the employee stays invisible in the scoped employee directory.
     attempt = client.post(
         "/api/attendance/checkin",
         headers=sup,
         json={"employee_id": employee_id, "location_id": "loc-hsr"},
     )
-    assert attempt.status_code == 409
-    assert "no location assigned" in attempt.json()["detail"].lower()
+    assert attempt.status_code == 200
+    assert attempt.json()["adhoc"] is True
+    assert (
+        client.post(
+            "/api/attendance/checkout",
+            headers=sup,
+            json={"employee_id": employee_id, "location_id": "loc-hsr"},
+        ).status_code
+        == 200
+    )
     # Nor modify their times.
     denied = client.patch(
         "/api/attendance/times",
@@ -367,6 +394,7 @@ def test_supervisor_cannot_see_or_use_unassigned_employees():
             "location_id": "loc-hsr",
             "day": local_today().isoformat(),
             "check_in": "09:00",
+            "reason": "test correction",
         },
     )
     assert denied.status_code == 403
