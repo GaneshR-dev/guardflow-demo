@@ -12,10 +12,12 @@ Mobile-first guard attendance app ("Guardian", formerly "GuardFlow") with a Fast
 
 ## Repository layout
 
-- `attendance-app.html` - current frontend (HTML/CSS/vanilla JavaScript, mobile-first).
+- `attendance-app.html` - current frontend shell (mobile-first), served at `/app`.
+- `attendance-app.css` / `attendance-app.js` - frontend styles and logic, extracted from the shell and served alongside it.
 - `backend/demo_app.py` - current API (FastAPI + SQLAlchemy; SQLite locally, PostgreSQL via `DATABASE_URL`).
-- `backend/app.py` - earlier API foundation, kept for reference.
 - `tests/` - API and frontend regression tests.
+
+The earlier API foundation (`backend/app.py`, its `backend/manage.py` bootstrap and `tests/test_api.py`) was retired on 2026-11-14; it remains in Git history.
 
 Earlier demo files and archives were removed from the working tree on 2026-11-13; everything remains in Git history.
 

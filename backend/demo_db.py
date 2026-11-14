@@ -1,4 +1,5 @@
 """Database engine, configuration and schema for the Guardian attendance demo API."""
+
 from __future__ import annotations
 
 import os

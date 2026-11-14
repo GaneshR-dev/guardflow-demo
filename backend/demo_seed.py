@@ -1,12 +1,13 @@
 """Fictional sample-data seeding for the Guardian attendance demo API. Never real business records."""
+
 from __future__ import annotations
 
 from datetime import timedelta
 
-from sqlalchemy import text
-
 from demo_db import DEMO_MODE, engine
 from demo_security import insert_user, iso_dt, local_today, password_hash
+from sqlalchemy import text
+
 
 def seed_demo() -> None:
     """Seed clearly fictional sample history across the last six calendar months."""
@@ -21,7 +22,10 @@ def seed_demo() -> None:
             ("loc-mysuru", "Mysuru - City Centre", "Devaraja Mohalla", 12),
         ]
         for row in locations:
-            c.execute(text("INSERT INTO demo_locations VALUES (:id,:name,:area,:count)"), {"id": row[0], "name": row[1], "area": row[2], "count": row[3]})
+            c.execute(
+                text("INSERT INTO demo_locations VALUES (:id,:name,:area,:count)"),
+                {"id": row[0], "name": row[1], "area": row[2], "count": row[3]},
+            )
         employees = [
             ("EMP1024", "Deepak Kumar", "+91 90000 11024", "Senior Guard", "loc-hsr"),
             ("EMP1031", "Ananya Rao", "+91 90000 11031", "Guard", "loc-hsr"),
@@ -99,7 +103,9 @@ def seed_demo() -> None:
                 out_hour = 17 + ((index + day.month) % 3)
                 out_min = (index * 11 + day.day) % 60
                 c.execute(
-                    text("INSERT INTO demo_attendance VALUES (:id,:employee,:location,:day,:status,:cin,:cout,:source)"),
+                    text(
+                        "INSERT INTO demo_attendance VALUES (:id,:employee,:location,:day,:status,:cin,:cout,:source)"
+                    ),
                     {
                         "id": f"att-{emp[0]}-{day.isoformat()}",
                         "employee": emp[0],
@@ -149,7 +155,10 @@ def seed_access() -> None:
             ("supervisor.demo", "loc-whitefield"),
         ]:
             if location_id in available:
-                c.execute(text("INSERT INTO demo_user_locations VALUES (:user,:location)"), {"user": user_id, "location": location_id})
+                c.execute(
+                    text("INSERT INTO demo_user_locations VALUES (:user,:location)"),
+                    {"user": user_id, "location": location_id},
+                )
 
 
 def retire_legacy_demo_account() -> None:

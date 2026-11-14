@@ -1,4 +1,5 @@
 """Authentication helpers for the Guardian attendance demo API: password hashing, session token digests and login throttling."""
+
 from __future__ import annotations
 
 import hashlib
@@ -6,10 +7,9 @@ import os
 import secrets
 from datetime import date, datetime, time, timedelta, timezone
 
+from demo_db import LOCAL_TZ, engine
 from fastapi import HTTPException
 from sqlalchemy import text
-
-from demo_db import LOCAL_TZ, engine
 
 LOGIN_MAX_FAILURES = int(os.environ.get("LOGIN_MAX_FAILURES", "5"))
 LOGIN_LOCK_SECONDS = int(os.environ.get("LOGIN_LOCK_SECONDS", "900"))
@@ -20,9 +20,9 @@ def login_throttle_check(key: str) -> None:
     cutoff = (utcnow() - timedelta(seconds=LOGIN_LOCK_SECONDS)).isoformat()
     with engine.begin() as c:
         c.execute(text("DELETE FROM demo_login_attempts WHERE at<:cutoff"), {"cutoff": cutoff})
-        count = c.execute(
-            text("SELECT COUNT(*) FROM demo_login_attempts WHERE username=:key"), {"key": key}
-        ).scalar() or 0
+        count = (
+            c.execute(text("SELECT COUNT(*) FROM demo_login_attempts WHERE username=:key"), {"key": key}).scalar() or 0
+        )
     if count >= LOGIN_MAX_FAILURES:
         raise HTTPException(429, "Too many failed sign-in attempts. Try again later.")
 
