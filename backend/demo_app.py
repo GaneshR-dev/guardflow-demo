@@ -192,6 +192,12 @@ class AccessBody(BaseModel):
     location_ids: list[str] = Field(default_factory=list, max_length=50)
 
 
+class AccessLocationsBody(BaseModel):
+    # Deliberately allows an empty list: a supervisor with no sites fails closed
+    # (scoped queries match nothing) until an admin grants a site again.
+    location_ids: list[str] = Field(default_factory=list, max_length=50)
+
+
 class ResetBody(BaseModel):
     confirm: str = Field(min_length=1, max_length=40)
 
@@ -230,6 +236,8 @@ def login(body: LoginBody):
         if not row or not hmac.compare_digest(password_hash(body.password, row["salt"]), row["password"]):
             login_throttle_record(key)
             raise HTTPException(401, "Invalid user ID or password")
+        if c.execute(text("SELECT 1 FROM demo_disabled_users WHERE user_id=:id"), {"id": row["id"]}).first():
+            raise HTTPException(403, "This account has been disabled. Ask an admin to re-enable it.")
         login_throttle_clear(key)
         c.execute(text("DELETE FROM demo_sessions WHERE expires<:now"), {"now": utcnow().isoformat()})
         token = secrets.token_urlsafe(32)
@@ -257,7 +265,7 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
         row = (
             c.execute(
                 text(
-                    "SELECT u.id,u.name,u.role,s.expires FROM demo_sessions s JOIN demo_users u ON u.id=s.user_id WHERE s.token=:token"
+                    "SELECT u.id,u.name,u.role,s.expires,d.user_id AS disabled FROM demo_sessions s JOIN demo_users u ON u.id=s.user_id LEFT JOIN demo_disabled_users d ON d.user_id=u.id WHERE s.token=:token"
                 ),
                 {"token": token_digest(credentials.credentials)},
             )
@@ -266,6 +274,8 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
         )
     if not row or datetime.fromisoformat(row["expires"]) < utcnow():
         raise HTTPException(401, "Session expired")
+    if row["disabled"] is not None:
+        raise HTTPException(403, "This account has been disabled. Ask an admin to re-enable it.")
     return dict(row)
 
 
@@ -1340,7 +1350,12 @@ def settings(user=Depends(current_user)):
     with engine.connect() as c:
         if user["role"] == "admin":
             users = [
-                dict(r) for r in c.execute(text("SELECT id,name,role FROM demo_users ORDER BY role,id")).mappings()
+                dict(r)
+                for r in c.execute(
+                    text(
+                        "SELECT u.id,u.name,u.role,CASE WHEN d.user_id IS NULL THEN 1 ELSE 0 END AS active FROM demo_users u LEFT JOIN demo_disabled_users d ON d.user_id=u.id ORDER BY u.role,u.id"
+                    )
+                ).mappings()
             ]
             grants = c.execute(text("SELECT user_id,location_id FROM demo_user_locations")).mappings().all()
             by_user = {}
@@ -1560,6 +1575,116 @@ def create_access(body: AccessBody, user=Depends(current_user)):
                 )
         audit(c, user, "settings.access.create", {"id": body.id, "role": body.role, "location_ids": body.location_ids})
     return {"id": body.id, "name": body.name, "role": body.role, "location_ids": body.location_ids}
+
+
+def supervisor_row(c, user_id: str, active: int | None = None, lock: bool = False):
+    """Load a user for access management. Supervisor-only by design: admin account
+    management is out of scope for these endpoints."""
+    q = "SELECT u.* FROM demo_users u"
+    params: dict = {"id": user_id}
+    if active is not None:
+        q += " LEFT JOIN demo_disabled_users d ON d.user_id=u.id"
+        q += " WHERE u.id=:id AND d.user_id IS " + ("NULL" if active else "NOT NULL")
+    else:
+        q += " WHERE u.id=:id"
+    # Lock only the demo_users side: PostgreSQL refuses FOR UPDATE on a LEFT JOIN's
+    # nullable side, and the marker row does not need the lock.
+    lock_sql = " FOR UPDATE OF u" if lock and engine.dialect.name != "sqlite" else ""
+    row = c.execute(text(q + lock_sql), params).mappings().first()
+    if not row:
+        raise HTTPException(404, "Supervisor not found")
+    if row["role"] != "supervisor":
+        raise HTTPException(400, "Only supervisor accounts can be changed here")
+    return row
+
+
+def grant_site_ids(c, user_id: str) -> list[str]:
+    return [
+        r[0]
+        for r in c.execute(
+            text("SELECT location_id FROM demo_user_locations WHERE user_id=:id ORDER BY location_id"), {"id": user_id}
+        )
+    ]
+
+
+def unsupervised_sites(c, site_ids: list[str]) -> list[str]:
+    """Sites left without any active supervisor. A warning, never a block: an admin may
+    deliberately run a site unsupervised, and attendance history is unaffected."""
+    left = []
+    for site_id in site_ids:
+        covered = c.execute(
+            text(
+                "SELECT 1 FROM demo_user_locations g JOIN demo_users u ON u.id=g.user_id "
+                "LEFT JOIN demo_disabled_users d ON d.user_id=u.id "
+                "WHERE g.location_id=:loc AND u.role='supervisor' AND d.user_id IS NULL"
+            ),
+            {"loc": site_id},
+        ).first()
+        if not covered:
+            left.append(site_id)
+    return left
+
+
+@app.patch("/api/settings/access/{user_id}/locations")
+def update_access_locations(user_id: str, body: AccessLocationsBody, user=Depends(current_user)):
+    """Admin edit of an existing supervisor's site coverage. Grants are replaced in one
+    transaction and read live by every scoped query, so the change applies on the
+    supervisor's next request. Attendance rows reference locations, not supervisors,
+    so history, reports and exports are untouched."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        supervisor_row(c, user_id)
+        after = list(dict.fromkeys(body.location_ids))
+        for location_id in after:
+            if not c.execute(text("SELECT 1 FROM demo_locations WHERE id=:id"), {"id": location_id}).first():
+                raise HTTPException(404, f"Location not found: {location_id}")
+        before = grant_site_ids(c, user_id)
+        c.execute(text("DELETE FROM demo_user_locations WHERE user_id=:id"), {"id": user_id})
+        for location_id in after:
+            c.execute(
+                text("INSERT INTO demo_user_locations VALUES (:user,:location)"),
+                {"user": user_id, "location": location_id},
+            )
+        audit(c, user, "settings.access.locations", {"id": user_id, "before": before, "after": after})
+        unsupervised = unsupervised_sites(c, sorted(set(before) | set(after)))
+    return {"id": user_id, "location_ids": after, "unsupervised": unsupervised}
+
+
+@app.delete("/api/settings/access/{user_id}")
+def disable_access(user_id: str, user=Depends(current_user)):
+    """Admin disable of a departing supervisor's login. The account, site grants and all
+    history stay (enable restores coverage as it was); sessions are revoked immediately
+    and sign-in is blocked. current_user also re-checks the flag on every request, so a
+    session that survives revocation is still rejected."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    if user_id == user["id"]:
+        raise HTTPException(400, "You cannot disable your own account")
+    with engine.begin() as c:
+        row = supervisor_row(c, user_id, active=1, lock=True)
+        sites = grant_site_ids(c, user_id)
+        c.execute(
+            text("INSERT INTO demo_disabled_users VALUES (:id,:at,:by)"),
+            {"id": user_id, "at": utcnow().isoformat(), "by": user["id"]},
+        )
+        c.execute(text("DELETE FROM demo_sessions WHERE user_id=:id"), {"id": user_id})
+        audit(c, user, "settings.access.disable", {"id": user_id, "name": row["name"], "location_ids": sites})
+        unsupervised = unsupervised_sites(c, sites)
+    return {"id": user_id, "status": "disabled", "unsupervised": unsupervised}
+
+
+@app.post("/api/settings/access/{user_id}/enable")
+def enable_access(user_id: str, user=Depends(current_user)):
+    """Re-enable a disabled supervisor. Site grants were kept, so coverage resumes exactly
+    as before the disable; the supervisor signs in with their existing password."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        row = supervisor_row(c, user_id, active=0, lock=True)
+        c.execute(text("DELETE FROM demo_disabled_users WHERE user_id=:id"), {"id": user_id})
+        audit(c, user, "settings.access.enable", {"id": user_id, "name": row["name"]})
+    return {"id": user_id, "status": "active"}
 
 
 # The frontend is three static files: this HTML shell plus its stylesheet and script below.
