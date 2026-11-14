@@ -25,7 +25,7 @@ Template:
 - Request: Add rules for all AI tools: STE100, UX, UI theme, tests, existing components and the work log.
 - Changed: `AGENTS.md`, `CLAUDE.md`, `docs/UI-GUIDE.md`, `docs/WORKLOG.md`, `README.md`
 - Tests: `pytest -q tests/` without the 2 browser test files → 35 passed. Docs only, no code change.
-- Open items: Find out which instruction file Instinct reads. If it does not read `AGENTS.md`, add a pointer file.
+- Open items: None. Instinct reads `AGENTS.md`, so it needs no pointer file.
 
 ## 2026-11-14 · Count unrecorded employees as "Not in" · Claude Code · feat/reports
 - Request: Make the reports show the same "Not in" count as the attendance screen.
