@@ -504,3 +504,31 @@ def test_employee_lookup_requires_auth_and_stays_minimal():
     # Response carries only what the marker needs to confirm the person.
     body = client.get("/api/employee-lookup?employee_id=EMP1024", headers=auth()).json()
     assert set(body) == {"id", "name", "role", "location_id", "active", "location_name"}
+
+
+def test_employee_lookup_by_name_single_match():
+    # A name that identifies one person resolves exactly like an EMP ID, with the
+    # same minimal fields (no phone), case-insensitively.
+    body = client.get("/api/employee-lookup?employee_id=VIKRAM", headers=auth()).json()
+    assert body["id"] == "EMP1051"
+    assert set(body) == {"id", "name", "role", "location_id", "active", "location_name"}
+
+
+def test_employee_lookup_by_name_multiple_matches_returns_pick_list():
+    # A name matching several people returns a pick list instead of guessing; the
+    # supervisor chooses the right person. Ad-hoc flow: matches are not limited to
+    # the signed-in supervisor's own site, but carry no private fields.
+    first = make_employee(auth(), "Zoya Khan", "+919700000041", "loc-hsr")
+    second = make_employee(auth(), "Zoya Rahman", "+919700000042", "loc-mysuru")
+    sup = auth("supervisor.demo")
+    body = client.get("/api/employee-lookup?employee_id=zoya", headers=sup).json()
+    ids = [m["id"] for m in body["matches"]]
+    assert ids == [first, second]  # ordered by name: Zoya Khan before Zoya Rahman
+    for m in body["matches"]:
+        assert set(m) == {"id", "name", "role", "location_id", "active", "location_name"}
+    # The pick-list entries resolve to full single-employee lookups by their IDs.
+    assert client.get(f"/api/employee-lookup?employee_id={first}", headers=sup).json()["name"] == "Zoya Khan"
+
+
+def test_employee_lookup_by_name_no_match_is_404():
+    assert client.get("/api/employee-lookup?employee_id=No%20Such%20Person", headers=auth()).status_code == 404
