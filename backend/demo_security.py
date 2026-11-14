@@ -63,6 +63,6 @@ def iso_dt(day: date, hour: int, minute: int) -> str:
 def insert_user(c, user_id: str, name: str, role: str, password: str) -> None:
     salt = secrets.token_hex(16)
     c.execute(
-        text("INSERT INTO demo_users VALUES (:id,:name,:role,:salt,:password)"),
+        text("INSERT INTO demo_users (id,name,role,salt,password) VALUES (:id,:name,:role,:salt,:password)"),
         {"id": user_id, "name": name, "role": role, "salt": salt, "password": password_hash(password, salt)},
     )
