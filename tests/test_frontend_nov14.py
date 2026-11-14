@@ -220,12 +220,14 @@ def test_admin_edit_times_form_posts_ist_values(tmp_path):
         form = page.locator("#timeEditForm")
         assert form.locator("[name=check_in]").input_value() == "09:30"
         form.locator("[name=check_out]").fill("19:15")
+        form.locator("[name=reason]").fill("guard forgot to check out")
         page.screenshot(path=str(tmp_path / "edit-times.png"))
         form.locator("button.secondary").click()
         page.wait_for_function("document.body.innerText.includes('Times updated')")
         assert patches[0]["check_in"] == "09:30"
         assert patches[0]["check_out"] == "19:15"
         assert patches[0]["employee_id"] == "EMP9001"
+        assert patches[0]["reason"] == "guard forgot to check out"
         # The checkout date travels with overnight corrections; it defaults to the record day.
         assert patches[0]["check_out_day"] == patches[0]["day"]
         browser.close()

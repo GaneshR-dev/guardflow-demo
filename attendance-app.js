@@ -344,7 +344,7 @@ function attendance() {
 function editTimeForm() {
   const r = state.editTimes;
   if (!r) return '';
-  return `<div class="card addCard" id="timeEditCard"><strong>Edit times - ${esc(r.name)}</strong><p class="muted small">Only admins can modify attendance times. Times are Indian Standard Time.</p><form id="timeEditForm"><div class="field"><label>Date</label><input name="day" type="date" value="${todayISO()}" required></div><div class="field"><label>Check-in time (IST)</label><input name="check_in" type="time" value="${toHHMM(r.check_in)}" required></div><div class="field"><label>Check-out time (IST, leave empty if still working)</label><input name="check_out" type="time" value="${toHHMM(r.check_out)}"></div><div class="field"><label>Check-out date (IST, pick the next day for overnight shifts)</label><input name="check_out_day" type="date" value="${todayISO()}"></div><button class="secondary">Save times</button> <button type="button" class="link" id="cancelTimeEdit">Cancel</button></form></div>`;
+  return `<div class="card addCard" id="timeEditCard"><strong>Edit times - ${esc(r.name)}</strong><p class="muted small">Only admins can modify attendance times. Times are Indian Standard Time. Each correction is saved with your reason in the activity log. Shifts over 24 hours are unusual - double-check the dates.</p><form id="timeEditForm"><div class="field"><label>Date</label><input name="day" type="date" value="${todayISO()}" required></div><div class="field"><label>Check-in time (IST)</label><input name="check_in" type="time" value="${toHHMM(r.check_in)}" required></div><div class="field"><label>Check-out time (IST, leave empty if still working)</label><input name="check_out" type="time" value="${toHHMM(r.check_out)}"></div><div class="field"><label>Check-out date (IST, pick the next day for overnight shifts)</label><input name="check_out_day" type="date" value="${todayISO()}"></div><div class="field"><label>Reason for the correction</label><input name="reason" placeholder="Example: guard forgot to check out" minlength="3" maxlength="200" required></div><button class="secondary">Save times</button> <button type="button" class="link" id="cancelTimeEdit">Cancel</button></form></div>`;
 }
 function add() {
   const available = state.attendance.filter(
@@ -352,15 +352,22 @@ function add() {
       r.status === 'not_in' &&
       (!state.addQuery || (r.name + ' ' + r.employee_id).toLowerCase().includes(state.addQuery.toLowerCase())),
   );
-  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Choose an existing employee to record their check-in.</p><input class="search" id="addSearch" placeholder="Search name or employee ID" value="${esc(state.addQuery)}"><h2 class="sectionTitle">Available employees</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}</small></span><button class="selectBtn" data-select="${esc(r.employee_id)}">Select</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${state.user?.role === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}${state.selected ? `<div class="selected"><b>Selected employee: ${esc(state.selected.name)}</b><br>${esc(state.selected.employee_id)} · ${esc(state.location.name)}</div><button class="primary" id="doCheckin">Mark Check-in · ${nowTime()}</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Employee enters their EMP ID, or pick a waiting employee below.</p><form id="idCheckin" style="display:flex;gap:8px"><input class="search" name="empid" placeholder="Enter EMP ID, e.g. EMP1024" style="flex:1;min-width:0" autocomplete="off" required><button class="secondary" style="flex:0 0 auto;width:auto;padding:0 20px">Find</button></form><input class="search" id="addSearch" placeholder="Search name or employee ID" value="${esc(state.addQuery)}"><h2 class="sectionTitle">Pre-assigned employees waiting here</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}${r.adhoc ? ' · ad-hoc' : ''}</small></span><button class="selectBtn" data-select="${esc(r.employee_id)}">Select</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${state.user?.role === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}${state.selected ? `<div class="selected"><b>Selected employee: ${esc(state.selected.name)}</b><br>${esc(state.selected.employee_id)} · ${esc(state.location.name)}${state.selected.adhoc ? ' · ad-hoc shift' : ''}</div><button class="primary" id="doCheckin">Mark Check-in · ${nowTime()}</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
 }
 function confirmed() {
   const r = state.lastCheck;
   return `<div class="page">${header()}<h1>Check-in recorded</h1><p class="sub">Attendance has been successfully updated.</p><div class="card confirmCard"><div class="successIcon">✓</div><h2>${esc(r?.name || 'Employee')}</h2><p class="muted small">${esc(r?.employee_id || '')} · ${esc(state.location?.name.split(' - ')[1] || '')}</p><span class="badge green">CHECKED IN</span><div class="timeLabel">CHECK-IN TIME (IST)</div><div class="bigTime">${fmtTime(r?.check_in)}</div><div class="muted small">${fmtDate(istNow())}</div></div><button class="primary" data-go="add">+ Add another employee</button><p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
 }
 function checkout() {
+  const stale = state.staleOpen || [];
   const rows = state.attendance.filter((r) => r.status === 'checked_in');
-  return `<div class="page">${header()}<h1>Manage check-outs</h1><p class="sub">Employees currently checked in at ${esc(state.location?.name.split(' - ')[1] || '')} (IST).</p><div class="hero"><small>STILL CHECKED IN</small><strong>${rows.length}</strong> <span>${plural(rows.length, 'employee')}</span></div><input class="search" id="outSearch" placeholder="Search checked-in employees">${rows.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>In: ${fmtTime(r.check_in)}</small></span><button class="outlineBtn" data-checkout="${esc(r.employee_id)}">Check out</button></div>`).join('') || '<p class="muted small">No checked-in employees remain.</p>'}<p style="text-align:center;margin-top:18px"><button class="link" data-go="attendance">View attendance list</button></p></div>${nav()}${message()}`;
+  const total = rows.length + stale.length;
+  const person = (r, extra) =>
+    `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>In: ${fmtTime(r.check_in)}${extra}</small></span><button class="outlineBtn" data-checkout="${esc(r.employee_id)}">Check out</button></div>`;
+  const staleList = stale.length
+    ? `<h2 class="sectionTitle">Left open from earlier days</h2><p class="muted small">These check-ins were never closed. Check out each one, then an admin can fix the times with a reason.</p>${stale.map((r) => person(r, ` · since ${esc(r.day)}`)).join('')}`
+    : '';
+  return `<div class="page">${header()}<h1>Manage check-outs</h1><p class="sub">Employees currently checked in at ${esc(state.location?.name.split(' - ')[1] || '')} (IST).</p><form id="idCheckout" style="display:flex;gap:8px"><input class="search" name="empid" placeholder="Enter EMP ID to check out" style="flex:1;min-width:0" autocomplete="off" required><button class="secondary" style="flex:0 0 auto;width:auto;padding:0 20px">Find</button></form><div class="hero"><small>STILL CHECKED IN</small><strong>${total}</strong> <span>${plural(total, 'employee')}</span></div><input class="search" id="outSearch" placeholder="Search checked-in employees">${rows.map((r) => person(r, '')).join('') || (stale.length ? '' : '<p class="muted small">No checked-in employees remain.</p>')}${staleList}<p style="text-align:center;margin-top:18px"><button class="link" data-go="attendance">View attendance list</button></p></div>${nav()}${message()}`;
 }
 async function dashboard() {
   if (!state.dashboard) state.dashboard = await api('/api/dashboard');
@@ -716,6 +723,39 @@ function reports() {
           : historyReport(r);
   return `<div class="page rp">${header()}<div class="rpTitle"><h1>Reports</h1>${exportButton}</div><nav class="rpTabs" aria-label="Report type">${tabs}</nav>${r.tab === 'history' ? '' : reportFilters(r)}${body}</div>${r.sheet ? locationSheet(r) : ''}${nav()}${message()}`;
 }
+// Activity log (Settings > Activity log, admin only): readable labels for each recorded write.
+const AUDIT_TITLES = {
+  'attendance.checkin': 'Check-in',
+  'attendance.checkout': 'Check-out',
+  'attendance.times.edit': 'Time correction',
+  'employee.create': 'Employee added',
+  'employee.disable': 'Employee disabled',
+  'employee.enable': 'Employee enabled',
+  'employee.import': 'Employee import',
+  'employee.transfer': 'Employee moved to another location',
+  'settings.location.create': 'Location added',
+  'settings.location.disable': 'Location disabled',
+  'settings.location.enable': 'Location enabled',
+  'settings.location.import': 'Location import',
+  'settings.access.create': 'User access created',
+  'settings.profile.update': 'Profile updated',
+};
+const auditTitle = (a) => AUDIT_TITLES[a.action] || a.action;
+const fmtAuditTime = (v) => (v ? fmtDate(new Date(v)) + ' · ' + fmtTime(v) : '');
+function auditDetail(a) {
+  const d = a.details || {};
+  if (a.action === 'attendance.times.edit')
+    return `${d.employee_id || ''} · ${d.day || ''} · Reason: ${d.reason || 'not given'}`;
+  if (a.action === 'attendance.checkout' && d.late_checkout)
+    return `${d.employee_id || ''} · closed the record from ${d.record_day || 'an earlier day'}`;
+  if (a.action === 'attendance.checkin' || a.action === 'attendance.checkout')
+    return `${d.employee_id || ''} · ${d.location_id || ''}`;
+  if (a.action === 'employee.transfer')
+    return `${d.employee_id || ''} · ${d.from || 'no location'} to ${d.to || 'no location'}`;
+  if (a.action === 'employee.import' || a.action === 'settings.location.import')
+    return `${d.created || 0} added · ${d.updated || 0} updated`;
+  return d.employee_id || d.location_id || d.id || d.name || '';
+}
 function settings() {
   const d = state.settings;
   const accessCount = d ? d.access.length : null;
@@ -726,7 +766,9 @@ function settings() {
     panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">Locations</h2>${d.locations.map((l) => `<div class="person ${l.active ? '' : 'disabledRow'}"><span><strong>${esc(l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${esc(l.area)} · ${empCountLabel(l)} · ${esc(shiftLabel(l))}</small></span></div>`).join('') || '<p class="muted small">No locations yet. Add the first branch below.</p>'}${state.user.role === 'admin' ? `<form id="locationForm" style="margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Area</label><input name="area" required></div>${shiftFields()}${locationSupervisorField()}<button class="secondary" ${!Array.isArray(state.settings?.access) ? 'disabled' : ''}>Add location</button></form>` : '<p class="muted small">Supervisors can view assigned locations. Admins manage branches.</p>'}</div>`;
   if (d && state.settingsView === 'access')
     panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">User access</h2>${d.access.map((u) => `<div class="person"><span><strong>${esc(u.name)}</strong><small>${esc(u.id)} · ${esc(u.role)} · ${esc(u.role === 'admin' ? 'All locations' : u.location_ids.join(', ') || 'No locations')}</small></span></div>`).join('')}${state.user.role === 'admin' ? `<form id="accessForm" style="margin-top:14px"><div class="field"><label>User ID</label><input name="id" required></div><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Temporary password (12+ characters)</label><input name="password" type="password" required></div><div class="field"><label>Locations</label><select name="location_ids" multiple size="3">${d.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div><button class="secondary">Create supervisor</button></form>` : '<p class="muted small">Only admins can create or change access.</p>'}</div>`;
-  return `<div class="page">${header()}<h1>Settings</h1><p class="sub">Manage your account and app preferences.</p>${[
+  if (d && state.settingsView === 'activity' && state.user?.role === 'admin')
+    panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">Activity log</h2><p class="muted small">Each recorded change, newest first. Time corrections always carry a reason.</p><p style="text-align:right;margin:0 0 8px"><button class="link" id="exportAudit">Export full log (CSV)</button></p>${(state.audit || []).map((a) => `<div class="person"><span><strong>${esc(auditTitle(a))}</strong><small>${esc(auditDetail(a))}</small><small>${esc(a.user_id)} · ${esc(fmtAuditTime(a.at))}</small></span></div>`).join('') || '<p class="muted small">No activity recorded yet.</p>'}</div>`;
+  const items = [
     [
       'profile',
       'My profile',
@@ -734,7 +776,10 @@ function settings() {
     ],
     ['locations', 'Locations', 'View assigned branches and admin controls'],
     ['access', 'User access', 'View roles and location scope'],
-  ]
+  ];
+  if (state.user?.role === 'admin')
+    items.push(['activity', 'Activity log', 'Each change and correction, with reasons']);
+  return `<div class="page">${header()}<h1>Settings</h1><p class="sub">Manage your account and app preferences.</p>${items
     .map(
       ([k, t, sub]) =>
         `<button class="navLink" data-settings="${k}"><span><strong>${t}</strong><small>${sub}</small></span><span class="badge ${state.settingsView === k ? 'green' : 'blue'}">${k === 'locations' ? (d ? d.locations.length : state.locations.length) : k === 'access' ? (d ? plural(accessCount, 'user') : '›') : '›'}</span></button>`,
@@ -908,6 +953,7 @@ function bind() {
       (b.onclick = () => {
         state.selected = state.attendance.find((r) => r.employee_id === b.dataset.select);
         render();
+        document.querySelector('.selected')?.scrollIntoView({ block: 'center', behavior: 'instant' });
       }),
   );
   const dc = document.getElementById('doCheckin');
@@ -920,6 +966,12 @@ function bind() {
     };
   const ne = document.getElementById('newEmployee');
   if (ne) ne.onsubmit = doNewEmployee;
+  const ea = document.getElementById('exportAudit');
+  if (ea) ea.onclick = exportAudit;
+  const ici = document.getElementById('idCheckin');
+  if (ici) ici.onsubmit = lookupForCheckin;
+  const ico = document.getElementById('idCheckout');
+  if (ico) ico.onsubmit = lookupForCheckout;
   const fp = document.getElementById('forgot');
   if (fp) fp.onclick = () => toast('Demo: use the visible demo credentials. Production recovery needs an admin reset.');
   const imp = document.getElementById('importFile');
@@ -1128,6 +1180,7 @@ async function loadAttendance() {
     if (!isCurrent()) return;
     state.attendance = r.rows;
     state.summary = r.summary;
+    state.staleOpen = r.stale_open || [];
     render();
   } catch (err) {
     if (isCurrent()) throw err;
@@ -1136,6 +1189,43 @@ async function loadAttendance() {
 async function loadEmployees(renderNow = true) {
   state.employees = await api('/api/employees');
   if (renderNow) render();
+}
+// EMP-ID entry: resolve any active employee (ad hoc included) in the supervisor session.
+async function lookupEmployee(empid) {
+  const emp = await api('/api/employee-lookup?employee_id=' + encodeURIComponent(empid.trim()));
+  if (!emp.active) throw Object.assign(new Error('This employee is disabled. An admin can enable them again.'), { handled: true });
+  return emp;
+}
+async function lookupForCheckin(e) {
+  e.preventDefault();
+  try {
+    const emp = await lookupEmployee(new FormData(e.target).get('empid'));
+    state.selected = { employee_id: emp.id, name: emp.name, adhoc: emp.location_id !== state.location.id };
+    state.error = null;
+    render();
+    document.querySelector('.selected')?.scrollIntoView({ block: 'center', behavior: 'instant' });
+  } catch (err) {
+    state.error = err.message;
+    render();
+  }
+}
+async function lookupForCheckout(e) {
+  e.preventDefault();
+  try {
+    const emp = await lookupEmployee(new FormData(e.target).get('empid'));
+    const row =
+      state.attendance.find((r) => r.employee_id === emp.id && r.status === 'checked_in') ||
+      (state.staleOpen || []).find((r) => r.employee_id === emp.id);
+    if (!row) {
+      state.error = emp.name + ' is not currently checked in at this location.';
+      return render();
+    }
+    state.error = null;
+    askCheckout(emp.id);
+  } catch (err) {
+    state.error = err.message;
+    render();
+  }
 }
 async function doCheckin() {
   try {
@@ -1155,7 +1245,9 @@ async function doCheckin() {
 }
 // Check-out always asks first, showing the IST check-out time and hours worked.
 function askCheckout(id) {
-  const row = state.attendance.find((r) => r.employee_id === id);
+  const row =
+    state.attendance.find((r) => r.employee_id === id) ||
+    (state.staleOpen || []).find((r) => r.employee_id === id);
   if (!row) return;
   const nowMs = Date.now();
   const inMs = row.check_in ? new Date(row.check_in).getTime() : nowMs;
@@ -1195,7 +1287,7 @@ async function doNewEmployee(e) {
   e.preventDefault();
   const f = Object.fromEntries(new FormData(e.target));
   try {
-    await api('/api/employees', {
+    const r = await api('/api/employees', {
       method: 'POST',
       body: JSON.stringify({ ...f, location_id: state.location.id }),
     });
@@ -1203,7 +1295,7 @@ async function doNewEmployee(e) {
     state.locations = await api('/api/locations');
     state.dashboard = null;
     await loadAttendance();
-    toast('Employee added');
+    toast(r.warning || 'Employee added');
   } catch (err) {
     state.error = err.message;
     render();
@@ -1214,7 +1306,7 @@ async function createEmployee(e) {
   const f = Object.fromEntries(new FormData(e.target));
   try {
     // Location is optional at creation; an empty choice means "assign later".
-    await api('/api/employees', {
+    const r = await api('/api/employees', {
       method: 'POST',
       body: JSON.stringify({ ...f, role: 'Guard', location_id: f.location_id || null }),
     });
@@ -1222,7 +1314,7 @@ async function createEmployee(e) {
     state.dashboard = null;
     await loadEmployees(false);
     state.showEmployeeForm = false;
-    toast('Employee added');
+    toast(r.warning || 'Employee added');
   } catch (err) {
     state.error = err.message;
     render();
@@ -1402,6 +1494,8 @@ document.addEventListener('keydown', (e) => {
 async function openSettings(kind) {
   try {
     state.settings = await api('/api/settings');
+    if (kind === 'activity' && state.user?.role === 'admin')
+      state.audit = (await api('/api/audit')).rows;
     go('settings', { settingsView: kind });
   } catch (e) {
     state.settingsView = kind;
@@ -1498,6 +1592,7 @@ async function saveTimeEdit(e) {
         check_in: f.check_in,
         check_out: f.check_out || null,
         check_out_day: f.check_out ? f.check_out_day || null : null,
+        reason: f.reason,
       }),
     });
     state.editTimes = null;
@@ -1623,6 +1718,16 @@ async function createAccess(e) {
 }
 // Excel exports: monthly summaries and filtered daily/location reports.
 // The server streams a file; we hand the response to the browser as a download.
+async function exportAudit() {
+  const r = await fetch(API + '/api/audit/export', { headers: { Authorization: 'Bearer ' + state.token } });
+  if (!r.ok) return toast('Could not export the activity log');
+  const blob = await r.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'guardian-activity-log.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 async function exportMonth(month) {
   return exportReport(month);
 }
@@ -1716,7 +1821,10 @@ async function importEmployees(file) {
     state.locations = await api('/api/locations');
     state.dashboard = null;
     await loadEmployees(false);
+    if (r.warnings && r.warnings.length)
+      state.error = 'Imported, but check these duplicates: ' + r.warnings.join(' ');
     toast('Imported ' + r.created + ' new and updated ' + r.updated + ' employees');
+    if (state.error) render();
   } catch (e) {
     state.error = e.message;
     render();

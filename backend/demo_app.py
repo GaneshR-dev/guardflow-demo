@@ -152,6 +152,8 @@ class AttendanceTimeBody(BaseModel):
     check_out: str | None = Field(default=None, pattern=SHIFT_PATTERN)
     # Overnight corrections: checkout can land on a later IST date than the check-in record.
     check_out_day: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    # Mandatory: a correction is the exception path and must say why. Stored in the audit log.
+    reason: str = Field(min_length=3, max_length=200)
 
 
 class LocationImportRow(BaseModel):
@@ -304,13 +306,6 @@ def worked_hours(check_in: str | None, check_out: str | None) -> float | None:
 
 
 def attendance_summary(c, location_id: str, day: date) -> dict:
-    total_employees = (
-        c.execute(
-            text("SELECT COUNT(*) FROM demo_employees WHERE active=1 AND location_id=:location"),
-            {"location": location_id},
-        ).scalar()
-        or 0
-    )
     rows = (
         c.execute(
             text(
@@ -323,7 +318,21 @@ def attendance_summary(c, location_id: str, day: date) -> dict:
     )
     counts = {"checked_in": 0, "completed": 0}
     counts.update({r["status"]: r["count"] for r in rows})
-    return {**counts, "not_in": max(total_employees - counts["checked_in"] - counts["completed"], 0)}
+    # "Not in" counts only assigned employees with no actual attendance at THIS location
+    # today (no row, or an explicit not_in row); ad-hoc workers from other sites add to
+    # checked/completed without reducing it.
+    not_in = (
+        c.execute(
+            text(
+                "SELECT COUNT(*) FROM demo_employees e WHERE e.active=1 AND e.location_id=:location "
+                "AND NOT EXISTS (SELECT 1 FROM demo_attendance a WHERE a.employee_id=e.id AND a.day=:day "
+                "AND a.location_id=:location AND a.status IN ('checked_in','completed'))"
+            ),
+            {"location": location_id, "day": day.isoformat()},
+        ).scalar()
+        or 0
+    )
+    return {**counts, "not_in": not_in}
 
 
 @app.get("/api/health")
@@ -338,6 +347,29 @@ def health():
 @app.get("/api/locations")
 def locations(user=Depends(current_user)):
     return location_rows(user)
+
+
+@app.get("/api/employee-lookup")
+def employee_lookup(employee_id: str, user=Depends(current_user)):
+    # Resolve an EMP ID so an employee can check in/out at the site the signed-in
+    # supervisor manages, including ad-hoc shifts away from their home site. Returns the
+    # minimum needed to confirm the person; deliberately no phone or other private fields.
+    with engine.connect() as c:
+        emp = (
+            c.execute(
+                text(
+                    "SELECT e.id,e.name,e.role,e.location_id,e.active,l.name location_name "
+                    "FROM demo_employees e LEFT JOIN demo_locations l ON l.id=e.location_id "
+                    "WHERE e.id=:id"
+                ),
+                {"id": employee_id.strip()},
+            )
+            .mappings()
+            .first()
+        )
+    if not emp:
+        raise HTTPException(404, "No employee with that EMP ID")
+    return dict(emp)
 
 
 @app.get("/api/employees")
@@ -377,12 +409,39 @@ def insert_employee_row(c, employee_id, name, phone, role, location_id):
 
 
 def update_employee_row(c, employee_id, name, phone, role, location_id):
+    """Update details and placement. The active flag never changes here: re-enabling a
+    disabled employee goes through the guarded Enable flow, not a file import."""
     c.execute(
-        text(
-            "UPDATE demo_employees SET name=:name,phone=:phone,role=:role,location_id=:location,active=1 WHERE id=:id"
-        ),
+        text("UPDATE demo_employees SET name=:name,phone=:phone,role=:role,location_id=:location WHERE id=:id"),
         {"id": employee_id, "name": name, "phone": phone, "role": role, "location": location_id},
     )
+
+
+def phone_digits(phone: str) -> str:
+    return re.sub(r"\D", "", phone)
+
+
+def duplicate_active_phone(c, phone: str, exclude_id: str | None = None) -> str | None:
+    """Shared phones are legitimate (family or office phones), so a repeat warns instead of
+    blocking: two ACTIVE records with one phone are often a duplicate that can pay one person
+    twice, and the warning sends the admin to check."""
+    digits = phone_digits(phone)[-10:]
+    if len(digits) < 7:
+        return None
+    for row in c.execute(text("SELECT id,name,phone FROM demo_employees WHERE active=1")).mappings():
+        if row["id"] != exclude_id and phone_digits(row["phone"])[-10:] == digits:
+            return (
+                f"{row['name']} ({row['id']}) already has this phone number. Check that this is not a duplicate record."
+            )
+    return None
+
+
+def require_active_location(c, user: dict, location_id: str):
+    """Location access plus an active check: nobody adds people to a disabled branch."""
+    location = require_location_access(c, user, location_id)
+    if not location["active"]:
+        raise HTTPException(409, f"Location {location_id} is disabled. Enable it first.")
+    return location
 
 
 def add_name_search(sql, params, name_col, id_col, query):
@@ -409,7 +468,8 @@ def add_employee(body: EmployeeBody, user=Depends(current_user)):
     require_role_write(user, body.role)
     with engine.begin() as c:
         if body.location_id:
-            require_location_access(c, user, body.location_id)
+            require_active_location(c, user, body.location_id)
+        warning = duplicate_active_phone(c, body.phone)
         employee_id = new_employee_id(c)
         insert_employee_row(c, employee_id, body.name, body.phone, body.role, body.location_id)
         audit(c, user, "employee.create", {"employee_id": employee_id, "location_id": body.location_id})
@@ -419,6 +479,7 @@ def add_employee(body: EmployeeBody, user=Depends(current_user)):
             "phone": body.phone,
             "role": body.role,
             "location_id": body.location_id,
+            "warning": warning,
         }
 
 
@@ -495,24 +556,48 @@ def import_employees(body: EmployeeImportBody, user=Depends(current_user)):
         raise HTTPException(403, "Admin required")
     reject_duplicate_import_ids([row.id for row in body.rows], "employee")
     created = updated = 0
+    warnings = []
     with engine.begin() as c:
         for row in body.rows:
             require_role_write(user, row.role)
             if row.location_id:
-                require_location_access(c, user, row.location_id)
+                require_active_location(c, user, row.location_id)
             employee_id = row.id or new_employee_id(c)
             existing = (
                 c.execute(text("SELECT * FROM demo_employees WHERE id=:id"), {"id": employee_id}).mappings().first()
             )
             if existing:
-                require_location_access(c, user, existing["location_id"])
+                if existing["location_id"]:
+                    require_location_access(c, user, existing["location_id"])
+                warning = duplicate_active_phone(c, row.phone, exclude_id=employee_id)
+                if warning:
+                    warnings.append(f"{employee_id}: {warning}")
+                old_location = existing["location_id"]
                 update_employee_row(c, employee_id, row.name, row.phone, row.role, row.location_id)
+                if old_location != row.location_id:
+                    audit(
+                        c,
+                        user,
+                        "employee.transfer",
+                        {"employee_id": employee_id, "from": old_location, "to": row.location_id},
+                    )
                 updated += 1
             else:
+                warning = duplicate_active_phone(c, row.phone)
+                if warning:
+                    warnings.append(f"{employee_id}: {warning}")
                 insert_employee_row(c, employee_id, row.name, row.phone, row.role, row.location_id)
                 created += 1
+        # assigned_count is a live headcount. Rebuild it from the real rows after each import,
+        # so transfers and disables can never drift the numbers shown on the screens.
+        c.execute(
+            text(
+                "UPDATE demo_locations SET assigned_count="
+                "(SELECT COUNT(*) FROM demo_employees WHERE location_id=demo_locations.id AND active=1)"
+            )
+        )
         audit(c, user, "employee.import", {"created": created, "updated": updated})
-    return {"created": created, "updated": updated}
+    return {"created": created, "updated": updated, "warnings": warnings}
 
 
 @app.get("/api/attendance")
@@ -533,7 +618,7 @@ def attendance(
              COALESCE(a.status,'not_in') status,a.check_in,a.check_out,
              COALESCE(a.source,'not recorded') source
       FROM demo_employees e
-      LEFT JOIN demo_attendance a ON a.employee_id=e.id AND a.day=:day
+      LEFT JOIN demo_attendance a ON a.employee_id=e.id AND a.day=:day AND a.location_id=:location
       WHERE e.active=1 AND e.location_id=:location
     """
     params = {"location": location_id, "day": selected_day}
@@ -545,8 +630,38 @@ def attendance(
     with engine.connect() as c:
         require_location_access(c, user, location_id)
         rows = [dict(r) for r in c.execute(text(sql), params).mappings()]
+        # Employees working an ad-hoc shift here whose home site is elsewhere (or unset)
+        # would otherwise be invisible on this location's list.
+        adhoc_sql = """
+          SELECT a.id,e.id employee_id,e.name,e.phone,e.role,e.location_id,
+                 a.status,a.check_in,a.check_out,COALESCE(a.source,'not recorded') source
+          FROM demo_attendance a JOIN demo_employees e ON e.id=a.employee_id
+          WHERE a.day=:day AND a.location_id=:location
+            AND (e.location_id IS NULL OR e.location_id<>:location)
+        """
+        adhoc_params = {"location": location_id, "day": selected_day}
+        adhoc_sql = add_name_search(adhoc_sql, adhoc_params, "e.name", "e.id", q)
+        if status:
+            adhoc_sql += " AND a.status=:status"
+            adhoc_params["status"] = status
+        adhoc_sql += " ORDER BY e.name"
+        rows += [dict(r) | {"adhoc": True} for r in c.execute(text(adhoc_sql), adhoc_params).mappings()]
         summary = attendance_summary(c, location_id, parsed_day)
-    return {"day": selected_day, "summary": summary, "rows": rows}
+        stale_open = []
+        if parsed_day == local_today():
+            # Check-ins left open from earlier days: they need a check-out, not a new record.
+            stale_open = [
+                dict(r)
+                for r in c.execute(
+                    text(
+                        "SELECT a.day,e.id employee_id,e.name,a.check_in,a.location_id "
+                        "FROM demo_attendance a JOIN demo_employees e ON e.id=a.employee_id "
+                        "WHERE a.location_id=:location AND a.status='checked_in' AND a.day<:day ORDER BY a.day,e.name"
+                    ),
+                    {"location": location_id, "day": selected_day},
+                ).mappings()
+            ]
+    return {"day": selected_day, "summary": summary, "rows": rows, "stale_open": stale_open}
 
 
 @app.post("/api/attendance/checkin")
@@ -565,11 +680,12 @@ def check_in(body: CheckBody, user=Depends(current_user)):
             raise HTTPException(
                 409, "This employee is disabled. An admin can enable them again in the Employees screen."
             )
-        if not emp["location_id"]:
-            raise HTTPException(409, "Employee has no location assigned yet. Ask an admin to assign one.")
-        if emp["location_id"] != body.location_id:
-            raise HTTPException(409, "Employee is assigned to another location")
         location = require_location_access(c, user, body.location_id, lock=True)
+        # Pre-assignment is a default, not a restriction: any active employee may take an
+        # ad-hoc shift at a site the signed-in supervisor manages, even when their home
+        # assignment is another site or not set. The attendance row records the site
+        # actually worked; the home assignment stays untouched and is kept in the audit.
+        adhoc = emp["location_id"] != body.location_id
         if not location["active"]:
             raise HTTPException(409, "This location is disabled. An admin can enable it again in the Locations screen.")
         existing = (
@@ -582,6 +698,21 @@ def check_in(body: CheckBody, user=Depends(current_user)):
         )
         if existing and existing["status"] in ("checked_in", "completed"):
             raise HTTPException(409, "Employee is already checked in")
+        # A check-in left open on an earlier day must be closed first. Without this guard a
+        # forgotten check-out strands one open record per day and blocks disabling the employee.
+        open_row = (
+            c.execute(
+                text("SELECT day FROM demo_attendance WHERE employee_id=:employee AND status='checked_in'"),
+                {"employee": body.employee_id},
+            )
+            .mappings()
+            .first()
+        )
+        if open_row:
+            raise HTTPException(
+                409,
+                f"Still checked in from {open_row['day']}. Record that check-out first, then check in again.",
+            )
         if existing:
             c.execute(
                 text(
@@ -602,8 +733,16 @@ def check_in(body: CheckBody, user=Depends(current_user)):
                     "cin": stamp,
                 },
             )
-        audit(c, user, "attendance.checkin", body.model_dump())
-        return {"employee_id": body.employee_id, "name": emp["name"], "status": "checked_in", "check_in": stamp}
+        details = body.model_dump()
+        if adhoc:
+            details["adhoc"] = True
+            details["home_location_id"] = emp["location_id"]
+        audit(c, user, "attendance.checkin", details)
+        result = {"employee_id": body.employee_id, "name": emp["name"], "status": "checked_in", "check_in": stamp}
+        if adhoc:
+            result["adhoc"] = True
+            result["home_location_id"] = emp["location_id"]
+        return result
 
 
 @app.post("/api/attendance/checkout")
@@ -612,24 +751,35 @@ def check_out(body: CheckBody, user=Depends(current_user)):
     stamp = utcnow().isoformat()
     with engine.begin() as c:
         require_location_access(c, user, body.location_id)
+        # Close the newest open check-in at this location, even from an earlier day. Overnight
+        # shifts and forgotten check-outs must not strand open records. A late close is marked
+        # in the export so the extra hours get reviewed.
         row = (
             c.execute(
                 text(
-                    "SELECT a.*,e.name FROM demo_attendance a JOIN demo_employees e ON e.id=a.employee_id WHERE a.employee_id=:employee AND a.day=:day AND a.location_id=:location"
+                    "SELECT a.*,e.name FROM demo_attendance a JOIN demo_employees e ON e.id=a.employee_id "
+                    "WHERE a.employee_id=:employee AND a.location_id=:location AND a.status='checked_in' "
+                    "ORDER BY a.day DESC"
                 ),
-                {"employee": body.employee_id, "day": today, "location": body.location_id},
+                {"employee": body.employee_id, "location": body.location_id},
             )
             .mappings()
             .first()
         )
-        if not row or row["status"] != "checked_in":
+        if not row:
             raise HTTPException(409, "Employee is not currently checked in")
+        late = row["day"] != today
+        source = "live demo - late checkout" if late else "live demo"
         c.execute(
-            text("UPDATE demo_attendance SET status='completed',check_out=:stamp,source='live demo' WHERE id=:id"),
-            {"stamp": stamp, "id": row["id"]},
+            text("UPDATE demo_attendance SET status='completed',check_out=:stamp,source=:source WHERE id=:id"),
+            {"stamp": stamp, "source": source, "id": row["id"]},
         )
-        audit(c, user, "attendance.checkout", body.model_dump())
-        return {"employee_id": body.employee_id, "name": row["name"], "status": "completed", "check_out": stamp}
+        audit(c, user, "attendance.checkout", {**body.model_dump(), "record_day": row["day"], "late_checkout": late})
+        result = {"employee_id": body.employee_id, "name": row["name"], "status": "completed", "check_out": stamp}
+        if late:
+            result["record_day"] = row["day"]
+            result["note"] = f"Closed the check-in left open since {row['day']}. Check the hours in the report."
+        return result
 
 
 def ist_stamp(day_text: str, hhmm: str) -> str:
@@ -659,6 +809,12 @@ def edit_attendance_times(body: AttendanceTimeBody, user=Depends(current_user)):
     check_out = ist_stamp(out_day_text, body.check_out) if body.check_out else None
     if check_out and check_out <= check_in:
         raise HTTPException(400, "Check-out must be after the check-in time")
+    # Long shifts (for example a forgotten check-out spanning days) are allowed but
+    # flagged in the audit so they get reviewed; there is no hard cap until the owner
+    # confirms one. The required reason keeps them explainable.
+    long_shift = bool(
+        check_out and datetime.fromisoformat(check_out) - datetime.fromisoformat(check_in) > timedelta(hours=24)
+    )
     with engine.begin() as c:
         require_location_access(c, user, body.location_id)
         row = (
@@ -686,6 +842,8 @@ def edit_attendance_times(body: AttendanceTimeBody, user=Depends(current_user)):
                 "employee_id": body.employee_id,
                 "location_id": body.location_id,
                 "day": parsed_day.isoformat(),
+                "reason": body.reason,
+                "long_shift": long_shift,
                 "before": {"check_in": row["check_in"], "check_out": row["check_out"], "status": row["status"]},
                 "after": {"check_in": check_in, "check_out": check_out, "status": status},
             },
@@ -695,6 +853,7 @@ def edit_attendance_times(body: AttendanceTimeBody, user=Depends(current_user)):
         "day": parsed_day.isoformat(),
         "check_out_day": out_day.isoformat() if check_out else None,
         "status": status,
+        "long_shift": long_shift,
         "check_in": check_in,
         "check_out": check_out,
     }
@@ -768,7 +927,7 @@ def unrecorded_today(c, user: dict, location_id: str = "") -> list[dict]:
         "SELECT e.id employee_id,e.name employee_name,e.location_id,l.name location_name "
         "FROM demo_employees e JOIN demo_locations l ON l.id=e.location_id "
         "WHERE e.active=1 AND l.active=1 AND " + scoped_sql(user, "e.location_id") + " AND NOT EXISTS "
-        "(SELECT 1 FROM demo_attendance a WHERE a.employee_id=e.id AND a.day=:day)"
+        "(SELECT 1 FROM demo_attendance a WHERE a.employee_id=e.id AND a.day=:day AND a.location_id=e.location_id)"
     )
     if location_id:
         sql += " AND e.location_id=:location"
@@ -1005,6 +1164,46 @@ def export_excel(
         iter([payload]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename=guardian-attendance-{day or month}.xlsx"},
+    )
+
+
+@app.get("/api/audit")
+def audit_log(limit: int = Query(100, ge=1, le=500), user=Depends(current_user)):
+    """Admin-only activity log: each recorded write, newest first. This is how time
+    corrections, transfers and disables stay visible instead of silent."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.connect() as c:
+        rows = [
+            dict(r)
+            for r in c.execute(
+                text("SELECT at,user_id,action,details FROM demo_audit ORDER BY at DESC LIMIT :limit"),
+                {"limit": limit},
+            ).mappings()
+        ]
+    for row in rows:
+        row["details"] = json.loads(row["details"])
+    return {"rows": rows}
+
+
+@app.get("/api/audit/export")
+def audit_export(user=Depends(current_user)):
+    """Admin-only CSV export of the activity log, for reviewing changes in detail."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.connect() as c:
+        rows = [
+            dict(r)
+            for r in c.execute(text("SELECT at,user_id,action,details FROM demo_audit ORDER BY at DESC")).mappings()
+        ]
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=["at", "user_id", "action", "details"])
+    writer.writeheader()
+    writer.writerows({key: csv_cell_safe(value) for key, value in row.items()} for row in rows)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=guardian-activity-log.csv"},
     )
 
 
