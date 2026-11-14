@@ -299,7 +299,9 @@ function locationSupervisorField() {
 // after adding; no accordions, no label field - just the two times.
 const MAX_SHIFT_SLOTS = 5;
 function shiftRowHtml(row = {}, position = 1) {
-  return `<div class="shiftRow" data-shift-row><div class="shiftSlotHead"><strong>Slot ${position}</strong><button type="button" class="link" onclick="removeShiftRow(this)">Remove</button></div><div class="shiftTimes"><div><small class="helper">Start time (IST)</small><input name="shift_start" type="time" value="${esc(row.shift_start || '')}"></div><div><small class="helper">End time (IST)</small><input name="shift_end" type="time" value="${esc(row.shift_end || '')}"></div></div></div>`;
+  // The label survives as a hidden field: not editable in this UI, but never erased -
+  // a save round-trips the exact label the API returned (imported/older rows can have one).
+  return `<div class="shiftRow" data-shift-row><input type="hidden" name="shift_label" value="${esc(row.label || '')}"><div class="shiftSlotHead"><strong>Slot ${position}</strong><button type="button" class="link" onclick="removeShiftRow(this)">Remove</button></div><div class="shiftTimes"><div><small class="helper">Start time (IST)</small><input name="shift_start" type="time" value="${esc(row.shift_start || '')}"></div><div><small class="helper">End time (IST)</small><input name="shift_end" type="time" value="${esc(row.shift_end || '')}"></div></div></div>`;
 }
 function shiftFields(rows = []) {
   return `<div class="field"><div class="shiftFieldHead"><label>Shift timings</label><span class="muted small" id="shiftCount">${rows.length} / ${MAX_SHIFT_SLOTS} slots</span></div><div id="shiftRows">${rows.map((r, i) => shiftRowHtml(r, i + 1)).join('')}</div><button type="button" class="link shiftAdd" id="addShiftRow">+ Add another slot</button></div>`;
