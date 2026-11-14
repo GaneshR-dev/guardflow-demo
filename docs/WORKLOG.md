@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-14 · Reports screenshots for PR #13 · Claude Code · feat/reports
+- Request: Add screenshots of the change to the pull request description.
+- Changed: `docs/screenshots/reports/` (1 before image, 8 phone screenshots at 390 × 844, fictional demo data)
+- Tests: Docs only, no code change. Tests not run.
+- Open items: None.
+
 ## 2026-11-14 · Merge main and fix the "Not in" rows · Claude Code · feat/reports
 - Request: Open a pull request for feat/reports.
 - Changed: merged `origin/main` (shifts, admin controls, asset versioning). `backend/demo_app.py`: the whole-month list has stored history only; unrecorded employees show only on the Day report for today; removed locations are ignored. `tests/test_report_summary.py`: tests no longer depend on Mysuru. Ruff format for `backend/demo_app.py`, `backend/demo_seed.py`, `tests/test_feature_nov14.py` (format only).
