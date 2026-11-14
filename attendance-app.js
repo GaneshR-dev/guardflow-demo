@@ -301,7 +301,8 @@ const MAX_SHIFT_SLOTS = 5;
 function shiftRowHtml(row = {}, position = 1) {
   // The label survives as a hidden field: not editable in this UI, but never erased -
   // a save round-trips the exact label the API returned (imported/older rows can have one).
-  return `<div class="shiftRow" data-shift-row><input type="hidden" name="shift_label" value="${esc(row.label || '')}"><div class="shiftSlotHead"><strong>Slot ${position}</strong><button type="button" class="link" onclick="removeShiftRow(this)">Remove</button></div><div class="shiftTimes"><div><small class="helper">Start time (IST)</small><input name="shift_start" type="time" value="${esc(row.shift_start || '')}"></div><div><small class="helper">End time (IST)</small><input name="shift_end" type="time" value="${esc(row.shift_end || '')}"></div></div></div>`;
+  // Remove is a small red trash button; the accessible name keeps the slot number.
+  return `<div class="shiftRow" data-shift-row><input type="hidden" name="shift_label" value="${esc(row.label || '')}"><div class="shiftSlotHead"><strong>Slot ${position}</strong><button type="button" class="shiftRemove" aria-label="Remove slot ${position}" title="Remove slot" onclick="removeShiftRow(this)"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg></button></div><div class="shiftTimes"><div><small class="helper">Start time (IST)</small><input name="shift_start" type="time" value="${esc(row.shift_start || '')}"></div><div><small class="helper">End time (IST)</small><input name="shift_end" type="time" value="${esc(row.shift_end || '')}"></div></div></div>`;
 }
 function shiftFields(rows = []) {
   return `<div class="field"><div class="shiftFieldHead"><label>Shift timings</label><span class="muted small" id="shiftCount">${rows.length} / ${MAX_SHIFT_SLOTS} slots</span></div><div id="shiftRows">${rows.map((r, i) => shiftRowHtml(r, i + 1)).join('')}</div><button type="button" class="link shiftAdd" id="addShiftRow">+ Add another slot</button></div>`;
@@ -311,6 +312,8 @@ function renumberShiftRows(scope = document) {
   rows.forEach((r, i) => {
     const title = r.querySelector('.shiftSlotHead strong');
     if (title) title.textContent = `Slot ${i + 1}`;
+    const removeBtn = r.querySelector('.shiftRemove');
+    if (removeBtn) removeBtn.setAttribute('aria-label', `Remove slot ${i + 1}`);
   });
   const counter = scope.querySelector('#shiftCount');
   if (counter) counter.textContent = `${rows.length} / ${MAX_SHIFT_SLOTS} slots`;
