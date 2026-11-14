@@ -293,24 +293,44 @@ function locationSupervisorField() {
   const supervisors = Array.isArray(access) ? access.filter((u) => u.role === 'supervisor') : [];
   return `<div class="field"><label for="locationSupervisor">Assign to supervisor</label><select id="locationSupervisor" name="supervisor_id" required ${!Array.isArray(access) ? 'disabled' : ''}><option value="" disabled selected>Choose a supervisor or leave unassigned</option>${supervisors.map((u) => `<option value="${esc(u.id)}">${esc(u.name)} (${esc(u.id)})</option>`).join('')}<option value="__unassigned__">Leave unassigned</option></select><small id="locationSupervisorSelection" class="helper" style="display:block;margin-top:6px">No supervisor selected.</small><small class="helper" style="display:block;margin-top:4px">${!Array.isArray(access) ? 'Supervisor list unavailable. Reopen this form to retry.' : supervisors.length ? 'Only the selected supervisor gets access. Existing assignments stay unchanged.' : 'No supervisor accounts yet. Leave unassigned, then create a supervisor in Settings > User access.'}</small></div>`;
 }
-// Shift timing rows inside the location forms: none to start, "+ Add shift" appends a row.
-function shiftRowHtml(row = {}) {
-  return `<div class="shiftRow" data-shift-row><div><small class="helper">Label (optional)</small><input name="shift_label" type="text" maxlength="40" placeholder="Morning" value="${esc(row.label || '')}"></div><div><small class="helper">Start time (IST)</small><input name="shift_start" type="time" value="${esc(row.shift_start || '')}"></div><div><small class="helper">End time (IST)</small><input name="shift_end" type="time" value="${esc(row.shift_end || '')}"></div><div class="shiftRemove"><button type="button" class="link" onclick="this.closest('[data-shift-row]').remove()">Remove</button></div></div>`;
+// Shift timing slots inside the location forms, matching the user-picked reference:
+// inline repeatable cards titled Slot 1..N, a "N / 5 slots" counter, and an
+// "+ Add another slot" button with a hard limit of 5. Each slot is editable right
+// after adding; no accordions, no label field - just the two times.
+const MAX_SHIFT_SLOTS = 5;
+function shiftRowHtml(row = {}, position = 1) {
+  return `<div class="shiftRow" data-shift-row><div class="shiftSlotHead"><strong>Slot ${position}</strong><button type="button" class="link" onclick="removeShiftRow(this)">Remove</button></div><div class="shiftTimes"><div><small class="helper">Start time (IST)</small><input name="shift_start" type="time" value="${esc(row.shift_start || '')}"></div><div><small class="helper">End time (IST)</small><input name="shift_end" type="time" value="${esc(row.shift_end || '')}"></div></div></div>`;
 }
 function shiftFields(rows = []) {
-  return `<div class="field"><label>Shift timings (optional)</label><div id="shiftRows">${rows.map((r) => shiftRowHtml(r)).join('')}</div><button type="button" class="link" id="addShiftRow">+ Add shift</button></div>`;
+  return `<div class="field"><div class="shiftFieldHead"><label>Shift timings</label><span class="muted small" id="shiftCount">${rows.length} / ${MAX_SHIFT_SLOTS} slots</span></div><div id="shiftRows">${rows.map((r, i) => shiftRowHtml(r, i + 1)).join('')}</div><button type="button" class="link shiftAdd" id="addShiftRow">+ Add another slot</button></div>`;
+}
+function renumberShiftRows(scope = document) {
+  const rows = [...scope.querySelectorAll('[data-shift-row]')];
+  rows.forEach((r, i) => {
+    const title = r.querySelector('.shiftSlotHead strong');
+    if (title) title.textContent = `Slot ${i + 1}`;
+  });
+  const counter = scope.querySelector('#shiftCount');
+  if (counter) counter.textContent = `${rows.length} / ${MAX_SHIFT_SLOTS} slots`;
+  const add = scope.querySelector('#addShiftRow');
+  if (add) add.style.display = rows.length >= MAX_SHIFT_SLOTS ? 'none' : '';
+}
+function removeShiftRow(btn) {
+  const scope = btn.closest('form') || document;
+  btn.closest('[data-shift-row]').remove();
+  renumberShiftRows(scope);
 }
 // Read a form's shift rows. Each used row needs both times; empty rows are ignored.
 function collectShiftRows(scope) {
   const shifts = [...scope.querySelectorAll('[data-shift-row]')]
     .map((row) => ({
-      label: row.querySelector('[name=shift_label]').value.trim() || null,
+      label: row.querySelector('[name=shift_label]')?.value.trim() || null,
       shift_start: row.querySelector('[name=shift_start]').value,
       shift_end: row.querySelector('[name=shift_end]').value,
     }))
     .filter((s) => s.label || s.shift_start || s.shift_end);
   if (shifts.some((s) => !s.shift_start || !s.shift_end))
-    throw new Error('Add both start and end times for each shift, or remove the row.');
+    throw new Error('Add both start and end times for each shift, or remove the slot.');
   return shifts;
 }
 function locations() {
@@ -956,7 +976,12 @@ function bind() {
   const addShift = document.getElementById('addShiftRow');
   if (addShift)
     addShift.onclick = () => {
-      document.getElementById('shiftRows').insertAdjacentHTML('beforeend', shiftRowHtml());
+      const rowsEl = document.getElementById('shiftRows');
+      const count = rowsEl.querySelectorAll('[data-shift-row]').length;
+      if (count < MAX_SHIFT_SLOTS) {
+        rowsEl.insertAdjacentHTML('beforeend', shiftRowHtml({}, count + 1));
+        renumberShiftRows(rowsEl.closest('form') || document);
+      }
     };
   const tse = document.getElementById('toggleShiftEdit');
   if (tse)
