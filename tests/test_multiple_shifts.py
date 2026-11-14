@@ -532,9 +532,7 @@ def test_labels_round_trip_through_replace():
     row = location_row(headers, "loc-legacy-pair")
     assert [s["label"] for s in row["shifts"]] == ["Morning", "Night"]
     # Round-trip: send exactly what the GET returned (what the slot UI now does).
-    put = client.put(
-        "/api/settings/locations/loc-legacy-pair/shifts", headers=headers, json={"shifts": row["shifts"]}
-    )
+    put = client.put("/api/settings/locations/loc-legacy-pair/shifts", headers=headers, json={"shifts": row["shifts"]})
     assert put.status_code == 200, put.text
     assert [s["label"] for s in location_row(headers, "loc-legacy-pair")["shifts"]] == ["Morning", "Night"]
 
@@ -570,9 +568,22 @@ def test_adversarial_existing_objects_fail_boot_closed():
         ),
         ("missing primary key", [good_table.replace("id TEXT PRIMARY KEY", "id TEXT NOT NULL")]),
         # Index deviations: a same-name index proves nothing about the guarantee.
-        ("same-name non-unique index", [good_table, "CREATE INDEX demo_location_shifts_loc_pos ON demo_location_shifts (location_id, position)"]),
-        ("same-name wrong-column index", [good_table, "CREATE UNIQUE INDEX demo_location_shifts_loc_pos ON demo_location_shifts (location_id)"]),
-        ("index name taken by another table", [good_table, "CREATE TABLE demo_shifts_decoy (id TEXT PRIMARY KEY)", "CREATE UNIQUE INDEX demo_location_shifts_loc_pos ON demo_shifts_decoy (id)"]),
+        (
+            "same-name non-unique index",
+            [good_table, "CREATE INDEX demo_location_shifts_loc_pos ON demo_location_shifts (location_id, position)"],
+        ),
+        (
+            "same-name wrong-column index",
+            [good_table, "CREATE UNIQUE INDEX demo_location_shifts_loc_pos ON demo_location_shifts (location_id)"],
+        ),
+        (
+            "index name taken by another table",
+            [
+                good_table,
+                "CREATE TABLE demo_shifts_decoy (id TEXT PRIMARY KEY)",
+                "CREATE UNIQUE INDEX demo_location_shifts_loc_pos ON demo_shifts_decoy (id)",
+            ],
+        ),
     ]
     for label, ddl in scenarios:
         try:

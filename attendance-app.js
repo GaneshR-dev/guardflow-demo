@@ -126,6 +126,9 @@ const state = {
   confirm: null,
   detail: null,
   editTimes: null,
+  shiftDraft: null,
+  shiftSaving: false,
+  shiftError: '',
 };
 // Shared yes/no overlay. `onOk` runs when the user confirms; Cancel just closes.
 function confirmModal() {
@@ -222,7 +225,7 @@ function nav() {
   return `<div class="bottomNav">${items.map(([k, i, l]) => `<button class="navItem ${(k === 'home' && ['home', 'dashboard'].includes(state.screen)) || state.screen === k || (k === 'attendance' && ['attendance', 'add', 'checkout', 'confirmed'].includes(state.screen)) ? 'active' : ''}" data-nav="${k}"><b>${i}</b>${l}</button>`).join('')}</div>`;
 }
 function header() {
-  return `<div class="top"><button class="menuButton" data-go="menu">☰</button><span class="brand">Guardian</span></div>`;
+  return `<div class="top"><button class="menuButton" aria-label="Open navigation" data-go="menu">☰</button><span class="brand">Guardian</span></div>`;
 }
 function message() {
   return `${state.error && state.screen !== 'login' ? `<div class="error">${esc(state.error)}</div>` : ''}${state.notice ? `<div class="toast">${esc(state.notice)}</div>` : ''}`;
@@ -304,8 +307,8 @@ function shiftRowHtml(row = {}, position = 1) {
   // Remove is a small red trash button; the accessible name keeps the slot number.
   return `<div class="shiftRow" data-shift-row><input type="hidden" name="shift_label" value="${esc(row.label || '')}"><div class="shiftSlotHead"><strong>Slot ${position}</strong><button type="button" class="shiftRemove" aria-label="Remove slot ${position}" title="Remove slot" onclick="removeShiftRow(this)"><svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg></button></div><div class="shiftTimes"><div><small class="helper">Start time (IST)</small><input name="shift_start" type="time" value="${esc(row.shift_start || '')}"></div><div><small class="helper">End time (IST)</small><input name="shift_end" type="time" value="${esc(row.shift_end || '')}"></div></div></div>`;
 }
-function shiftFields(rows = []) {
-  return `<div class="field"><div class="shiftFieldHead"><label>Shift timings</label><span class="muted small" id="shiftCount">${rows.length}/${MAX_SHIFT_SLOTS}</span></div><div id="shiftRows">${rows.map((r, i) => shiftRowHtml(r, i + 1)).join('')}</div><button type="button" class="link shiftAdd" id="addShiftRow">+ Add slot</button></div>`;
+function shiftFields(rows = [], showHeading = true) {
+  return `<div class="field">${showHeading ? `<div class="shiftFieldHead"><label>Shift timings</label><span class="muted small" id="shiftCount">${rows.length}/${MAX_SHIFT_SLOTS}</span></div>` : ''}<div id="shiftRows">${rows.map((r, i) => shiftRowHtml(r, i + 1)).join('')}</div><button type="button" class="link shiftAdd" id="addShiftRow">+ Add slot</button></div>`;
 }
 function renumberShiftRows(scope = document) {
   const rows = [...scope.querySelectorAll('[data-shift-row]')];
@@ -324,6 +327,7 @@ function removeShiftRow(btn) {
   const scope = btn.closest('form') || document;
   btn.closest('[data-shift-row]').remove();
   renumberShiftRows(scope);
+  captureShiftDraft(scope);
 }
 // Read a form's shift rows. Each used row needs both times; empty rows are ignored.
 function collectShiftRows(scope) {
@@ -346,7 +350,6 @@ function locations() {
   const tools =
     state.user?.role === 'admin'
       ? `${[
-          ['directory', 'Location directory', plural(state.locations.length, 'location') + ' · Search by name or area'],
           ['add', 'Add location', 'Create a new branch'],
           ['import', 'Import locations', 'Upload a CSV location list'],
         ]
@@ -363,7 +366,8 @@ function locations() {
 // Location detail: shift timing and assigned employees, visible to admins and supervisors.
 function locationDetail() {
   const d = state.detail;
-  if (!d) return `<div class="page">${header()}<h1>Location</h1><p class="muted small">No location selected.</p><button class="link" data-go="locations">Back to locations</button></div>${nav()}${message()}`;
+  if (!d)
+    return `<div class="page">${header()}<h1>Location</h1><p class="muted small">No location selected.</p><button class="link" data-go="locations">Back to locations</button></div>${nav()}${message()}`;
   const l = d.location;
   const isAdmin = state.user?.role === 'admin';
   const emps = d.employees;
@@ -373,26 +377,39 @@ function locationDetail() {
       : e.active
         ? `<button class="outlineBtn dangerText" data-del-emp="${esc(e.id)}" data-name="${esc(e.name)}">Disable</button>`
         : `<button class="outlineBtn" data-en-emp="${esc(e.id)}" data-name="${esc(e.name)}">Enable</button>`;
-  return `<div class="page">${header()}<h1>${esc(l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</h1><p class="sub">${esc(l.area)} · ${empCountLabel(l)}${l.active ? '' : ' · Disabled locations keep their history. New attendance is off.'}</p><div class="card"><div class="detailRow"><span>Shift timings</span><strong>${esc(shiftLabel(l))}</strong></div>${locationShifts(l).length > 1 ? locationShifts(l).map((s) => `<div class="detailRow"><span>${esc(s.label || 'Shift')}</span><strong>${fmtShift(s.shift_start)} - ${fmtShift(s.shift_end)} IST</strong></div>`).join('') : ''}${isAdmin ? `<button class="link" id="toggleShiftEdit">Edit shifts</button><form id="shiftEditForm" style="display:none">${shiftFields(locationShifts(l))}<button class="secondary">Save shifts</button> <button type="button" class="link" id="cancelShiftEdit">Cancel</button></form>` : ''}</div><h2 class="sectionTitle">Employees at this location</h2>${
-    emps === null
-      ? '<p class="muted small">Loading employees…</p>'
-      : emps.map((e) => `<div class="person ${e.active && l.active ? '' : 'disabledRow'}"><span class="initials">${esc(initials(e.name))}</span><span><strong>${esc(e.name)} ${e.active && l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${esc(e.id)} · ${esc(e.role)}</small></span>${empButton(e)}</div>`).join('') || '<p class="muted small">No employees assigned yet.</p>'
-  }${l.active ? `<button class="primary" data-use-loc="${esc(l.id)}">Mark attendance here</button>` : '<p class="helper">Enable this location to mark attendance here again.</p>'}${isAdmin ? (l.active ? `<button class="secondary dangerText" style="margin-top:10px" data-del-loc="${esc(l.id)}" data-name="${esc(l.name)}">Disable location</button>` : `<button class="secondary" style="margin-top:10px" data-en-loc="${esc(l.id)}" data-name="${esc(l.name)}">Enable location</button>`) : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="locations">Back to locations</button></p></div>${nav()}${message()}`;
+  const editing = isAdmin && state.shiftDraft !== null;
+  const shifts = locationShifts(l);
+  const shiftSummary = `<div class="sectionHead"><h2>Shift timings</h2>${isAdmin ? '<button class="outlineBtn" id="toggleShiftEdit">Edit shifts</button>' : '<span class="muted small">IST</span>'}</div>${shifts.map((r, i) => `<div class="shiftSummary"><span class="muted small">${esc(r.label || 'Slot ' + (i + 1))} · IST</span><div class="shiftTimes"><div><small>Start time</small><strong>${fmtShift(r.shift_start)}</strong></div><div><small>End time</small><strong>${fmtShift(r.shift_end)}</strong></div></div>${r.shift_end < r.shift_start ? '<p class="muted small">Ends the next day</p>' : ''}</div>`).join('') || '<p class="muted small">No shift set. An admin can add shift timings.</p>'}`;
+  const shiftEditor = editing
+    ? `<form id="shiftEditForm"><div class="sectionHead"><h2>Edit shifts</h2><span class="muted small" id="shiftCount">${state.shiftDraft.length}/${MAX_SHIFT_SLOTS}</span></div><p class="muted small">All times are in IST. An earlier end time ends the next day.</p><fieldset ${state.shiftSaving ? 'disabled' : ''}>${shiftFields(state.shiftDraft, false)}${state.shiftError ? `<div class="inlineError" role="alert">${esc(state.shiftError)}</div>` : ''}<div class="formActions"><button type="button" class="secondary" id="cancelShiftEdit">Cancel</button><button class="primary">${state.shiftSaving ? 'Saving…' : 'Save shifts'}</button></div></fieldset></form>`
+    : '';
+  return `<div class="page"><div class="top"><button class="link backLink" data-go="locations">‹ Locations</button><span class="brand">Guardian</span></div><h1>${esc(l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</h1><p class="sub">${esc(l.area)} · ${empCountLabel(l)}${l.active ? '' : ' · New attendance is off. History is kept.'}</p><section class="card detailCard">${editing ? shiftEditor : shiftSummary}</section>${
+    editing
+      ? ''
+      : `<section class="card detailCard"><h2>Employees at this location</h2>${
+          emps === null
+            ? '<p class="muted small" role="status">Loading employees…</p>'
+            : emps
+                .map(
+                  (e) =>
+                    `<div class="person ${e.active && l.active ? '' : 'disabledRow'}"><span class="initials">${esc(initials(e.name))}</span><span><strong>${esc(e.name)} ${e.active && l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${esc(e.id)} · ${esc(e.role)}</small></span>${empButton(e)}</div>`,
+                )
+                .join('') ||
+              '<div class="quietEmpty"><strong>No employees assigned yet</strong><p>Assigned employees will appear here.</p></div>'
+        }</section>${l.active ? `<button class="primary" data-use-loc="${esc(l.id)}">Mark attendance here</button>` : '<p class="helper">Enable this location to mark attendance here again.</p>'}${isAdmin ? `<details class="locationSettings"><summary>Location settings</summary><p class="muted small">${l.active ? 'Disable new attendance at this location. Existing records are kept.' : 'Enable this location to record attendance again.'}</p>${l.active ? `<button class="outlineBtn dangerText" data-del-loc="${esc(l.id)}" data-name="${esc(l.name)}">Disable location</button>` : `<button class="outlineBtn" data-en-loc="${esc(l.id)}" data-name="${esc(l.name)}">Enable location</button>`}</details>` : ''}`
+  }</div>${nav()}${message()}`;
 }
 function attendanceLocationPicker() {
   const usable = state.locations.filter((l) => l.active);
-  return usable.length > 1
-    ? `<div class="field"><label for="attendanceLocation">Attendance location</label><select id="attendanceLocation">${usable.map((l) => `<option value="${esc(l.id)}" ${state.location?.id === l.id ? 'selected' : ''}>${esc(l.name)} · ${esc(l.area)}</option>`).join('')}</select></div>`
-    : '';
+  return `<div class="recordingAt"><label for="attendanceLocation">Recording at</label>${usable.length > 1 ? `<select id="attendanceLocation">${usable.map((l) => `<option value="${esc(l.id)}" ${state.location?.id === l.id ? 'selected' : ''}>${esc(l.name)} · ${esc(l.area)}</option>`).join('')}</select>` : `<strong>${esc(state.location?.name || '')}${state.location?.area ? ' · ' + esc(state.location.area) : ''}</strong>`}</div>`;
 }
 function attendance() {
   const s = state.summary || {};
   const rows = state.attendance;
-  const total = (s.checked_in || 0) + (s.completed || 0) + (s.not_in || 0);
   if (!state.location)
     return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(istNow())}</p><div class="card addCard"><strong>${state.user?.role === 'admin' ? 'No location set up yet' : 'No location access assigned'}</strong><p>${state.user?.role === 'admin' ? 'Attendance is recorded per branch. Add a location first, then mark check-ins here.' : 'Your admin needs to give you location access before you can view employees or mark attendance.'}</p>${state.user?.role === 'admin' ? '<button class="primary" data-go="locations">Go to Locations</button>' : ''}</div></div>${nav()}${message()}`;
   const canEditTimes = state.user?.role === 'admin';
-  return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(istNow())} · ${esc(state.location?.name || '')} · IST</p>${attendanceLocationPicker()}${editTimeForm()}<div class="hero"><small>TODAY'S ATTENDANCE</small><strong>${total}</strong> <span>${total === 1 ? 'employee' : 'employees'} at this location</span></div><div class="stats"><div class="stat green"><strong>${s.checked_in || 0}</strong><span>Checked in</span></div><div class="stat amber"><strong>${s.not_in || 0}</strong><span>To check in</span></div><div class="stat blue"><strong>${s.completed || 0}</strong><span>Completed</span></div></div><h2 class="sectionTitle">Employee attendance</h2><input class="search" id="attSearch" placeholder="Search by name or employee ID" value="${esc(state.query)}"><div class="filters"><button class="chip ${state.filter === 'all' ? 'active' : ''}" data-filter="all">All ${(s.checked_in || 0) + (s.completed || 0) + (s.not_in || 0)}</button><button class="chip green ${state.filter === 'checked_in' ? 'active' : ''}" data-filter="checked_in">Checked in</button><button class="chip amber ${state.filter === 'not_in' ? 'active' : ''}" data-filter="not_in">Not in</button></div>${rows.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}</small></span><span class="personTime">${r.check_in ? fmtTime(r.check_in) : '-'}<br><span class="badge ${r.status === 'checked_in' ? 'green' : r.status === 'completed' ? 'blue' : 'amber'}">${r.status === 'checked_in' ? 'Checked in' : r.status === 'completed' ? 'Completed' : 'Not checked in'}</span></span>${canEditTimes && r.status !== 'not_in' ? `<button class="iconBtn" title="Edit times" data-edittime="${esc(r.employee_id)}">✎</button>` : ''}</div>`).join('') || '<p class="muted small">No employees match.</p>'}<button class="primary" data-go="add">Mark Check-in · ${nowTime()}</button><button class="secondary" style="margin-top:10px" data-go="checkout">Manage check-outs</button></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(istNow())} · Times in IST</p>${attendanceLocationPicker()}${editTimeForm()}<div class="stats"><div class="stat green"><strong>${s.checked_in || 0}</strong><span>Checked in</span></div><div class="stat amber"><strong>${s.not_in || 0}</strong><span>To check in</span></div><div class="stat blue"><strong>${s.completed || 0}</strong><span>Completed</span></div></div><input class="search" aria-label="Search employee attendance" id="attSearch" placeholder="Search by name or employee ID" value="${esc(state.query)}"><div class="filters"><button class="chip ${state.filter === 'all' ? 'active' : ''}" data-filter="all">All</button><button class="chip green ${state.filter === 'checked_in' ? 'active' : ''}" data-filter="checked_in">Checked in</button><button class="chip amber ${state.filter === 'not_in' ? 'active' : ''}" data-filter="not_in">To check in</button><button class="chip ${state.filter === 'completed' ? 'active' : ''}" data-filter="completed">Completed</button></div><div class="attendanceList">${rows.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}</small></span><span class="personTime">${r.check_in ? fmtTime(r.check_in) : '-'}<br><span class="badge ${r.status === 'checked_in' ? 'green' : r.status === 'completed' ? 'blue' : 'amber'}">${r.status === 'checked_in' ? 'Checked in' : r.status === 'completed' ? 'Completed' : 'Not checked in'}</span></span>${canEditTimes && r.status !== 'not_in' ? `<button class="iconBtn" aria-label="Edit times for ${esc(r.name)}" title="Edit times" data-edittime="${esc(r.employee_id)}">✎</button>` : ''}</div>`).join('') || '<p class="muted small">No employees match.</p>'}</div><button class="primary" data-go="add">Check in employee</button><button class="secondary" style="margin-top:10px" data-go="checkout">Manage check-outs</button></div>${nav()}${message()}`;
 }
 // Admin-only correction of an existing record's check-in/check-out times (IST).
 function editTimeForm() {
@@ -437,11 +454,11 @@ function add() {
       r.status === 'not_in' &&
       (!state.addQuery || (r.name + ' ' + r.employee_id).toLowerCase().includes(state.addQuery.toLowerCase())),
   );
-  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Type the employee's name or EMP ID, or pick a waiting employee below.</p><input class="search" id="addSearch" placeholder="Search name or EMP ID, e.g. EMP1024" value="${esc(state.addQuery)}" autocomplete="off">${lookupResultsView('checkin')}<h2 class="sectionTitle">Pre-assigned employees waiting here</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}${r.adhoc ? ' · ad-hoc' : ''}</small></span><button class="selectBtn" data-select="${esc(r.employee_id)}">Select</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${state.user?.role === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}${state.selected ? `<div class="selected"><b>Selected employee: ${esc(state.selected.name)}</b><br>${esc(state.selected.employee_id)} · ${esc(state.location.name)}${state.selected.adhoc ? ' · ad-hoc shift' : ''}</div><button class="primary" id="doCheckin">Mark Check-in · ${nowTime()}</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Type a name or EMP ID, or choose an employee below.</p>${attendanceLocationPicker()}<input class="search" id="addSearch" placeholder="Search name or EMP ID, e.g. EMP1024" value="${esc(state.addQuery)}" autocomplete="off">${lookupResultsView('checkin')}<h2 class="sectionTitle">Pre-assigned employees waiting here</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}${r.adhoc ? ' · ad-hoc' : ''}</small></span><button class="selectBtn" data-select="${esc(r.employee_id)}">Select</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${state.user?.role === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}${state.selected ? `<div class="selected"><b>Selected employee: ${esc(state.selected.name)}</b><br>${esc(state.selected.employee_id)} · ${esc(state.location.name)}${state.selected.adhoc ? ' · ad-hoc shift' : ''}</div><button class="primary" id="doCheckin">Mark Check-in · ${nowTime()}</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
 }
 function confirmed() {
   const r = state.lastCheck;
-  return `<div class="page">${header()}<h1>Check-in recorded</h1><p class="sub">Attendance has been successfully updated.</p><div class="card confirmCard"><div class="successIcon">✓</div><h2>${esc(r?.name || 'Employee')}</h2><p class="muted small">${esc(r?.employee_id || '')} · ${esc(state.location?.name.split(' - ')[1] || '')}</p><span class="badge green">CHECKED IN</span><div class="timeLabel">CHECK-IN TIME (IST)</div><div class="bigTime">${fmtTime(r?.check_in)}</div><div class="muted small">${fmtDate(istNow())}</div></div><button class="primary" data-go="add">+ Add another employee</button><p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Check-in recorded</h1><p class="sub">Attendance has been successfully updated.</p><div class="card confirmCard"><div class="successIcon">✓</div><h2>${esc(r?.name || 'Employee')}</h2><p class="muted small">${esc(r?.employee_id || '')} · ${esc(state.location?.name || '')}</p><span class="badge green">CHECKED IN</span><div class="timeLabel">CHECK-IN TIME (IST)</div><div class="bigTime">${fmtTime(r?.check_in)}</div><div class="muted small">${fmtDate(istNow())}</div></div><button class="primary" data-go="add">+ Add another employee</button><p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
 }
 function checkout() {
   const staleAll = state.staleOpen || [];
@@ -456,7 +473,7 @@ function checkout() {
   const staleList = stale.length
     ? `<h2 class="sectionTitle">Left open from earlier days</h2><p class="muted small">These check-ins were never closed. Check out each one, then an admin can fix the times with a reason.</p>${stale.map((r) => person(r, ` · since ${esc(r.day)}`)).join('')}`
     : '';
-  return `<div class="page">${header()}<h1>Manage check-outs</h1><p class="sub">Employees currently checked in at ${esc(state.location?.name.split(' - ')[1] || '')} (IST).</p><div class="hero"><small>STILL CHECKED IN</small><strong>${total}</strong> <span>${total === 1 ? 'employee' : 'employees'}</span></div><input class="search" id="outSearch" placeholder="Search name or EMP ID" value="${esc(state.outQuery)}" autocomplete="off">${lookupResultsView('checkout')}${rows.map((r) => person(r, '')).join('') || (stale.length ? '' : '<p class="muted small">' + (state.outQuery ? 'No checked-in employees match.' : 'No checked-in employees remain.') + '</p>')}${staleList}<p style="text-align:center;margin-top:18px"><button class="link" data-go="attendance">View attendance list</button></p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Manage check-outs</h1><p class="sub">Close a checked-in shift. Times in IST.</p>${attendanceLocationPicker()}<div class="hero"><small>STILL CHECKED IN</small><strong>${total}</strong> <span>${total === 1 ? 'employee' : 'employees'}</span></div><input class="search" id="outSearch" placeholder="Search name or EMP ID" value="${esc(state.outQuery)}" autocomplete="off">${lookupResultsView('checkout')}${rows.map((r) => person(r, '')).join('') || (stale.length ? '' : '<p class="muted small">' + (state.outQuery ? 'No checked-in employees match.' : 'No checked-in employees remain.') + '</p>')}${staleList}<p style="text-align:center;margin-top:18px"><button class="link" data-go="attendance">View attendance list</button></p></div>${nav()}${message()}`;
 }
 async function dashboard() {
   if (!state.dashboard) state.dashboard = await api('/api/dashboard');
@@ -464,7 +481,7 @@ async function dashboard() {
   return `<div class="page">${header()}<h1>Attendance overview</h1><p class="sub">Today's summary across all assigned locations.</p><div class="grid2"><div class="dashStat"><strong>${d.employees}</strong><span>Employees</span></div><div class="dashStat"><strong style="color:var(--green)">${d.checked_in}</strong><span>Checked in</span></div><div class="dashStat"><strong>${d.completed}</strong><span>Completed</span></div><div class="dashStat"><strong style="color:var(--amber)">${d.not_checked_in}</strong><span>Not checked in</span></div></div><h2 class="sectionTitle">Location breakdown</h2>${d.locations.map((l) => `<div class="card listCard ${l.active ? '' : 'disabledCard'}"><span><strong>${esc(l.name.split(' - ')[1] || l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${empCountLabel(l)}</small></span><span style="text-align:right"><span class="badge green">${l.today.checked_in} checked in</span><small>${l.today.completed} completed</small></span></div>`).join('')}<h2 class="sectionTitle">Quick actions</h2><button class="primary" data-go="reports">View attendance report</button></div>${nav()}${message()}`;
 }
 function menu() {
-  return `<div class="navPanel">${header()}<h1>Navigation</h1><p class="sub">${esc(state.user?.name || '')} · ${esc(state.location?.name.split(' - ')[1] || 'All locations')}</p>${[
+  return `<div class="navPanel">${header()}<h1>Navigation</h1><p class="sub">${esc(state.user?.name || '')} · ${esc(state.location?.name || 'All locations')}</p>${[
     ['dashboard', 'Dashboard', 'Overview of all locations'],
     ['attendance', 'Mark attendance', 'Record employee check-ins'],
     ['checkout', 'Manage check-outs', 'Close checked-in shifts'],
@@ -506,7 +523,6 @@ function employees() {
       ? `<div class="card addCard"><strong>Add employee</strong><p>Create an employee record. Location is optional and can be assigned later.</p><form id="employeeForm"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><div class="field"><label>Location (optional)</label><select name="location_id"><option value="" selected>Assign location later</option>${state.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div><button class="secondary">Save employee</button></form></div>`
       : '';
   return `<div class="page">${header()}<h1>Employees</h1><p class="sub">${state.user?.role === 'admin' ? 'Browse and manage people assigned to your locations.' : 'View employees assigned to your locations. Admins manage employee records.'}</p>${[
-    ['directory', 'Employee directory', plural(state.employees.length, 'employee') + ' · Search by name or ID'],
     ...(state.user?.role === 'admin'
       ? [
           ['add', 'Add employee', 'Create a new employee record'],
@@ -524,7 +540,7 @@ function employees() {
 }
 // Reports screen: Day / Month / History tabs. Everything it shows comes from
 // state.report; loadReport() fetches the data for the open tab.
-const STATUS_LABEL = { checked_in: 'On duty', completed: 'Done', not_in: 'Not in' };
+const STATUS_LABEL = { checked_in: 'Checked in', completed: 'Completed', not_in: 'Not checked in' };
 const STATUS_TONE = { checked_in: 'green', completed: 'blue', not_in: 'amber' };
 const shortLoc = (name) => (name || '').split(' - ')[1] || name || '';
 const locCity = (name) => ((name || '').includes(' - ') ? name.split(' - ')[0] : '');
@@ -547,10 +563,18 @@ const ICON = {
   close: svgIcon('<path d="M6 6l12 12M18 6L6 18"/>'),
   check: svgIcon('<path d="M5 12l5 5 9-10"/>', 22, 2.4),
   retry: svgIcon('<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>'),
-  wifiOff: svgIcon('<path d="M2 8.5a15 15 0 0 1 20 0M5.5 12a10 10 0 0 1 13 0M9 15.5a5 5 0 0 1 6 0M12 19h.01M3 3l18 18"/>', 30, 1.8),
+  wifiOff: svgIcon(
+    '<path d="M2 8.5a15 15 0 0 1 20 0M5.5 12a10 10 0 0 1 13 0M9 15.5a5 5 0 0 1 6 0M12 19h.01M3 3l18 18"/>',
+    30,
+    1.8,
+  ),
   emptyDay: svgIcon('<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>', 30, 1.8),
   chart: svgIcon('<path d="M5 20V10M12 20V4M19 20v-7"/>', 30, 1.8),
-  emptyPin: svgIcon('<path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/>', 30, 1.8),
+  emptyPin: svgIcon(
+    '<path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/>',
+    30,
+    1.8,
+  ),
 };
 function reportDefaults() {
   const today = todayISO();
@@ -642,7 +666,9 @@ function guardRow(x) {
         ? 'In ' + fmtTime(x.check_in)
         : '—';
   const badge =
-    x.status === 'completed' && x.hours ? `Done · ${Number(x.hours).toFixed(1)} h` : STATUS_LABEL[x.status] || x.status;
+    x.status === 'completed' && x.hours
+      ? `Completed · ${Number(x.hours).toFixed(1)} h`
+      : STATUS_LABEL[x.status] || x.status;
   return `<div class="rpRow"><span class="rpAvatar ${x.status === 'not_in' ? 'amber' : ''}" aria-hidden="true">${esc(initials(x.employee_name))}</span><span class="rpWho"><strong>${esc(x.employee_name)}</strong><small>${esc(x.employee_id)}</small></span><span class="rpWhen"><span>${time}</span><span class="badge ${STATUS_TONE[x.status] || 'blue'}">${esc(badge)}</span></span></div>`;
 }
 function dayReport(r) {
@@ -674,9 +700,9 @@ function dayReport(r) {
   const count = (s) => rows.filter((x) => s === 'all' || x.status === s).length;
   const stats = [
     ['all', 'All'],
-    ['checked_in', 'On duty'],
-    ['completed', 'Done'],
-    ['not_in', 'Not in'],
+    ['checked_in', 'Checked in'],
+    ['completed', 'Completed'],
+    ['not_in', 'Not checked in'],
   ]
     .map(
       ([k, l]) =>
@@ -686,7 +712,8 @@ function dayReport(r) {
   const shown = rows.filter((x) => r.status === 'all' || x.status === r.status);
   const hours = rows.map((x) => x.hours).filter(Boolean);
   const avg = hours.length ? (hours.reduce((a, b) => a + b, 0) / hours.length).toFixed(1) : '';
-  const title = r.status === 'all' ? plural(rows.length, 'guard') : `${shown.length} ${STATUS_LABEL[r.status].toLowerCase()}`;
+  const title =
+    r.status === 'all' ? plural(rows.length, 'guard') : `${shown.length} ${STATUS_LABEL[r.status].toLowerCase()}`;
   const side =
     r.status !== 'all'
       ? '<button class="link" data-rstatus="all">Show all</button>'
@@ -739,7 +766,7 @@ function reportDetail(r) {
       const open = x.checked_in || x.not_in;
       const missing = assigned - x.records;
       const sub = open
-        ? `${x.completed} done · ${x.checked_in} on duty · ${x.not_in} not in`
+        ? `${x.completed} completed · ${x.checked_in} checked in · ${x.not_in} not checked in`
         : `All shifts completed${missing > 0 ? ` · ${missing} no record` : ''}`;
       return `<button class="rpDay" data-rday="${esc(x.day)}"><span class="rpDate"><strong>${dt.getDate()}</strong><small>${new Intl.DateTimeFormat('en-GB', { weekday: 'short' }).format(dt)}</small></span><span class="rpWho"><strong>${present} of ${assigned || x.records} present</strong><small>${esc(sub)}</small></span>${x.day === today ? '<span class="badge amber">Today</span>' : ''}${ICON.chevRight}</button>`;
     })
@@ -773,9 +800,7 @@ function locationSheet(r) {
     .map((l) => {
       const on = l.id === current;
       const meta = l.id
-        ? [locCity(l.name), l.area, empCountLabel(l, 'guard'), l.active ? '' : 'Disabled']
-            .filter(Boolean)
-            .join(' · ')
+        ? [locCity(l.name), l.area, empCountLabel(l, 'guard'), l.active ? '' : 'Disabled'].filter(Boolean).join(' · ')
         : l.area;
       return `<button role="radio" aria-checked="${on}" class="rpOption ${on ? 'active' : ''}" data-rloc="${esc(l.id)}"><span><strong>${esc(l.id ? shortLoc(l.name) : l.name)}</strong><small>${esc(meta)}</small></span>${on ? ICON.check : ''}</button>`;
     })
@@ -871,7 +896,7 @@ function settings() {
   return `<div class="page">${header()}<h1>Settings</h1><p class="sub">Manage your account and app preferences.</p>${items
     .map(
       ([k, t, sub]) =>
-        `<button class="navLink" data-settings="${k}"><span><strong>${t}</strong><small>${sub}</small></span><span class="badge ${state.settingsView === k ? 'green' : 'blue'}">${k === 'locations' ? (d ? d.locations.length : state.locations.length) : k === 'access' ? (d ? plural(accessCount, 'user') : '›') : '›'}</span></button>`,
+        `<button class="navLink" data-${k === 'locations' ? 'go' : 'settings'}="${k}"><span><strong>${t}</strong><small>${sub}</small></span><span class="badge ${state.settingsView === k ? 'green' : 'blue'}">${k === 'locations' ? (d ? d.locations.length : state.locations.length) : k === 'access' ? (d ? plural(accessCount, 'user') : '›') : '›'}</span></button>`,
     )
     .join(
       '',
@@ -912,7 +937,33 @@ async function render() {
   const focusId = active && active.id ? active.id : '';
   const selStart = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
   const selEnd = active && typeof active.selectionEnd === 'number' ? active.selectionEnd : null;
-  $app.innerHTML = html + confirmModal();
+  const searchPage =
+    active?.classList.contains('search') && active.parentElement?.classList.contains('page')
+      ? active.parentElement
+      : null;
+  const next = document.createElement('template');
+  next.innerHTML = html + confirmModal();
+  const nextPage = next.content.querySelector('.page');
+  const nextInput = focusId ? nextPage?.querySelector('#' + focusId) : null;
+  if (searchPage && nextInput?.parentElement === nextPage && !state.confirm) {
+    // Replace results around the input, never the input itself. Native held-backspace,
+    // word deletion and composition keep their original DOM target and selection.
+    const before = [];
+    const after = [];
+    let past = false;
+    for (const node of [...nextPage.childNodes]) {
+      if (node === nextInput) {
+        past = true;
+        continue;
+      }
+      (past ? after : before).push(node);
+    }
+    for (const node of [...searchPage.childNodes]) if (node !== active) node.remove();
+    for (const node of before) searchPage.insertBefore(node, active);
+    for (const node of after) searchPage.append(node);
+    for (const node of [...$app.childNodes]) if (node !== searchPage) node.remove();
+    for (const node of [...next.content.childNodes]) if (node !== nextPage) $app.append(node);
+  } else $app.innerHTML = html + confirmModal();
   bind();
   if (focusId) {
     const el = document.getElementById(focusId);
@@ -950,18 +1001,18 @@ function bind() {
         go('attendance');
       }),
   );
-  document.querySelectorAll('[data-del-emp]').forEach(
-    (b) => (b.onclick = () => askDisableEmployee(b.dataset.delEmp, b.dataset.name)),
-  );
-  document.querySelectorAll('[data-en-emp]').forEach(
-    (b) => (b.onclick = () => setEmployeeActive(b.dataset.enEmp, true)),
-  );
-  document.querySelectorAll('[data-del-loc]').forEach(
-    (b) => (b.onclick = () => askDisableLocation(b.dataset.delLoc, b.dataset.name)),
-  );
-  document.querySelectorAll('[data-en-loc]').forEach(
-    (b) => (b.onclick = () => setLocationActive(b.dataset.enLoc, true)),
-  );
+  document
+    .querySelectorAll('[data-del-emp]')
+    .forEach((b) => (b.onclick = () => askDisableEmployee(b.dataset.delEmp, b.dataset.name)));
+  document
+    .querySelectorAll('[data-en-emp]')
+    .forEach((b) => (b.onclick = () => setEmployeeActive(b.dataset.enEmp, true)));
+  document
+    .querySelectorAll('[data-del-loc]')
+    .forEach((b) => (b.onclick = () => askDisableLocation(b.dataset.delLoc, b.dataset.name)));
+  document
+    .querySelectorAll('[data-en-loc]')
+    .forEach((b) => (b.onclick = () => setLocationActive(b.dataset.enLoc, true)));
   document.querySelectorAll('[data-edittime]').forEach(
     (b) =>
       (b.onclick = () => {
@@ -986,22 +1037,29 @@ function bind() {
       if (count < MAX_SHIFT_SLOTS) {
         rowsEl.insertAdjacentHTML('beforeend', shiftRowHtml({}, count + 1));
         renumberShiftRows(rowsEl.closest('form') || document);
+        captureShiftDraft(rowsEl.closest('form'));
       }
     };
   const tse = document.getElementById('toggleShiftEdit');
   if (tse)
     tse.onclick = () => {
-      document.getElementById('shiftEditForm').style.display = 'block';
-      tse.style.display = 'none';
+      state.shiftDraft = locationShifts(state.detail.location).map((r) => ({ ...r }));
+      state.shiftError = '';
+      render();
     };
   const cse = document.getElementById('cancelShiftEdit');
   if (cse)
     cse.onclick = () => {
-      document.getElementById('shiftEditForm').style.display = 'none';
-      document.getElementById('toggleShiftEdit').style.display = '';
+      if (state.shiftSaving) return;
+      state.shiftDraft = null;
+      state.shiftError = '';
+      render();
     };
   const sef = document.getElementById('shiftEditForm');
-  if (sef) sef.onsubmit = saveShifts;
+  if (sef) {
+    sef.onsubmit = saveShifts;
+    sef.oninput = () => captureShiftDraft(sef);
+  }
   const cOk = document.getElementById('confirmOk');
   if (cOk)
     cOk.onclick = async () => {
@@ -1016,8 +1074,7 @@ function bind() {
       render();
     };
   const cl = document.getElementById('continueLoc');
-  if (cl)
-    cl.onclick = () => go('attendance');
+  if (cl) cl.onclick = () => go('attendance');
   const al = document.getElementById('attendanceLocation');
   if (al)
     al.onchange = async (e) => {
@@ -1349,10 +1406,12 @@ async function runEmployeeSearch(kind) {
   }
   try {
     const r = await api('/api/employee-lookup?employee_id=' + encodeURIComponent(q));
-    if (generation !== employeeSearchGeneration) return;
+    if (generation !== employeeSearchGeneration || q !== (kind === 'checkin' ? state.addQuery : state.outQuery).trim())
+      return;
     state.lookupResults = r.matches || [r];
   } catch (err) {
-    if (generation !== employeeSearchGeneration) return;
+    if (generation !== employeeSearchGeneration || q !== (kind === 'checkin' ? state.addQuery : state.outQuery).trim())
+      return;
     if (err.status === 404) state.lookupResults = [];
     else return toast(err.message);
   }
@@ -1377,8 +1436,7 @@ async function doCheckin() {
 // Check-out always asks first, showing the IST check-out time and hours worked.
 function askCheckout(id) {
   const row =
-    state.attendance.find((r) => r.employee_id === id) ||
-    (state.staleOpen || []).find((r) => r.employee_id === id);
+    state.attendance.find((r) => r.employee_id === id) || (state.staleOpen || []).find((r) => r.employee_id === id);
   if (!row) return;
   const nowMs = Date.now();
   const inMs = row.check_in ? new Date(row.check_in).getTime() : nowMs;
@@ -1625,8 +1683,7 @@ document.addEventListener('keydown', (e) => {
 async function openSettings(kind) {
   try {
     state.settings = await api('/api/settings');
-    if (kind === 'activity' && state.user?.role === 'admin')
-      state.audit = (await api('/api/audit')).rows;
+    if (kind === 'activity' && state.user?.role === 'admin') state.audit = (await api('/api/audit')).rows;
     go('settings', { settingsView: kind });
   } catch (e) {
     state.settingsView = kind;
@@ -1695,22 +1752,51 @@ async function createLocation(e) {
   }
 }
 // Admin edit of a branch's shift timings from the location detail page.
+function captureShiftDraft(form) {
+  if (form?.id !== 'shiftEditForm') return;
+  state.shiftDraft = [...form.querySelectorAll('[data-shift-row]')].map((row) => ({
+    label: row.querySelector('[name=shift_label]').value,
+    shift_start: row.querySelector('[name=shift_start]').value,
+    shift_end: row.querySelector('[name=shift_end]').value,
+  }));
+}
 async function saveShifts(e) {
   e.preventDefault();
   const l = state.detail?.location;
-  if (!l) return;
+  if (!l || state.shiftSaving) return;
+  captureShiftDraft(e.target);
+  let shifts;
   try {
-    const shifts = collectShiftRows(e.target);
+    shifts = collectShiftRows(e.target);
+  } catch (err) {
+    state.shiftError = err.message;
+    return render();
+  }
+  state.shiftSaving = true;
+  state.shiftError = '';
+  render();
+  try {
     await api('/api/settings/locations/' + encodeURIComponent(l.id) + '/shifts', {
       method: 'PUT',
       body: JSON.stringify({ shifts }),
     });
-    state.locations = await api('/api/locations');
-    state.detail = { ...state.detail, location: state.locations.find((x) => x.id === l.id) || l };
+    // Update from the accepted payload. A second read must not turn a successful save into an error.
+    const updated = {
+      ...l,
+      shifts,
+      shift_start: shifts[0]?.shift_start || null,
+      shift_end: shifts[0]?.shift_end || null,
+    };
+    state.locations = state.locations.map((x) => (x.id === l.id ? updated : x));
+    if (state.location?.id === l.id) state.location = updated;
+    if (state.detail?.location.id === l.id) state.detail = { ...state.detail, location: updated };
+    state.settings = null;
+    if (state.detail?.location.id === l.id) state.shiftDraft = null;
     toast('Shifts saved');
-    render();
   } catch (err) {
-    state.error = err.message;
+    if (state.token && state.detail?.location.id === l.id) state.shiftError = err.message;
+  } finally {
+    state.shiftSaving = false;
     render();
   }
 }
@@ -1718,11 +1804,14 @@ async function saveShifts(e) {
 async function openLocationDetail(id) {
   const loc = state.locations.find((l) => l.id === id);
   if (!loc) return;
+  state.shiftDraft = null;
+  state.shiftError = '';
   state.detail = { location: loc, employees: null };
   go('locationDetail');
   try {
     const employees = await api('/api/employees?location_id=' + encodeURIComponent(id));
-    state.detail = { location: loc, employees };
+    if (state.detail?.location.id !== id) return;
+    state.detail = { location: state.detail.location, employees };
     render();
   } catch (e) {
     state.error = e.message;
@@ -1778,8 +1867,7 @@ async function setEmployeeActive(id, active) {
     state.dashboard = null;
     if (state.detail?.location) {
       state.detail = {
-        location:
-          state.locations.find((l) => l.id === state.detail.location.id) || state.detail.location,
+        location: state.locations.find((l) => l.id === state.detail.location.id) || state.detail.location,
         employees: await api('/api/employees?location_id=' + encodeURIComponent(state.detail.location.id)),
       };
     }
@@ -1972,8 +2060,7 @@ async function importEmployees(file) {
     state.locations = await api('/api/locations');
     state.dashboard = null;
     await loadEmployees(false);
-    if (r.warnings && r.warnings.length)
-      state.error = 'Imported, but check these duplicates: ' + r.warnings.join(' ');
+    if (r.warnings && r.warnings.length) state.error = 'Imported, but check these duplicates: ' + r.warnings.join(' ');
     toast('Imported ' + r.created + ' new and updated ' + r.updated + ' employees');
     if (state.error) render();
   } catch (e) {

@@ -163,20 +163,24 @@ def _location_shifts_index_problem(c):
     with any other definition, or the name taken by an index on another table, is a
     conflict the boot must report instead of stepping around.
     """
-    rows = c.execute(
-        text(
-            "SELECT cls.relname AS index_name, idx.indisunique AS unique, idx.indisvalid AS valid, "
-            "idx.indpred IS NOT NULL AS partial, "
-            "(SELECT array_agg(a.attname ORDER BY k.n) "
-            "FROM unnest(idx.indkey) WITH ORDINALITY AS k(attnum, n) "
-            "LEFT JOIN pg_attribute a ON a.attrelid=idx.indrelid AND a.attnum=k.attnum) AS cols "
-            "FROM pg_index idx "
-            "JOIN pg_class cls ON cls.oid=idx.indexrelid "
-            "JOIN pg_class t ON t.oid=idx.indrelid "
-            "JOIN pg_namespace n ON n.oid=t.relnamespace "
-            "WHERE n.nspname=current_schema() AND t.relname='demo_location_shifts'"
+    rows = (
+        c.execute(
+            text(
+                "SELECT cls.relname AS index_name, idx.indisunique AS unique, idx.indisvalid AS valid, "
+                "idx.indpred IS NOT NULL AS partial, "
+                "(SELECT array_agg(a.attname ORDER BY k.n) "
+                "FROM unnest(idx.indkey) WITH ORDINALITY AS k(attnum, n) "
+                "LEFT JOIN pg_attribute a ON a.attrelid=idx.indrelid AND a.attnum=k.attnum) AS cols "
+                "FROM pg_index idx "
+                "JOIN pg_class cls ON cls.oid=idx.indexrelid "
+                "JOIN pg_class t ON t.oid=idx.indrelid "
+                "JOIN pg_namespace n ON n.oid=t.relnamespace "
+                "WHERE n.nspname=current_schema() AND t.relname='demo_location_shifts'"
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     def equivalent(r) -> bool:
         return bool(r["unique"] and r["valid"] and not r["partial"] and list(r["cols"]) == ["location_id", "position"])
@@ -241,9 +245,7 @@ def _ensure_location_shifts(c) -> None:
         ).first()
         if not have_index:
             c.execute(
-                text(
-                    "CREATE UNIQUE INDEX demo_location_shifts_loc_pos ON demo_location_shifts (location_id, position)"
-                )
+                text("CREATE UNIQUE INDEX demo_location_shifts_loc_pos ON demo_location_shifts (location_id, position)")
             )
         return
     # PostgreSQL: fail closed on any deviation, then create only what is missing.
@@ -269,14 +271,10 @@ def _ensure_location_shifts(c) -> None:
         )
     problem, enforced = _location_shifts_index_problem(c)
     if problem:
-        raise RuntimeError(
-            f"{problem}; refusing to boot until it is reconciled. No schema changes were made."
-        )
+        raise RuntimeError(f"{problem}; refusing to boot until it is reconciled. No schema changes were made.")
     if not enforced:
         c.execute(
-            text(
-                "CREATE UNIQUE INDEX demo_location_shifts_loc_pos ON demo_location_shifts (location_id, position)"
-            )
+            text("CREATE UNIQUE INDEX demo_location_shifts_loc_pos ON demo_location_shifts (location_id, position)")
         )
 
 
