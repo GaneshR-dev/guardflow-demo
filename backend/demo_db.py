@@ -286,6 +286,16 @@ def _migrate_schema(c) -> None:
             c.execute(text(f"ALTER TABLE demo_locations ADD COLUMN {column} TEXT"))
     if "active" not in location_columns:
         c.execute(text("ALTER TABLE demo_locations ADD COLUMN active INTEGER NOT NULL DEFAULT 1"))
+    # Supervisor logins become soft-disableable via a separate marker table instead of a
+    # column on demo_users: a rolled-back deploy never touches it, so the schema itself
+    # needs no undo. NOTE: a code rollback silently drops disable enforcement (old code
+    # ignores the marker and previously disabled accounts can sign in again) - once the
+    # control has been used, recover by forward-fixing, not by rolling back.
+    c.execute(
+        text(
+            "CREATE TABLE IF NOT EXISTS demo_disabled_users (user_id TEXT PRIMARY KEY, disabled_at TEXT NOT NULL, disabled_by TEXT NOT NULL)"
+        )
+    )
     employee_columns = _columns(c, "demo_employees")
     if employee_columns.get("location_id") is False:
         # location_id became optional: unassigned employees are added first and placed later.
