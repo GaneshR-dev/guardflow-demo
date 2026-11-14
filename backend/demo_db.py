@@ -32,6 +32,7 @@ def init_db() -> None:
         "CREATE TABLE IF NOT EXISTS demo_attendance (id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, location_id TEXT NOT NULL, day TEXT NOT NULL, status TEXT NOT NULL, check_in TEXT, check_out TEXT, source TEXT NOT NULL, UNIQUE(employee_id, day))",
         "CREATE TABLE IF NOT EXISTS demo_audit (id TEXT PRIMARY KEY, at TEXT NOT NULL, user_id TEXT NOT NULL, action TEXT NOT NULL, details TEXT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS demo_login_attempts (id TEXT PRIMARY KEY, at TEXT NOT NULL, username TEXT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS demo_location_shifts (id TEXT PRIMARY KEY, location_id TEXT NOT NULL, label TEXT, shift_start TEXT NOT NULL, shift_end TEXT NOT NULL, position INTEGER NOT NULL)",
     ]
     if engine.dialect.name == "sqlite":
         with engine.begin() as c:
@@ -117,6 +118,23 @@ def _migrate_schema(c) -> None:
             c.execute(text("ALTER TABLE demo_employees_new RENAME TO demo_employees"))
         else:
             c.execute(text("ALTER TABLE demo_employees ALTER COLUMN location_id DROP NOT NULL"))
+    # Multiple shift timings per branch: copy the original single pair into the new table
+    # for locations that predate it. Idempotent: a location that already has rows keeps them,
+    # so repeat boots and concurrent starters (under the startup lock) apply this at most once.
+    # The CREATE here keeps standalone migrate_db runs on pre-feature databases working too.
+    c.execute(
+        text(
+            "CREATE TABLE IF NOT EXISTS demo_location_shifts (id TEXT PRIMARY KEY, location_id TEXT NOT NULL, label TEXT, shift_start TEXT NOT NULL, shift_end TEXT NOT NULL, position INTEGER NOT NULL)"
+        )
+    )
+    c.execute(
+        text(
+            "INSERT INTO demo_location_shifts (id, location_id, label, shift_start, shift_end, position) "
+            "SELECT l.id || '-shift-1', l.id, NULL, l.shift_start, l.shift_end, 0 FROM demo_locations l "
+            "WHERE l.shift_start IS NOT NULL AND l.shift_end IS NOT NULL "
+            "AND NOT EXISTS (SELECT 1 FROM demo_location_shifts s WHERE s.location_id = l.id)"
+        )
+    )
 
 
 def migrate_db() -> None:
