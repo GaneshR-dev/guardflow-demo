@@ -15,7 +15,8 @@ import os
 import re
 import secrets
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from datetime import time as dt_time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -91,7 +92,8 @@ class EmployeeBody(BaseModel):
     name: str = Field(min_length=2, max_length=80)
     phone: str = Field(min_length=7, max_length=25, pattern=r"^[0-9+() -]+$")
     role: str = Field(default="Guard", max_length=40)
-    location_id: str = Field(min_length=2, max_length=40)
+    # Optional: an employee can be created first and assigned to a location later.
+    location_id: str | None = Field(default=None, min_length=2, max_length=40)
 
     @field_validator("role")
     @classmethod
@@ -114,12 +116,17 @@ class ProfileBody(BaseModel):
     name: str = Field(min_length=2, max_length=80)
 
 
+SHIFT_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
+
+
 class LocationBody(BaseModel):
     supervisor_id: str | None = Field(default=None, min_length=3, max_length=80)
     id: str = Field(min_length=2, max_length=40, pattern=r"^[a-z0-9-]+$")
     name: str = Field(min_length=3, max_length=100)
     area: str = Field(min_length=2, max_length=100)
     assigned_count: int = Field(default=0, ge=0, le=10000)
+    shift_start: str | None = Field(default=None, pattern=SHIFT_PATTERN)
+    shift_end: str | None = Field(default=None, pattern=SHIFT_PATTERN)
 
 
 class AccessBody(BaseModel):
@@ -132,6 +139,16 @@ class AccessBody(BaseModel):
 
 class ResetBody(BaseModel):
     confirm: str = Field(min_length=1, max_length=40)
+
+
+class AttendanceTimeBody(BaseModel):
+    """Admin correction of an existing record's check-in/check-out times (IST wall clock)."""
+
+    employee_id: str = Field(min_length=2, max_length=40)
+    location_id: str = Field(min_length=2, max_length=40)
+    day: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    check_in: str = Field(pattern=SHIFT_PATTERN)
+    check_out: str | None = Field(default=None, pattern=SHIFT_PATTERN)
 
 
 class LocationImportRow(BaseModel):
@@ -209,12 +226,15 @@ def audit(c, user, action: str, details: dict) -> None:
 def location_rows(user):
     with engine.connect() as c:
         if user["role"] == "admin":
-            return [dict(r) for r in c.execute(text("SELECT * FROM demo_locations ORDER BY name")).mappings()]
+            return [
+                dict(r)
+                for r in c.execute(text("SELECT * FROM demo_locations WHERE active=1 ORDER BY name")).mappings()
+            ]
         return [
             dict(r)
             for r in c.execute(
                 text(
-                    "SELECT l.* FROM demo_locations l JOIN demo_user_locations a ON a.location_id=l.id WHERE a.user_id=:user ORDER BY l.name"
+                    "SELECT l.* FROM demo_locations l JOIN demo_user_locations a ON a.location_id=l.id WHERE a.user_id=:user AND l.active=1 ORDER BY l.name"
                 ),
                 {"user": user["id"]},
             ).mappings()
@@ -300,7 +320,13 @@ def locations(user=Depends(current_user)):
 
 @app.get("/api/employees")
 def employees(location_id: str | None = None, q: str = "", user=Depends(current_user)):
-    sql = "SELECT * FROM demo_employees WHERE active=1 AND " + scoped_sql(user, "location_id")
+    # Employees of removed locations and unassigned employees stay out of branch lists; the
+    # directory still shows unassigned ones so admins can place them later.
+    sql = (
+        "SELECT * FROM demo_employees WHERE active=1 "
+        "AND (location_id IS NULL OR location_id IN (SELECT id FROM demo_locations WHERE active=1)) AND "
+        + scoped_sql(user, "location_id")
+    )
     params = scope_params(user)
     with engine.connect() as c:
         if location_id:
@@ -321,12 +347,15 @@ def reject_duplicate_import_ids(ids, kind):
 
 
 def insert_employee_row(c, employee_id, name, phone, role, location_id):
-    """Create an active employee and count them against their location."""
+    """Create an active employee and count them against their location, when assigned."""
     c.execute(
-        text("INSERT INTO demo_employees VALUES (:id,:name,:phone,:role,:location,1)"),
+        text(
+            "INSERT INTO demo_employees (id,name,phone,role,location_id,active) VALUES (:id,:name,:phone,:role,:location,1)"
+        ),
         {"id": employee_id, "name": name, "phone": phone, "role": role, "location": location_id},
     )
-    c.execute(text("UPDATE demo_locations SET assigned_count=assigned_count+1 WHERE id=:id"), {"id": location_id})
+    if location_id:
+        c.execute(text("UPDATE demo_locations SET assigned_count=assigned_count+1 WHERE id=:id"), {"id": location_id})
 
 
 def update_employee_row(c, employee_id, name, phone, role, location_id):
@@ -361,7 +390,8 @@ def add_employee(body: EmployeeBody, user=Depends(current_user)):
         raise HTTPException(403, "Admin required")
     require_role_write(user, body.role)
     with engine.begin() as c:
-        require_location_access(c, user, body.location_id)
+        if body.location_id:
+            require_location_access(c, user, body.location_id)
         employee_id = new_employee_id(c)
         insert_employee_row(c, employee_id, body.name, body.phone, body.role, body.location_id)
         audit(c, user, "employee.create", {"employee_id": employee_id, "location_id": body.location_id})
@@ -374,6 +404,29 @@ def add_employee(body: EmployeeBody, user=Depends(current_user)):
         }
 
 
+@app.delete("/api/employees/{employee_id}")
+def remove_employee(employee_id: str, user=Depends(current_user)):
+    """Admin removal. The record is retired (active=0) so attendance history is kept."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        row = (
+            c.execute(text("SELECT * FROM demo_employees WHERE id=:id AND active=1"), {"id": employee_id})
+            .mappings()
+            .first()
+        )
+        if not row:
+            raise HTTPException(404, "Employee not found")
+        c.execute(text("UPDATE demo_employees SET active=0 WHERE id=:id"), {"id": employee_id})
+        if row["location_id"]:
+            c.execute(
+                text("UPDATE demo_locations SET assigned_count=MAX(assigned_count-1,0) WHERE id=:id"),
+                {"id": row["location_id"]},
+            )
+        audit(c, user, "employee.delete", {"employee_id": employee_id, "location_id": row["location_id"]})
+    return {"id": employee_id, "status": "removed"}
+
+
 @app.post("/api/employees/import")
 def import_employees(body: EmployeeImportBody, user=Depends(current_user)):
     if user["role"] != "admin":
@@ -383,7 +436,8 @@ def import_employees(body: EmployeeImportBody, user=Depends(current_user)):
     with engine.begin() as c:
         for row in body.rows:
             require_role_write(user, row.role)
-            require_location_access(c, user, row.location_id)
+            if row.location_id:
+                require_location_access(c, user, row.location_id)
             employee_id = row.id or new_employee_id(c)
             existing = (
                 c.execute(text("SELECT * FROM demo_employees WHERE id=:id"), {"id": employee_id}).mappings().first()
@@ -445,6 +499,8 @@ def check_in(body: CheckBody, user=Depends(current_user)):
         )
         if not emp:
             raise HTTPException(404, "Employee not found")
+        if not emp["location_id"]:
+            raise HTTPException(409, "Employee has no location assigned yet. Ask an admin to assign one.")
         if emp["location_id"] != body.location_id:
             raise HTTPException(409, "Employee is assigned to another location")
         require_location_access(c, user, body.location_id)
@@ -506,6 +562,66 @@ def check_out(body: CheckBody, user=Depends(current_user)):
         )
         audit(c, user, "attendance.checkout", body.model_dump())
         return {"employee_id": body.employee_id, "name": row["name"], "status": "completed", "check_out": stamp}
+
+
+def ist_stamp(day_text: str, hhmm: str) -> str:
+    """Convert an IST wall-clock day + HH:MM into the stored UTC ISO timestamp."""
+    hour, minute = (int(part) for part in hhmm.split(":"))
+    local_value = datetime.combine(date.fromisoformat(day_text), dt_time(hour, minute), tzinfo=LOCAL_TZ)
+    return local_value.astimezone(timezone.utc).isoformat()
+
+
+@app.patch("/api/attendance/times")
+def edit_attendance_times(body: AttendanceTimeBody, user=Depends(current_user)):
+    """Admin-only time correction for an existing attendance record."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Only admins can modify attendance times")
+    try:
+        parsed_day = date.fromisoformat(body.day)
+    except ValueError:
+        raise HTTPException(400, "Invalid day") from None
+    check_in = ist_stamp(body.day, body.check_in)
+    check_out = ist_stamp(body.day, body.check_out) if body.check_out else None
+    if check_out and check_out <= check_in:
+        raise HTTPException(400, "Check-out time must be after the check-in time")
+    with engine.begin() as c:
+        require_location_access(c, user, body.location_id)
+        row = (
+            c.execute(
+                text("SELECT * FROM demo_attendance WHERE employee_id=:employee AND day=:day"),
+                {"employee": body.employee_id, "day": parsed_day.isoformat()},
+            )
+            .mappings()
+            .first()
+        )
+        if not row or row["location_id"] != body.location_id:
+            raise HTTPException(404, "No attendance record to modify for this employee and day")
+        status = "completed" if check_out else "checked_in"
+        c.execute(
+            text(
+                "UPDATE demo_attendance SET status=:status,check_in=:cin,check_out=:cout,source='admin edit' WHERE id=:id"
+            ),
+            {"status": status, "cin": check_in, "cout": check_out, "id": row["id"]},
+        )
+        audit(
+            c,
+            user,
+            "attendance.times.edit",
+            {
+                "employee_id": body.employee_id,
+                "location_id": body.location_id,
+                "day": parsed_day.isoformat(),
+                "before": {"check_in": row["check_in"], "check_out": row["check_out"], "status": row["status"]},
+                "after": {"check_in": check_in, "check_out": check_out, "status": status},
+            },
+        )
+    return {
+        "employee_id": body.employee_id,
+        "day": parsed_day.isoformat(),
+        "status": status,
+        "check_in": check_in,
+        "check_out": check_out,
+    }
 
 
 @app.get("/api/dashboard")
@@ -740,8 +856,17 @@ def create_location(body: LocationBody, user=Depends(current_user)):
             if supervisor != "supervisor":
                 raise HTTPException(400, "Choose an existing supervisor")
         c.execute(
-            text("INSERT INTO demo_locations VALUES (:id,:name,:area,:count)"),
-            {"id": body.id, "name": body.name, "area": body.area, "count": body.assigned_count},
+            text(
+                "INSERT INTO demo_locations (id,name,area,assigned_count,shift_start,shift_end,active) VALUES (:id,:name,:area,:count,:shift_start,:shift_end,1)"
+            ),
+            {
+                "id": body.id,
+                "name": body.name,
+                "area": body.area,
+                "count": body.assigned_count,
+                "shift_start": body.shift_start,
+                "shift_end": body.shift_end,
+            },
         )
         if body.supervisor_id is not None:
             c.execute(
@@ -750,6 +875,30 @@ def create_location(body: LocationBody, user=Depends(current_user)):
             )
         audit(c, user, "settings.location.create", body.model_dump())
     return body.model_dump()
+
+
+@app.delete("/api/settings/locations/{location_id}")
+def remove_location(location_id: str, user=Depends(current_user)):
+    """Admin removal. The branch is retired (active=0) so attendance history is kept."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        row = (
+            c.execute(text("SELECT * FROM demo_locations WHERE id=:id AND active=1"), {"id": location_id})
+            .mappings()
+            .first()
+        )
+        if not row:
+            raise HTTPException(404, "Location not found")
+        c.execute(text("UPDATE demo_locations SET active=0 WHERE id=:id"), {"id": location_id})
+        c.execute(text("DELETE FROM demo_user_locations WHERE location_id=:id"), {"id": location_id})
+        audit(
+            c,
+            user,
+            "settings.location.delete",
+            {"location_id": location_id, "name": row["name"], "grants_removed": True},
+        )
+    return {"id": location_id, "status": "removed"}
 
 
 def generated_location_id(name: str) -> str:
@@ -771,13 +920,17 @@ def import_locations(body: LocationImportBody, user=Depends(current_user)):
             )
             if existing:
                 c.execute(
-                    text("UPDATE demo_locations SET name=:name,area=:area,assigned_count=:count WHERE id=:id"),
+                    text(
+                        "UPDATE demo_locations SET name=:name,area=:area,assigned_count=:count,active=1 WHERE id=:id"
+                    ),
                     {"id": location_id, "name": row.name, "area": row.area, "count": row.assigned_count},
                 )
                 updated += 1
             else:
                 c.execute(
-                    text("INSERT INTO demo_locations VALUES (:id,:name,:area,:count)"),
+                    text(
+                        "INSERT INTO demo_locations (id,name,area,assigned_count,shift_start,shift_end,active) VALUES (:id,:name,:area,:count,NULL,NULL,1)"
+                    ),
                     {"id": location_id, "name": row.name, "area": row.area, "count": row.assigned_count},
                 )
                 created += 1
