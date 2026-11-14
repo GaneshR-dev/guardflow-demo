@@ -364,3 +364,46 @@ def test_supervisor_cannot_see_or_use_unassigned_employees():
     assert denied.status_code == 403
     # Admins still see the unassigned employee so they can place them later.
     assert any(e["id"] == employee_id for e in client.get("/api/employees", headers=headers).json())
+
+
+def test_employee_removal_guard_blocks_open_checkin_and_keeps_history():
+    """Symmetric with the location guard: removal cannot strand an open check-in."""
+    headers = auth()
+    sup = auth("supervisor.demo")
+    today = local_today().isoformat()
+    month = today[:7]
+    rows = client.get("/api/attendance?location_id=loc-hsr", headers=headers).json()["rows"]
+    target = next(r for r in rows if r["status"] == "not_in")
+    employee_id = target["employee_id"]
+    assert (
+        client.post(
+            "/api/attendance/checkin",
+            headers=sup,
+            json={"employee_id": employee_id, "location_id": "loc-hsr"},
+        ).status_code
+        == 200
+    )
+    # Removal is blocked with a clear check-out-first message.
+    blocked = client.delete(f"/api/employees/{employee_id}", headers=headers)
+    assert blocked.status_code == 409
+    detail = blocked.json()["detail"].lower()
+    assert "check-out" in detail and "cannot remove" in detail
+    # The employee, their UI row and the open record are all untouched.
+    assert any(e["id"] == employee_id for e in client.get("/api/employees", headers=headers).json())
+    ui_rows = client.get("/api/attendance?location_id=loc-hsr", headers=sup).json()["rows"]
+    shown = next(r for r in ui_rows if r["employee_id"] == employee_id)
+    assert shown["status"] == "checked_in"
+    # After checkout, removal succeeds and history/reporting are preserved.
+    assert (
+        client.post(
+            "/api/attendance/checkout",
+            headers=sup,
+            json={"employee_id": employee_id, "location_id": "loc-hsr"},
+        ).status_code
+        == 200
+    )
+    assert client.delete(f"/api/employees/{employee_id}", headers=headers).status_code == 200
+    assert all(e["id"] != employee_id for e in client.get("/api/employees", headers=headers).json())
+    report = client.get(f"/api/reports/monthly?month={month}&location_id=loc-hsr", headers=headers).json()
+    kept = next((r for r in report["rows"] if r["employee_id"] == employee_id and r["day"] == today), None)
+    assert kept is not None and kept["status"] == "completed" and kept["employee_name"]
