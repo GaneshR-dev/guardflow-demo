@@ -104,19 +104,29 @@ def test_location_detail_today_matches_attendance_summary():
     assert {k: today_row[k] for k in ("checked_in", "completed", "not_in")} == attendance
 
 
-def test_location_without_records_today_shows_everyone_not_in():
-    # Mysuru has no attendance records today in the demo data.
+def test_day_report_lists_unrecorded_employees_as_not_in():
+    # Other tests move employees between locations, so use each location that exists now.
     headers = auth()
     today = local_today().isoformat()
-    attendance = client.get("/api/attendance?location_id=loc-mysuru", headers=headers).json()
-    expected_not_in = attendance["summary"]["not_in"]
-    assert expected_not_in > 0
-    day = client.get(
-        f"/api/reports/monthly?month={today[:7]}&day={today}&location_id=loc-mysuru", headers=headers
-    ).json()["rows"]
-    assert len(day) == len(attendance["rows"])
-    assert sum(r["status"] == "not_in" for r in day) == expected_not_in
-    assert all(r["source"] == "not recorded" for r in day if r["status"] == "not_in")
+    unrecorded_seen = 0
+    for loc in client.get("/api/locations", headers=headers).json():
+        attendance = client.get(f"/api/attendance?location_id={loc['id']}", headers=headers).json()
+        day = client.get(
+            f"/api/reports/monthly?month={today[:7]}&day={today}&location_id={loc['id']}", headers=headers
+        ).json()["rows"]
+        assert len(day) == len(attendance["rows"])
+        assert sum(r["status"] == "not_in" for r in day) == attendance["summary"]["not_in"]
+        unrecorded = {r["employee_id"] for r in attendance["rows"] if r["source"] == "not recorded"}
+        assert unrecorded == {r["employee_id"] for r in day if r["source"] == "not recorded"}
+        unrecorded_seen += len(unrecorded)
+    assert unrecorded_seen > 0, "the demo data has employees with no record today"
+
+
+def test_month_list_without_day_has_stored_history_only():
+    headers = auth()
+    month = local_today().isoformat()[:7]
+    rows = client.get(f"/api/reports/monthly?month={month}", headers=headers).json()["rows"]
+    assert rows and all(r["source"] != "not recorded" for r in rows)
 
 
 def test_new_employee_is_not_in_on_every_report_today():

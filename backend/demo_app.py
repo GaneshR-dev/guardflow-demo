@@ -230,8 +230,7 @@ def location_rows(user):
     with engine.connect() as c:
         if user["role"] == "admin":
             return [
-                dict(r)
-                for r in c.execute(text("SELECT * FROM demo_locations WHERE active=1 ORDER BY name")).mappings()
+                dict(r) for r in c.execute(text("SELECT * FROM demo_locations WHERE active=1 ORDER BY name")).mappings()
             ]
         return [
             dict(r)
@@ -423,9 +422,7 @@ def remove_employee(employee_id: str, user=Depends(current_user)):
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
         row = (
-            c.execute(
-                text("SELECT * FROM demo_employees WHERE id=:id AND active=1" + row_lock()), {"id": employee_id}
-            )
+            c.execute(text("SELECT * FROM demo_employees WHERE id=:id AND active=1" + row_lock()), {"id": employee_id})
             .mappings()
             .first()
         )
@@ -722,7 +719,7 @@ def unrecorded_today(c, user: dict, location_id: str = "") -> list[dict]:
     sql = (
         "SELECT e.id employee_id,e.name employee_name,e.location_id,l.name location_name "
         "FROM demo_employees e JOIN demo_locations l ON l.id=e.location_id "
-        "WHERE e.active=1 AND " + scoped_sql(user, "e.location_id") + " AND NOT EXISTS "
+        "WHERE e.active=1 AND l.active=1 AND " + scoped_sql(user, "e.location_id") + " AND NOT EXISTS "
         "(SELECT 1 FROM demo_attendance a WHERE a.employee_id=e.id AND a.day=:day)"
     )
     if location_id:
@@ -768,7 +765,9 @@ def monthly_report(
             params["location"] = location_id
         sql += " ORDER BY a.day DESC,l.name,e.name LIMIT 500"
         rows = [dict(r) for r in c.execute(text(sql), params).mappings()]
-        if includes_today(month, day):
+        # Only the Day report (day=today) lists unrecorded employees. A whole-month list
+        # stays a list of stored attendance history.
+        if day and includes_today(month, day):
             rows += unrecorded_today(c, user, location_id)
             rows.sort(key=lambda r: (r["location_name"], r["employee_name"]))
             rows.sort(key=lambda r: r["day"], reverse=True)
@@ -1037,9 +1036,7 @@ def remove_location(location_id: str, user=Depends(current_user)):
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
         row = (
-            c.execute(
-                text("SELECT * FROM demo_locations WHERE id=:id AND active=1" + row_lock()), {"id": location_id}
-            )
+            c.execute(text("SELECT * FROM demo_locations WHERE id=:id AND active=1" + row_lock()), {"id": location_id})
             .mappings()
             .first()
         )
@@ -1101,9 +1098,7 @@ def import_locations(body: LocationImportBody, user=Depends(current_user)):
             )
             if existing:
                 c.execute(
-                    text(
-                        "UPDATE demo_locations SET name=:name,area=:area,assigned_count=:count,active=1 WHERE id=:id"
-                    ),
+                    text("UPDATE demo_locations SET name=:name,area=:area,assigned_count=:count,active=1 WHERE id=:id"),
                     {"id": location_id, "name": row.name, "area": row.area, "count": row.assigned_count},
                 )
                 updated += 1

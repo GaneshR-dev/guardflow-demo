@@ -26,7 +26,14 @@ def seed_demo() -> None:
                 text(
                     "INSERT INTO demo_locations (id,name,area,assigned_count,shift_start,shift_end,active) VALUES (:id,:name,:area,:count,:shift_start,:shift_end,1)"
                 ),
-                {"id": row[0], "name": row[1], "area": row[2], "count": row[3], "shift_start": row[4], "shift_end": row[5]},
+                {
+                    "id": row[0],
+                    "name": row[1],
+                    "area": row[2],
+                    "count": row[3],
+                    "shift_start": row[4],
+                    "shift_end": row[5],
+                },
             )
         employees = [
             ("EMP1024", "Deepak Kumar", "+91 90000 11024", "Senior Guard", "loc-hsr"),

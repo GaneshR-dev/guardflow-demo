@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-14 · Merge main and fix the "Not in" rows · Claude Code · feat/reports
+- Request: Open a pull request for feat/reports.
+- Changed: merged `origin/main` (shifts, admin controls, asset versioning). `backend/demo_app.py`: the whole-month list has stored history only; unrecorded employees show only on the Day report for today; removed locations are ignored. `tests/test_report_summary.py`: tests no longer depend on Mysuru. Ruff format for `backend/demo_app.py`, `backend/demo_seed.py`, `tests/test_feature_nov14.py` (format only).
+- Tests: `pytest -q tests/` without the 3 browser test files → 48 passed, in any order. Ruff check and format → passed.
+- Open items: Browser tests and `tests/test_security_regression.py` not run locally. CI runs them on the pull request (browser tests skip there).
+
 ## 2026-11-14 · Repository setup for collaboration · Claude Code · feat/reports
 - Request: Add the six suggested items for safe collaboration.
 - Changed: `.gitignore` (`.venv/`, `*.db`), `.gitattributes` (LF), `backend/requirements.txt` (`tzdata`), `requirements-dev.txt`, `.github/workflows/ci.yml`, `.github/pull_request_template.md`, `README.md`, `AGENTS.md`, `tests/test_demo_app.py` (Ruff format only)
