@@ -226,17 +226,28 @@ def audit(c, user, action: str, details: dict) -> None:
     )
 
 
+# Disabled employees stay listed under their branch, so location payloads also carry the
+# disabled headcount: labels can say "0 active employees · 3 disabled" instead of a bare
+# count that contradicts the greyed rows shown below it.
+DISABLED_COUNT_SQL = "(SELECT COUNT(*) FROM demo_employees e WHERE e.location_id=l.id AND e.active=0) AS disabled_count"
+
+
 def location_rows(user):
     with engine.connect() as c:
         if user["role"] == "admin":
             return [
-                dict(r) for r in c.execute(text("SELECT * FROM demo_locations ORDER BY active DESC, name")).mappings()
+                dict(r)
+                for r in c.execute(
+                    text("SELECT l.*, " + DISABLED_COUNT_SQL + " FROM demo_locations l ORDER BY l.active DESC, l.name")
+                ).mappings()
             ]
         return [
             dict(r)
             for r in c.execute(
                 text(
-                    "SELECT l.* FROM demo_locations l JOIN demo_user_locations a ON a.location_id=l.id WHERE a.user_id=:user ORDER BY l.active DESC, l.name"
+                    "SELECT l.*, "
+                    + DISABLED_COUNT_SQL
+                    + " FROM demo_locations l JOIN demo_user_locations a ON a.location_id=l.id WHERE a.user_id=:user ORDER BY l.active DESC, l.name"
                 ),
                 {"user": user["id"]},
             ).mappings()
