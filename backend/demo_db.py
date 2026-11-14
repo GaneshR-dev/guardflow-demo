@@ -32,7 +32,8 @@ def init_db() -> None:
         "CREATE TABLE IF NOT EXISTS demo_attendance (id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, location_id TEXT NOT NULL, day TEXT NOT NULL, status TEXT NOT NULL, check_in TEXT, check_out TEXT, source TEXT NOT NULL, UNIQUE(employee_id, day))",
         "CREATE TABLE IF NOT EXISTS demo_audit (id TEXT PRIMARY KEY, at TEXT NOT NULL, user_id TEXT NOT NULL, action TEXT NOT NULL, details TEXT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS demo_login_attempts (id TEXT PRIMARY KEY, at TEXT NOT NULL, username TEXT NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS demo_location_shifts (id TEXT PRIMARY KEY, location_id TEXT NOT NULL, label TEXT, shift_start TEXT NOT NULL, shift_end TEXT NOT NULL, position INTEGER NOT NULL)",
+        # NOTE: demo_location_shifts is deliberately NOT created in this list - see
+        # _ensure_location_shifts, called from _migrate_schema below.
     ]
     if engine.dialect.name == "sqlite":
         with engine.begin() as c:
@@ -93,6 +94,53 @@ def _acquire_pg_startup_lock(c) -> None:
     c.execute(text("SET LOCAL statement_timeout = '60s'"))
 
 
+LOCATION_SHIFTS_COLUMNS = ("id", "location_id", "label", "shift_start", "shift_end", "position")
+
+
+def _ensure_location_shifts(c) -> None:
+    """Create the shift-window table and its position index exactly once; validate shape.
+
+    CREATE TABLE/INDEX IF NOT EXISTS takes a table-level lock (ShareLock for the index)
+    on PostgreSQL even when the object already exists, and that lock can deadlock
+    against an in-flight shift replacement holding the parent row lock. So existing
+    objects are found through the catalog (no locks) and only actually created when
+    missing. A pre-existing table with an incompatible shape stops the boot loudly and
+    the whole boot transaction rolls back - the table is never silently reused.
+    """
+    existing = _columns(c, "demo_location_shifts")
+    if existing:
+        missing = set(LOCATION_SHIFTS_COLUMNS) - set(existing)
+        if missing:
+            raise RuntimeError(
+                "demo_location_shifts exists with an incompatible shape "
+                f"(missing: {', '.join(sorted(missing))}); refusing to boot until it is reconciled. "
+                "No schema changes were made."
+            )
+    else:
+        c.execute(
+            text(
+                "CREATE TABLE demo_location_shifts (id TEXT PRIMARY KEY, location_id TEXT NOT NULL, label TEXT, shift_start TEXT NOT NULL, shift_end TEXT NOT NULL, position INTEGER NOT NULL)"
+            )
+        )
+    # One row per (location, position): a second writer cannot interleave duplicates.
+    if engine.dialect.name == "sqlite":
+        have_index = c.execute(
+            text("SELECT 1 FROM sqlite_master WHERE type='index' AND name='demo_location_shifts_loc_pos'")
+        ).first()
+    else:
+        have_index = c.execute(
+            text(
+                "SELECT 1 FROM pg_indexes WHERE schemaname=current_schema() AND indexname='demo_location_shifts_loc_pos'"
+            )
+        ).first()
+    if not have_index:
+        c.execute(
+            text(
+                "CREATE UNIQUE INDEX demo_location_shifts_loc_pos ON demo_location_shifts (location_id, position)"
+            )
+        )
+
+
 def _migrate_schema(c) -> None:
     """The actual schema steps; each is a no-op once applied. Runs inside one transaction."""
     location_columns = _columns(c, "demo_locations")
@@ -121,12 +169,15 @@ def _migrate_schema(c) -> None:
     # Multiple shift timings per branch: copy the original single pair into the new table
     # for locations that predate it. Idempotent: a location that already has rows keeps them,
     # so repeat boots and concurrent starters (under the startup lock) apply this at most once.
-    # The CREATE here keeps standalone migrate_db runs on pre-feature databases working too.
-    c.execute(
-        text(
-            "CREATE TABLE IF NOT EXISTS demo_location_shifts (id TEXT PRIMARY KEY, location_id TEXT NOT NULL, label TEXT, shift_start TEXT NOT NULL, shift_end TEXT NOT NULL, position INTEGER NOT NULL)"
+    _ensure_location_shifts(c)
+    if engine.dialect.name != "sqlite":
+        # Serialize the backfill against in-flight API replacements: PUT /shifts locks the
+        # parent location row first, so this waits for any open replacement and the
+        # NOT EXISTS check below then reads its committed rows. (SQLite serializes the
+        # whole write transaction instead.)
+        c.execute(
+            text("SELECT id FROM demo_locations WHERE shift_start IS NOT NULL AND shift_end IS NOT NULL FOR UPDATE")
         )
-    )
     c.execute(
         text(
             "INSERT INTO demo_location_shifts (id, location_id, label, shift_start, shift_end, position) "
