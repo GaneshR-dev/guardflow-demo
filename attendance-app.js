@@ -106,7 +106,7 @@ const state = {
   locationQuery: '',
   addQuery: '',
   outQuery: '',
-  lookupMatches: null,
+  lookupResults: null,
   employeeQuery: '',
   showEmployeeForm: false,
   filter: 'all',
@@ -340,7 +340,7 @@ function attendance() {
   if (!state.location)
     return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(istNow())}</p><div class="card addCard"><strong>${state.user?.role === 'admin' ? 'No location set up yet' : 'No location access assigned'}</strong><p>${state.user?.role === 'admin' ? 'Attendance is recorded per branch. Add a location first, then mark check-ins here.' : 'Your admin needs to give you location access before you can view employees or mark attendance.'}</p>${state.user?.role === 'admin' ? '<button class="primary" data-go="locations">Go to Locations</button>' : ''}</div></div>${nav()}${message()}`;
   const canEditTimes = state.user?.role === 'admin';
-  return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(istNow())} · ${esc(state.location?.name || '')} · IST</p>${attendanceLocationPicker()}${editTimeForm()}<div class="hero"><small>TODAY'S ATTENDANCE</small><strong>${total}</strong> <span>${plural(total, 'employee')} at this location</span></div><div class="stats"><div class="stat green"><strong>${s.checked_in || 0}</strong><span>Checked in</span></div><div class="stat amber"><strong>${s.not_in || 0}</strong><span>To check in</span></div><div class="stat blue"><strong>${s.completed || 0}</strong><span>Completed</span></div></div><h2 class="sectionTitle">Employee attendance</h2><input class="search" id="attSearch" placeholder="Search by name or employee ID" value="${esc(state.query)}"><div class="filters"><button class="chip ${state.filter === 'all' ? 'active' : ''}" data-filter="all">All ${(s.checked_in || 0) + (s.completed || 0) + (s.not_in || 0)}</button><button class="chip green ${state.filter === 'checked_in' ? 'active' : ''}" data-filter="checked_in">Checked in</button><button class="chip amber ${state.filter === 'not_in' ? 'active' : ''}" data-filter="not_in">Not in</button></div>${rows.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}</small></span><span class="personTime">${r.check_in ? fmtTime(r.check_in) : '-'}<br><span class="badge ${r.status === 'checked_in' ? 'green' : r.status === 'completed' ? 'blue' : 'amber'}">${r.status === 'checked_in' ? 'Checked in' : r.status === 'completed' ? 'Completed' : 'Not checked in'}</span></span>${canEditTimes && r.status !== 'not_in' ? `<button class="iconBtn" title="Edit times" data-edittime="${esc(r.employee_id)}">✎</button>` : ''}</div>`).join('') || '<p class="muted small">No employees match.</p>'}<button class="primary" data-go="add">Mark Check-in · ${nowTime()}</button><button class="secondary" style="margin-top:10px" data-go="checkout">Manage check-outs</button></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(istNow())} · ${esc(state.location?.name || '')} · IST</p>${attendanceLocationPicker()}${editTimeForm()}<div class="hero"><small>TODAY'S ATTENDANCE</small><strong>${total}</strong> <span>${total === 1 ? 'employee' : 'employees'} at this location</span></div><div class="stats"><div class="stat green"><strong>${s.checked_in || 0}</strong><span>Checked in</span></div><div class="stat amber"><strong>${s.not_in || 0}</strong><span>To check in</span></div><div class="stat blue"><strong>${s.completed || 0}</strong><span>Completed</span></div></div><h2 class="sectionTitle">Employee attendance</h2><input class="search" id="attSearch" placeholder="Search by name or employee ID" value="${esc(state.query)}"><div class="filters"><button class="chip ${state.filter === 'all' ? 'active' : ''}" data-filter="all">All ${(s.checked_in || 0) + (s.completed || 0) + (s.not_in || 0)}</button><button class="chip green ${state.filter === 'checked_in' ? 'active' : ''}" data-filter="checked_in">Checked in</button><button class="chip amber ${state.filter === 'not_in' ? 'active' : ''}" data-filter="not_in">Not in</button></div>${rows.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}</small></span><span class="personTime">${r.check_in ? fmtTime(r.check_in) : '-'}<br><span class="badge ${r.status === 'checked_in' ? 'green' : r.status === 'completed' ? 'blue' : 'amber'}">${r.status === 'checked_in' ? 'Checked in' : r.status === 'completed' ? 'Completed' : 'Not checked in'}</span></span>${canEditTimes && r.status !== 'not_in' ? `<button class="iconBtn" title="Edit times" data-edittime="${esc(r.employee_id)}">✎</button>` : ''}</div>`).join('') || '<p class="muted small">No employees match.</p>'}<button class="primary" data-go="add">Mark Check-in · ${nowTime()}</button><button class="secondary" style="margin-top:10px" data-go="checkout">Manage check-outs</button></div>${nav()}${message()}`;
 }
 // Admin-only correction of an existing record's check-in/check-out times (IST).
 function editTimeForm() {
@@ -348,15 +348,36 @@ function editTimeForm() {
   if (!r) return '';
   return `<div class="card addCard" id="timeEditCard"><strong>Edit times - ${esc(r.name)}</strong><p class="muted small">Only admins can modify attendance times. Times are Indian Standard Time. Each correction is saved with your reason in the activity log. Shifts over 24 hours are unusual - double-check the dates.</p><form id="timeEditForm"><div class="field"><label>Date</label><input name="day" type="date" value="${todayISO()}" required></div><div class="field"><label>Check-in time (IST)</label><input name="check_in" type="time" value="${toHHMM(r.check_in)}" required></div><div class="field"><label>Check-out time (IST, leave empty if still working)</label><input name="check_out" type="time" value="${toHHMM(r.check_out)}"></div><div class="field"><label>Check-out date (IST, pick the next day for overnight shifts)</label><input name="check_out_day" type="date" value="${todayISO()}"></div><div class="field"><label>Reason for the correction</label><input name="reason" placeholder="Example: guard forgot to check out" minlength="3" maxlength="200" required></div><button class="secondary">Save times</button> <button type="button" class="link" id="cancelTimeEdit">Cancel</button></form></div>`;
 }
-// A name/ID lookup can match several people: let the supervisor pick the right one.
-function lookupMatchesView(action) {
-  if (!state.lookupMatches) return '';
-  return `<div class="card addCard"><strong>Several employees match. Pick the right person:</strong>${state.lookupMatches
-    .map(
-      (m) =>
-        `<div class="person"><span class="initials">${esc(initials(m.name))}</span><span><strong>${esc(m.name)}</strong><small>${esc(m.id)}${m.location_name ? ' · ' + esc(m.location_name) : ''}</small></span><button class="selectBtn" data-pick-${action}="${esc(m.id)}">Select</button></div>`,
-    )
-    .join('')}</div>`;
+// One search per marking screen: the box filters this site's list live and also finds
+// ANY active employee by name or EMP ID (ad hoc included). Eligibility stays explicit:
+// disabled, already-marked, or not-checked-in-here people show their status, never an
+// action button.
+function lookupResultsView(kind) {
+  const q = (kind === 'checkin' ? state.addQuery : state.outQuery).trim();
+  const r = state.lookupResults;
+  if (!q || !r) return '';
+  const rows = r
+    .filter((emp) => {
+      const today = state.attendance.find((a) => a.employee_id === emp.id);
+      if (kind === 'checkin') return !(today && today.status === 'not_in'); // already in the waiting list below
+      const checkedInHere =
+        (today && today.status === 'checked_in') || (state.staleOpen || []).some((a) => a.employee_id === emp.id);
+      return !checkedInHere; // already in the checked-in lists below
+    })
+    .map((emp) => lookupCandidateRow(kind, emp))
+    .join('');
+  return `<h2 class="sectionTitle">Other employees matching "${esc(q)}"</h2>${rows || '<p class="muted small">No other employees match.</p>'}`;
+}
+function lookupCandidateRow(kind, emp) {
+  const meta = `${esc(emp.id)}${emp.location_name ? ' · ' + esc(emp.location_name) : ''}`;
+  const note = (t) =>
+    `<div class="person disabledRow"><span class="initials">${esc(initials(emp.name))}</span><span><strong>${esc(emp.name)}</strong><small>${meta} · ${t}</small></span></div>`;
+  if (kind === 'checkout') return note('Not checked in at this location');
+  if (!emp.active) return note('Disabled - an admin can enable them');
+  const today = state.attendance.find((a) => a.employee_id === emp.id);
+  if (today && today.status === 'checked_in') return note('Already checked in here');
+  if (today && today.status === 'completed') return note('Shift already completed here today');
+  return `<div class="person"><span class="initials">${esc(initials(emp.name))}</span><span><strong>${esc(emp.name)}${emp.location_id !== state.location.id ? ' <span class="badge blue">ad-hoc</span>' : ''}</strong><small>${meta}</small></span><button class="selectBtn" data-pick-checkin="${esc(emp.id)}">Select</button></div>`;
 }
 function add() {
   const available = state.attendance.filter(
@@ -364,7 +385,7 @@ function add() {
       r.status === 'not_in' &&
       (!state.addQuery || (r.name + ' ' + r.employee_id).toLowerCase().includes(state.addQuery.toLowerCase())),
   );
-  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Employee enters their EMP ID or name, or pick a waiting employee below.</p><form id="idCheckin" style="display:flex;gap:8px"><input class="search" name="empid" placeholder="Enter EMP ID or name, e.g. EMP1024" style="flex:1;min-width:0" autocomplete="off" required><button class="secondary" style="flex:0 0 auto;width:auto;padding:0 20px">Find</button></form>${lookupMatchesView('checkin')}<input class="search" id="addSearch" placeholder="Search name or employee ID" value="${esc(state.addQuery)}"><h2 class="sectionTitle">Pre-assigned employees waiting here</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}${r.adhoc ? ' · ad-hoc' : ''}</small></span><button class="selectBtn" data-select="${esc(r.employee_id)}">Select</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${state.user?.role === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}${state.selected ? `<div class="selected"><b>Selected employee: ${esc(state.selected.name)}</b><br>${esc(state.selected.employee_id)} · ${esc(state.location.name)}${state.selected.adhoc ? ' · ad-hoc shift' : ''}</div><button class="primary" id="doCheckin">Mark Check-in · ${nowTime()}</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Type the employee's name or EMP ID, or pick a waiting employee below.</p><input class="search" id="addSearch" placeholder="Search name or EMP ID, e.g. EMP1024" value="${esc(state.addQuery)}" autocomplete="off">${lookupResultsView('checkin')}<h2 class="sectionTitle">Pre-assigned employees waiting here</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}${r.adhoc ? ' · ad-hoc' : ''}</small></span><button class="selectBtn" data-select="${esc(r.employee_id)}">Select</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${state.user?.role === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}${state.selected ? `<div class="selected"><b>Selected employee: ${esc(state.selected.name)}</b><br>${esc(state.selected.employee_id)} · ${esc(state.location.name)}${state.selected.adhoc ? ' · ad-hoc shift' : ''}</div><button class="primary" id="doCheckin">Mark Check-in · ${nowTime()}</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
 }
 function confirmed() {
   const r = state.lastCheck;
@@ -383,7 +404,7 @@ function checkout() {
   const staleList = stale.length
     ? `<h2 class="sectionTitle">Left open from earlier days</h2><p class="muted small">These check-ins were never closed. Check out each one, then an admin can fix the times with a reason.</p>${stale.map((r) => person(r, ` · since ${esc(r.day)}`)).join('')}`
     : '';
-  return `<div class="page">${header()}<h1>Manage check-outs</h1><p class="sub">Employees currently checked in at ${esc(state.location?.name.split(' - ')[1] || '')} (IST).</p><form id="idCheckout" style="display:flex;gap:8px"><input class="search" name="empid" placeholder="Enter EMP ID or name to check out" style="flex:1;min-width:0" autocomplete="off" required><button class="secondary" style="flex:0 0 auto;width:auto;padding:0 20px">Find</button></form>${lookupMatchesView('checkout')}<div class="hero"><small>STILL CHECKED IN</small><strong>${total}</strong> <span>${plural(total, 'employee')}</span></div><input class="search" id="outSearch" placeholder="Search name or employee ID" value="${esc(state.outQuery)}">${rows.map((r) => person(r, '')).join('') || (stale.length ? '' : '<p class="muted small">' + (state.outQuery ? 'No checked-in employees match.' : 'No checked-in employees remain.') + '</p>')}${staleList}<p style="text-align:center;margin-top:18px"><button class="link" data-go="attendance">View attendance list</button></p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Manage check-outs</h1><p class="sub">Employees currently checked in at ${esc(state.location?.name.split(' - ')[1] || '')} (IST).</p><div class="hero"><small>STILL CHECKED IN</small><strong>${total}</strong> <span>${total === 1 ? 'employee' : 'employees'}</span></div><input class="search" id="outSearch" placeholder="Search name or EMP ID" value="${esc(state.outQuery)}" autocomplete="off">${lookupResultsView('checkout')}${rows.map((r) => person(r, '')).join('') || (stale.length ? '' : '<p class="muted small">' + (state.outQuery ? 'No checked-in employees match.' : 'No checked-in employees remain.') + '</p>')}${staleList}<p style="text-align:center;margin-top:18px"><button class="link" data-go="attendance">View attendance list</button></p></div>${nav()}${message()}`;
 }
 async function dashboard() {
   if (!state.dashboard) state.dashboard = await api('/api/dashboard');
@@ -934,7 +955,9 @@ function bind() {
     al.onchange = async (e) => {
       state.location = state.locations.find((l) => l.id === e.target.value);
       state.selected = null;
-      state.lookupMatches = null;
+      state.lookupResults = null;
+      state.addQuery = '';
+      state.outQuery = '';
       state.query = '';
       state.filter = 'all';
       state.attendance = [];
@@ -981,33 +1004,26 @@ function bind() {
   if (ads)
     ads.oninput = (e) => {
       state.addQuery = e.target.value;
+      state.selected = null; // a new search drops the previous pick
       render();
+      scheduleEmployeeSearch('checkin');
     };
   const os = document.getElementById('outSearch');
   if (os)
     os.oninput = (e) => {
       state.outQuery = e.target.value;
       render();
+      scheduleEmployeeSearch('checkout');
     };
   document.querySelectorAll('[data-pick-checkin]').forEach(
     (b) =>
       (b.onclick = () => {
-        const m = (state.lookupMatches || []).find((x) => x.id === b.dataset.pickCheckin);
-        state.lookupMatches = null;
+        const m = (state.lookupResults || []).find((x) => x.id === b.dataset.pickCheckin);
         if (!m) return;
         state.selected = { employee_id: m.id, name: m.name, adhoc: m.location_id !== state.location.id };
         state.error = null;
         render();
         document.querySelector('.selected')?.scrollIntoView({ block: 'center', behavior: 'instant' });
-      }),
-  );
-  document.querySelectorAll('[data-pick-checkout]').forEach(
-    (b) =>
-      (b.onclick = () => {
-        const m = (state.lookupMatches || []).find((x) => x.id === b.dataset.pickCheckout);
-        state.lookupMatches = null;
-        if (!m) return;
-        startCheckoutFor(m);
       }),
   );
   document.querySelectorAll('[data-select]').forEach(
@@ -1030,10 +1046,6 @@ function bind() {
   if (ne) ne.onsubmit = doNewEmployee;
   const ea = document.getElementById('exportAudit');
   if (ea) ea.onclick = exportAudit;
-  const ici = document.getElementById('idCheckin');
-  if (ici) ici.onsubmit = lookupForCheckin;
-  const ico = document.getElementById('idCheckout');
-  if (ico) ico.onsubmit = lookupForCheckout;
   const fp = document.getElementById('forgot');
   if (fp) fp.onclick = () => toast('Demo: use the visible demo credentials. Production recovery needs an admin reset.');
   const imp = document.getElementById('importFile');
@@ -1133,7 +1145,7 @@ function startHistory(screen) {
 }
 function go(screen, opts = {}) {
   state.error = '';
-  state.lookupMatches = null;
+  state.lookupResults = null;
   state.notice = '';
   state.screenError = null;
   if (screen === 'home') screen = state.user?.role === 'admin' ? 'dashboard' : 'attendance';
@@ -1253,58 +1265,30 @@ async function loadEmployees(renderNow = true) {
   state.employees = await api('/api/employees');
   if (renderNow) render();
 }
-// EMP-ID or name entry: resolve any active employee (ad hoc included) in the
-// supervisor session. A name matching several people returns a pick list.
-async function lookupEmployee(query) {
-  const emp = await api('/api/employee-lookup?employee_id=' + encodeURIComponent(query.trim()));
-  if (emp.matches) return emp;
-  if (!emp.active) throw Object.assign(new Error('This employee is disabled. An admin can enable them again.'), { handled: true });
-  return emp;
+// Live name/EMP-ID search behind the single box on the marking screens: the same
+// supervisor-session lookup the old Find form used (minimal fields, ad hoc included).
+let employeeSearchGeneration = 0;
+function scheduleEmployeeSearch(kind) {
+  clearTimeout(window.employeeSearch);
+  window.employeeSearch = setTimeout(() => runEmployeeSearch(kind), 300);
 }
-// Several active employees matched a name search: show them for picking.
-function showLookupMatches(r) {
-  state.lookupMatches = r.matches.filter((m) => m.active);
-  state.error = state.lookupMatches.length ? null : 'No active employee matches that name.';
-  render();
-}
-async function lookupForCheckin(e) {
-  e.preventDefault();
-  try {
-    const emp = await lookupEmployee(new FormData(e.target).get('empid'));
-    if (emp.matches) return showLookupMatches(emp);
-    state.lookupMatches = null;
-    state.selected = { employee_id: emp.id, name: emp.name, adhoc: emp.location_id !== state.location.id };
-    state.error = null;
-    render();
-    document.querySelector('.selected')?.scrollIntoView({ block: 'center', behavior: 'instant' });
-  } catch (err) {
-    state.error = err.message;
-    render();
-  }
-}
-async function lookupForCheckout(e) {
-  e.preventDefault();
-  try {
-    const emp = await lookupEmployee(new FormData(e.target).get('empid'));
-    if (emp.matches) return showLookupMatches(emp);
-    state.lookupMatches = null;
-    startCheckoutFor(emp);
-  } catch (err) {
-    state.error = err.message;
-    render();
-  }
-}
-// Shared by the checkout Find form and the name-match picker.
-function startCheckoutFor(emp) {
-  const row =
-    state.attendance.find((r) => r.employee_id === emp.id && r.status === 'checked_in') ||
-    (state.staleOpen || []).find((r) => r.employee_id === emp.id);
-  if (!row) {
-    state.error = emp.name + ' is not currently checked in at this location.';
+async function runEmployeeSearch(kind) {
+  const q = (kind === 'checkin' ? state.addQuery : state.outQuery).trim();
+  const generation = ++employeeSearchGeneration;
+  if (!q) {
+    state.lookupResults = null;
     return render();
   }
-  state.error = null;
-  askCheckout(emp.id);
+  try {
+    const r = await api('/api/employee-lookup?employee_id=' + encodeURIComponent(q));
+    if (generation !== employeeSearchGeneration) return;
+    state.lookupResults = r.matches || [r];
+  } catch (err) {
+    if (generation !== employeeSearchGeneration) return;
+    if (err.status === 404) state.lookupResults = [];
+    else return toast(err.message);
+  }
+  render();
 }
 async function doCheckin() {
   try {

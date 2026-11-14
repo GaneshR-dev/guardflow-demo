@@ -341,7 +341,7 @@ def test_frontend_dashboard_labels_and_link_button():
     assert "history.pushState" in html
     assert "window.addEventListener('popstate'" in html
     assert "constplural=(n,one,many=one+'s')" in compact
-    assert "plural(total,'employee')" in compact
+    assert "${total===1?'employee':'employees'}" in compact
     assert "plural(accessCount,'user')" in compact
     assert "if(screen==='settings'&&!state.settings)" in compact
     assert "padding:22px22px120px" in compact
