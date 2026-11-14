@@ -179,3 +179,49 @@ def test_mobile_layout_and_target_sizes(width):
         assert boxes[0] == boxes[1]
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         browser.close()
+
+
+@pytest.mark.parametrize("width", [320, 390, 1280])
+def test_report_labels_states_filters_and_reachable_actions(width, tmp_path):
+    with playwright.sync_playwright() as p:
+        browser, page = open_page(p, USER, responder)
+        page.set_viewport_size({"width": width, "height": 844})
+        page.wait_for_selector("#attSearch")
+        for height in [844, 460]:
+            page.set_viewport_size({"width": width, "height": height})
+            page.locator("#attSearch").focus()
+            page.evaluate("window.scrollTo(0,document.documentElement.scrollHeight)")
+            for sel in ["[data-go=add]", "[data-go=checkout]"]:
+                assert page.locator(sel).evaluate(
+                    "e=>{const r=e.getBoundingClientRect();return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===e}"
+                )
+        page.set_viewport_size({"width": width, "height": 844})
+        page.evaluate(
+            "state.screen='reports';state.report=reportDefaults();state.report.day={rows:"
+            + json.dumps([{**r, "employee_name": r["name"]} for r in ROWS])
+            + "};state.report.loading=false;render()"
+        )
+        assert page.locator("[data-rstatus=checked_in]").inner_text().endswith("Checked in")
+        assert page.locator("[data-rstatus=completed]").inner_text().endswith("Completed")
+        assert page.locator("[data-rstatus=not_in]").inner_text().endswith("Not checked in")
+        page.locator("[data-rstatus=completed]").click()
+        assert page.locator(".rpRow").count() == 1
+        page.locator("[data-rstatus=all]").first.click()
+        page.screenshot(path=str(tmp_path / f"report-day-{width}.png"), full_page=True)
+        page.evaluate(
+            "state.report.tab='month';state.report.summary={totals:{records:3,completed:1,checked_in:1,not_in:1,avg_hours:8},locations:[{id:'loc-test',name:'ABC',assigned_count:3,records:3,completed:1,checked_in:1,not_in:1,avg_hours:8}]};render()"
+        )
+        assert page.locator(".rpLoc").count() == 1
+        page.screenshot(path=str(tmp_path / f"report-month-{width}.png"), full_page=True)
+        page.evaluate(
+            "state.report.detail='loc-test';state.report.detailData={totals:{records:3,completed:1},days:[{day:todayISO(),records:3,completed:1,checked_in:1,not_in:1}]};render()"
+        )
+        assert "1 completed · 1 checked in · 1 not checked in" in page.locator(".rpDay").inner_text()
+        page.screenshot(path=str(tmp_path / f"report-detail-{width}.png"), full_page=True)
+        page.evaluate(
+            "state.report.detail=null;state.report.tab='history';state.report.history=[{month:todayISO().slice(0,7),total_records:3,completed:1}];render()"
+        )
+        assert page.locator(".rpMonth").count() == 1
+        page.screenshot(path=str(tmp_path / f"report-history-{width}.png"), full_page=True)
+        assert page.evaluate("!state.screenError && document.documentElement.scrollWidth <= innerWidth")
+        browser.close()
