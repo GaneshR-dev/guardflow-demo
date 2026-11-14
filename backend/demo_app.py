@@ -168,6 +168,11 @@ class LocationBody(BaseModel):
         # silently dropping the timing.
         if (self.shift_start is None) != (self.shift_end is None):
             raise ValueError("Provide both shift_start and shift_end, or neither")
+        # The equal-time rule lives here too, not only on ShiftBody: the create endpoint
+        # wraps the pair in ShiftBody itself, and a pydantic error raised there would be
+        # an uncontrolled 500 instead of this clean 422.
+        if self.shift_start is not None and self.shift_start == self.shift_end:
+            raise ValueError("Shift start and end must differ")
         return self
 
 
