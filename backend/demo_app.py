@@ -253,8 +253,17 @@ def scope_params(user: dict) -> dict:
     return {} if user["role"] == "admin" else {"__scope_user": user["id"]}
 
 
-def require_location_access(c, user: dict, location_id: str):
-    row = c.execute(text("SELECT * FROM demo_locations WHERE id=:id"), {"id": location_id}).mappings().first()
+def row_lock() -> str:
+    """Dialect-safe row-lock suffix: serializes check-in against admin removals on PostgreSQL."""
+    return " FOR UPDATE" if engine.dialect.name != "sqlite" else ""
+
+
+def require_location_access(c, user: dict, location_id: str, lock: bool = False):
+    row = (
+        c.execute(text("SELECT * FROM demo_locations WHERE id=:id" + (row_lock() if lock else "")), {"id": location_id})
+        .mappings()
+        .first()
+    )
     if not row:
         raise HTTPException(404, "Location not found")
     if (
@@ -413,7 +422,9 @@ def remove_employee(employee_id: str, user=Depends(current_user)):
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
         row = (
-            c.execute(text("SELECT * FROM demo_employees WHERE id=:id AND active=1"), {"id": employee_id})
+            c.execute(
+                text("SELECT * FROM demo_employees WHERE id=:id AND active=1" + row_lock()), {"id": employee_id}
+            )
             .mappings()
             .first()
         )
@@ -510,7 +521,9 @@ def check_in(body: CheckBody, user=Depends(current_user)):
     stamp = utcnow().isoformat()
     with engine.begin() as c:
         emp = (
-            c.execute(text("SELECT * FROM demo_employees WHERE id=:id AND active=1"), {"id": body.employee_id})
+            c.execute(
+                text("SELECT * FROM demo_employees WHERE id=:id AND active=1" + row_lock()), {"id": body.employee_id}
+            )
             .mappings()
             .first()
         )
@@ -520,7 +533,7 @@ def check_in(body: CheckBody, user=Depends(current_user)):
             raise HTTPException(409, "Employee has no location assigned yet. Ask an admin to assign one.")
         if emp["location_id"] != body.location_id:
             raise HTTPException(409, "Employee is assigned to another location")
-        require_location_access(c, user, body.location_id)
+        require_location_access(c, user, body.location_id, lock=True)
         existing = (
             c.execute(
                 text("SELECT * FROM demo_attendance WHERE employee_id=:employee AND day=:day"),
@@ -909,7 +922,9 @@ def remove_location(location_id: str, user=Depends(current_user)):
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
         row = (
-            c.execute(text("SELECT * FROM demo_locations WHERE id=:id AND active=1"), {"id": location_id})
+            c.execute(
+                text("SELECT * FROM demo_locations WHERE id=:id AND active=1" + row_lock()), {"id": location_id}
+            )
             .mappings()
             .first()
         )
