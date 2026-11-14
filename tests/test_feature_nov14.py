@@ -2,7 +2,7 @@
 
 import os
 import sys
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
@@ -88,23 +88,65 @@ def test_employee_location_optional_at_creation_and_admin_remove():
     assert client.delete("/api/employees/EMP1024", headers=auth("supervisor.demo")).status_code == 403
 
 
-def test_location_removal_hides_employees_but_keeps_attendance_history():
+def test_location_removal_guard_then_removal_keeps_attendance_history():
     headers = auth()
+    mysuru_emps = client.get("/api/employees?location_id=loc-mysuru", headers=headers).json()
+    assert mysuru_emps, "seeded employees expected"
+    today_rows = client.get("/api/attendance?location_id=loc-mysuru", headers=headers).json()["rows"]
+    not_in = next((r for r in today_rows if r["status"] == "not_in"), None)
+    target_id = not_in["employee_id"] if not_in else None
+    # An open check-in blocks removal with an actionable message, never a silent disappearance.
+    if target_id:
+        assert (
+            client.post(
+                "/api/attendance/checkin",
+                headers=headers,
+                json={"employee_id": target_id, "location_id": "loc-mysuru"},
+            ).status_code
+            == 200
+        )
+    blocked = client.delete("/api/settings/locations/loc-mysuru", headers=headers)
+    assert blocked.status_code == 409
+    detail = blocked.json()["detail"].lower()
+    assert "reassign" in detail and "cannot remove" in detail
+    if target_id:
+        assert "check-in" in detail
+    # The location and its employees are untouched while blocked.
+    assert any(loc["id"] == "loc-mysuru" for loc in client.get("/api/locations", headers=headers).json())
+    assert client.get("/api/employees?location_id=loc-mysuru", headers=headers).json(), "employees must stay put"
+    if target_id:
+        assert (
+            client.post(
+                "/api/attendance/checkout",
+                headers=headers,
+                json={"employee_id": target_id, "location_id": "loc-mysuru"},
+            ).status_code
+            == 200
+        )
     month = local_today().isoformat()[:7]
     before = client.get(f"/api/reports/monthly?month={month}&location_id=loc-mysuru", headers=headers).json()
     assert before["rows"], "seeded Mysuru history expected"
-    assert client.get("/api/employees?location_id=loc-mysuru", headers=headers).json(), "seeded employees expected"
+    # Assigned employees still block removal even with no open attendance.
+    blocked2 = client.delete("/api/settings/locations/loc-mysuru", headers=headers)
+    assert blocked2.status_code == 409
+    assert "employee" in blocked2.json()["detail"].lower() and "reassign" in blocked2.json()["detail"].lower()
+    # Reassign everyone to HSR through the import path, which keeps IDs and updates locations.
+    rows = [
+        {"id": e["id"], "name": e["name"], "phone": e["phone"], "role": e["role"], "location_id": "loc-hsr"}
+        for e in mysuru_emps
+    ]
+    imported = client.post("/api/employees/import", headers=headers, json={"rows": rows})
+    assert imported.status_code == 200
+    assert imported.json()["updated"] == len(rows)
+    # Now removal succeeds: the branch retires, employees stay visible at their new branch.
     assert client.delete("/api/settings/locations/loc-mysuru", headers=headers).status_code == 200
-    # Employees of the removed branch drop out of the directory...
     assert client.get("/api/employees?location_id=loc-mysuru", headers=headers).json() == []
-    assert all(
-        e["location_id"] != "loc-mysuru" for e in client.get("/api/employees", headers=headers).json()
-    )
-    # ...while attendance history stays available to admins.
+    assert all(e["location_id"] != "loc-mysuru" for e in client.get("/api/employees", headers=headers).json())
     after = client.get(f"/api/reports/monthly?month={month}&location_id=loc-mysuru", headers=headers).json()
-    assert len(after["rows"]) == len(before["rows"])
+    assert len(after["rows"]) == len(before["rows"]), "attendance history must survive removal"
     dashboard = client.get("/api/dashboard", headers=headers).json()
     assert all(loc["id"] != "loc-mysuru" for loc in dashboard["locations"])
+    assert client.delete("/api/settings/locations/loc-mysuru", headers=headers).status_code == 404
 
 
 def test_admin_time_edit_converts_ist_to_utc_and_is_admin_only():
@@ -228,3 +270,97 @@ def test_sqlite_migration_preserves_existing_data(tmp_path, monkeypatch):
         assert "shift_start" in location_columns and "shift_end" in location_columns and "active" in location_columns
         loc = c.execute(sql_text("SELECT assigned_count, active FROM demo_locations WHERE id='loc-old'")).mappings().first()
         assert loc["assigned_count"] == 3 and loc["active"] == 1
+
+
+def test_admin_time_edit_supports_next_day_checkout():
+    """Overnight security shifts: an admin correction can set a next-day checkout date."""
+    headers = auth()
+    today = local_today().isoformat()
+    attendance = client.get("/api/attendance?location_id=loc-hsr", headers=headers).json()
+    target = next(row for row in attendance["rows"] if row["status"] == "checked_in")
+    next_day = (date.fromisoformat(today) + timedelta(days=1)).isoformat()
+    edited = client.patch(
+        "/api/attendance/times",
+        headers=headers,
+        json={
+            "employee_id": target["employee_id"],
+            "location_id": "loc-hsr",
+            "day": today,
+            "check_in": "22:00",
+            "check_out": "06:00",
+            "check_out_day": next_day,
+        },
+    )
+    assert edited.status_code == 200
+    body = edited.json()
+    assert body["status"] == "completed" and body["check_out_day"] == next_day
+    check_in = datetime.fromisoformat(body["check_in"])
+    check_out = datetime.fromisoformat(body["check_out"])
+    # 22:00 IST is 16:30 UTC on the record day; 06:00 IST next day is 00:30 UTC next day: 8 hours.
+    assert check_in.strftime("%H:%M") == "16:30"
+    assert check_out.strftime("%H:%M") == "00:30"
+    assert (check_out - check_in).total_seconds() == 8 * 3600
+    # A checkout date before the check-in date is rejected outright.
+    before_day = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+    backwards = client.patch(
+        "/api/attendance/times",
+        headers=headers,
+        json={
+            "employee_id": target["employee_id"],
+            "location_id": "loc-hsr",
+            "day": today,
+            "check_in": "22:00",
+            "check_out": "06:00",
+            "check_out_day": before_day,
+        },
+    )
+    assert backwards.status_code == 400
+    # Without an explicit checkout date the same-day rule still applies.
+    same_day_overnight = client.patch(
+        "/api/attendance/times",
+        headers=headers,
+        json={
+            "employee_id": target["employee_id"],
+            "location_id": "loc-hsr",
+            "day": today,
+            "check_in": "22:00",
+            "check_out": "06:00",
+        },
+    )
+    assert same_day_overnight.status_code == 400
+
+
+def test_supervisor_cannot_see_or_use_unassigned_employees():
+    """Nullable location must not widen supervisor scope: unassigned employees are admin-only."""
+    headers = auth()
+    created = client.post(
+        "/api/employees",
+        headers=headers,
+        json={"name": "Floating Guard", "phone": "+91 90000 55555", "role": "Guard"},
+    )
+    assert created.status_code == 200
+    employee_id = created.json()["id"]
+    assert created.json()["location_id"] is None
+    sup = auth("supervisor.demo")
+    # Invisible in the supervisor directory, both overall and per branch.
+    assert all(e["id"] != employee_id for e in client.get("/api/employees", headers=sup).json())
+    assert all(
+        e["id"] != employee_id for e in client.get("/api/employees?location_id=loc-hsr", headers=sup).json()
+    )
+    # A supervisor cannot check them in anywhere.
+    attempt = client.post(
+        "/api/attendance/checkin",
+        headers=sup,
+        json={"employee_id": employee_id, "location_id": "loc-hsr"},
+    )
+    assert attempt.status_code == 409
+    assert "no location assigned" in attempt.json()["detail"].lower()
+    # Nor modify their times.
+    denied = client.patch(
+        "/api/attendance/times",
+        headers=sup,
+        json={"employee_id": employee_id, "location_id": "loc-hsr", "day": local_today().isoformat(), "check_in": "09:00"},
+    )
+    assert denied.status_code == 403
+    # Admins still see the unassigned employee so they can place them later.
+    assert any(e["id"] == employee_id for e in client.get("/api/employees", headers=headers).json())
