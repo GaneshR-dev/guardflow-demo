@@ -288,3 +288,57 @@ def test_shift_button_and_optional_employee_location(tmp_path):
         page.wait_for_function("document.body.innerText.includes('Employee added')")
         assert employee_posts[0]["location_id"] is None
         browser.close()
+
+
+def test_disabled_headcount_label_clarifies_zero_active(tmp_path):
+    """A branch with only disabled guards says "0 active employees · 3 disabled", not "0 employees"."""
+    user = {"id": "admin.demo", "name": "Admin Demo", "role": "admin"}
+    location = {
+        "id": "loc-test",
+        "name": "Test Branch",
+        "area": "Test Area",
+        "assigned_count": 0,
+        "disabled_count": 3,
+        "active": 0,
+    }
+    employees = [
+        {"id": f"EMP900{i}", "name": f"Guard {i}", "role": "Guard", "location_id": "loc-test", "active": 0}
+        for i in range(3)
+    ]
+
+    def respond(route):
+        path = urlsplit(route.request.url).path
+        if fulfill_frontend(route):
+            return
+        body = {
+            "/api/locations": [location],
+            "/api/attendance": {"rows": [], "summary": {}},
+            "/api/employees": employees,
+            "/api/dashboard": {
+                "day": "2026-11-14",
+                "employees": 0,
+                "checked_in": 0,
+                "completed": 3,
+                "not_checked_in": 0,
+                "locations": [{**location, "today": {"checked_in": 0, "completed": 3, "not_in": 0}}],
+            },
+        }.get(path, {})
+        route.fulfill(content_type="application/json", body=json.dumps(body))
+
+    with playwright.sync_playwright() as p:
+        browser, page = open_page(p, user, respond)
+        page.wait_for_selector(".card")
+        page.evaluate("go('dashboard')")
+        page.wait_for_selector(".listCard")
+        # Dashboard breakdown: clear split next to kept history.
+        assert "0 active employees · 3 disabled" in page.locator(".listCard").first.inner_text()
+        # Locations picker card shows the same split.
+        page.evaluate("go('locations')")
+        page.wait_for_selector("[data-loc]")
+        assert "0 active employees · 3 disabled" in page.locator("[data-loc]").first.inner_text()
+        # Location detail header agrees with the greyed rows below it.
+        page.locator("[data-loc]").first.click()
+        page.wait_for_function("document.body.innerText.includes('Guard 0')")
+        assert "0 active employees · 3 disabled" in page.locator(".sub").first.inner_text()
+        page.screenshot(path=str(tmp_path / "disabled-count-labels.png"))
+        browser.close()
