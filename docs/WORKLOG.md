@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-14 · Disable locations and employees, keep them visible · Instinct · feat/disable-only
+- Request: Admins disable locations and employees instead of removing them. Supervisors still see disabled records. Disabled rows show greyed out in the admin Employees screen.
+- Changed: `backend/demo_app.py`: DELETE now disables; new POST `/enable` for employees and locations; disabled records stay in `/api/locations` and `/api/employees` with `active: 0`; check-in on a disabled employee or location returns 409; location grants stay on disable; the dashboard and the month summary keep disabled branches, with an `active` flag. `attendance-app.js`, `attendance-app.css`: greyed rows and cards, "Disabled" badge, Disable/Enable buttons, new confirm text; attendance screens only use active locations. `tests/test_disable_only.py` (new), `tests/test_feature_nov14.py`, `tests/test_frontend_nov14.py`, `tests/test_frontend_landing.py` updated for the new semantics.
+- Tests: `pytest -q tests/` → 77 passed, 1 failed (`test_frontend_landing.py::test_location_supervisor_list_empty_or_unavailable[unavailable]`; fails on `main` before this change too). Ruff check and format → passed. Manual Playwright check at 390 px: admin and supervisor screens with disabled records → correct, no page errors.
+- Open items: The Month report location cards have no Disabled badge yet (the Choose location sheet shows it). Branch not pushed: this tool has no push access.
+
 ## 2026-11-14 · Date picker on phones, clear empty Day state · Claude Code · fix/mobile-date-picker
 - Request: The calendar does not open in a mobile browser. Day is empty while Month shows all locations.
 - Changed: `attendance-app.js`, `attendance-app.css`: the real date/month input now covers the date button (invisible), so a tap opens the phone's own picker; with a mouse the app also calls `showPicker()`. The Day report for today with no guards shows "No guards at this location" with "Choose location".
