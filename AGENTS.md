@@ -59,7 +59,14 @@ Run and test commands are in `README.md`.
 - Before you add a component, look for one in `docs/UI-GUIDE.md`. Use the existing CSS classes and template functions.
 - If a new screen needs its own classes, give them a short prefix. For example, the Reports screen uses `rp` (`.rpList`, `.rpSheet`).
 - Do not add frameworks, build steps or libraries from a CDN.
-- The Figma file and the design canvas are the visual reference. The links are in `docs/UI-GUIDE.md`.
+
+### Figma
+
+- The Figma file is the visual reference. The link is in `docs/UI-GUIDE.md`.
+- Before you change a screen, read the related Figma screen. Use your own Figma connection.
+- If you have no Figma access, use `docs/UI-GUIDE.md`. Tell the collaborator that you did not read Figma.
+- Do not change the Figma file unless the collaborator asks.
+- If your code is different from the Figma design, tell the collaborator.
 
 ## 6. Tests (mandatory)
 

@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-14 · Figma rule for AI tools · Claude Code · feat/reports
+- Request: Make other AI tools use the Figma file.
+- Changed: `AGENTS.md` (Figma section), `docs/UI-GUIDE.md` (how to get access)
+- Tests: Docs only, no code change. Tests not run.
+- Open items: The owner must share the Figma file with each collaborator.
+
 ## 2026-11-14 · AI collaboration guide · Claude Code · feat/reports
 - Request: Add rules for all AI tools: STE100, UX, UI theme, tests, existing components and the work log.
 - Changed: `AGENTS.md`, `CLAUDE.md`, `docs/UI-GUIDE.md`, `docs/WORKLOG.md`, `README.md`

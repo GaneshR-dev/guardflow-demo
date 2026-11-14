@@ -7,6 +7,9 @@ Use this guide before you change a screen. Use the existing tokens, classes and 
 - Figma file: [Guardian – Reports redesign](https://www.figma.com/design/xLaLEctvsBdoOH5kyFx9gd). It has the Reports screens, the scenario screens (loading, empty, error, location sheet) and a component panel with colour variables.
 - Design canvas: [Guardian Reports Redesign](https://claude.ai/artifact/YSLX7GP2XcWxd7pas8E6eU).
 - Both links are private to the owner. Ask the owner for access.
+- To let your AI tool read the Figma file:
+  1. Get "Can view" access from the owner (Figma › Share).
+  2. Connect Figma in your AI tool, with your own Figma account.
 
 ## Colour tokens
 
