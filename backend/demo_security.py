@@ -4,32 +4,40 @@ from __future__ import annotations
 import hashlib
 import os
 import secrets
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import text
 
-from demo_db import LOCAL_TZ
+from demo_db import LOCAL_TZ, engine
 
 LOGIN_MAX_FAILURES = int(os.environ.get("LOGIN_MAX_FAILURES", "5"))
 LOGIN_LOCK_SECONDS = int(os.environ.get("LOGIN_LOCK_SECONDS", "900"))
-_login_failures: dict[str, list[float]] = {}
 
 
 def login_throttle_check(key: str) -> None:
-    now = utcnow().timestamp()
-    attempts = [t for t in _login_failures.get(key, []) if now - t < LOGIN_LOCK_SECONDS]
-    _login_failures[key] = attempts
-    if len(attempts) >= LOGIN_MAX_FAILURES:
+    """Reject when too many recent failures for this username. Stored in the database so restarts do not reset the lockout."""
+    cutoff = (utcnow() - timedelta(seconds=LOGIN_LOCK_SECONDS)).isoformat()
+    with engine.begin() as c:
+        c.execute(text("DELETE FROM demo_login_attempts WHERE at<:cutoff"), {"cutoff": cutoff})
+        count = c.execute(
+            text("SELECT COUNT(*) FROM demo_login_attempts WHERE username=:key"), {"key": key}
+        ).scalar() or 0
+    if count >= LOGIN_MAX_FAILURES:
         raise HTTPException(429, "Too many failed sign-in attempts. Try again later.")
 
 
 def login_throttle_record(key: str) -> None:
-    _login_failures.setdefault(key, []).append(utcnow().timestamp())
+    with engine.begin() as c:
+        c.execute(
+            text("INSERT INTO demo_login_attempts VALUES (:id,:at,:key)"),
+            {"id": secrets.token_hex(16), "at": utcnow().isoformat(), "key": key},
+        )
 
 
 def login_throttle_clear(key: str) -> None:
-    _login_failures.pop(key, None)
+    with engine.begin() as c:
+        c.execute(text("DELETE FROM demo_login_attempts WHERE username=:key"), {"key": key})
 
 
 def utcnow() -> datetime:
