@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-14 · Attendance integrity: stale check-outs, edit reasons, safe imports · Instinct · fix/attendance-integrity
+- Request: Find where attendance can be faked or can fail. Make the trusted-supervisor flow hard to break.
+- Changed: `backend/demo_app.py`: check-out closes a check-in left open from an earlier day and marks it "late checkout"; a new check-in is blocked while one is open; `/api/attendance` returns `stale_open`; time corrections need a reason and flag shifts over 24 hours in the audit (no hard cap until the owner confirms one); new GET `/api/audit` (admin only); imports keep the active flag, refuse disabled locations, log transfers and rebuild `assigned_count`; a repeated active phone number returns a warning, not a block. `attendance-app.js`: check-out screen lists stale check-ins; the time-edit form asks for a reason; new Settings > Activity log (admin only); duplicate-phone warnings show as toasts. `tests/test_attendance_integrity.py` (new); `tests/test_demo_app.py`, `tests/test_feature_nov14.py`, `tests/test_frontend_nov14.py` updated.
+- Tests: `pytest -q tests/` → 89 passed, 1 failed (`test_frontend_landing.py::test_location_supervisor_list_empty_or_unavailable[unavailable]`; fails on `main` before this change too). Ruff check and format → passed. Manual Playwright check at 390 px: stale check-out list, time-edit reason field, Activity log (admin only) → correct.
+- Open items: The 24-hour shift cap is a proposed rule, not confirmed policy, so edits over 24h warn (audit flag + reason) instead of blocking. Same-day second shift at another site is not supported (one record per person per day). Branch not merged: review first.
+
 ## 2026-11-14 · Disable locations and employees, keep them visible · Instinct · feat/disable-only
 - Request: Admins disable locations and employees instead of removing them. Supervisors still see disabled records. Disabled rows show greyed out in the admin Employees screen.
 - Changed: `backend/demo_app.py`: DELETE now disables; new POST `/enable` for employees and locations; disabled records stay in `/api/locations` and `/api/employees` with `active: 0`; check-in on a disabled employee or location returns 409; location grants stay on disable; the dashboard and the month summary keep disabled branches, with an `active` flag. `attendance-app.js`, `attendance-app.css`: greyed rows and cards, "Disabled" badge, Disable/Enable buttons, new confirm text; attendance screens only use active locations. `tests/test_disable_only.py` (new), `tests/test_feature_nov14.py`, `tests/test_frontend_nov14.py`, `tests/test_frontend_landing.py` updated for the new semantics.
@@ -103,3 +109,20 @@ Template:
 - Request: A disabled branch read "0 employees" directly above its greyed employees and next to kept history. Make the count clear within the approved disabled-state scope.
 - Changed: `backend/demo_app.py`: location payloads (`/api/locations`, `/api/settings`, `/api/dashboard`, `/api/reports/summary`, all via `location_rows`) now carry `disabled_count`, the number of disabled employees on the branch; `assigned_count` keeps meaning active employees. `attendance-app.js`: one `empCountLabel` helper renders "0 active employees · 3 disabled" whenever a branch has disabled employees (plain count otherwise), used on the locations picker, location detail, dashboard breakdown, settings locations panel and report location cards.
 - Tests: new `tests/test_disable_only.py::test_location_payloads_expose_disabled_count_for_clear_labels` and `tests/test_frontend_nov14.py::test_disabled_headcount_label_clarifies_zero_active`. Results recorded below before merge.
+
+## 14 Nov 2026 (evening) - EMP-ID self-entry and ad-hoc shifts
+
+- Check-in and check-out screens now take an employee-entered EMP ID (lookup resolves any
+  active employee with minimal fields: id, name, role, home site, active). The supervisor
+  session remains the trust boundary; a supervisor can only mark at sites they manage.
+- Pre-assignment is now a default, not a restriction: an employee assigned elsewhere (or
+  unassigned) can take an ad-hoc shift at the marking site. The attendance row records the
+  site actually worked, the audit stores adhoc + home_location_id, and reports/exports
+  count the hours at the worked site. not_in counts stay consistent across screens.
+- Activity log: admin-only CSV export of the full audit trail from Settings > Activity log.
+- Fixed a SQLite-only `rowid` ordering in one test so the suite runs on Postgres too
+  (full suite green on isolated Postgres 16.2).
+- Known limits: one attendance record per employee per day across all sites (finishing a
+  shift at site A then starting another at site B the same day is not supported yet); a
+  disabled employee cannot be marked anywhere, but an employee whose HOME site is disabled
+  can still work ad hoc at an active site.
