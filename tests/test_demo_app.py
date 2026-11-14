@@ -93,7 +93,7 @@ def test_employee_create_import_and_persistence():
         },
     )
     assert imported.status_code == 200
-    assert imported.json() == {"created": 1, "updated": 1}
+    assert imported.json() == {"created": 1, "updated": 1, "warnings": []}
     employees = client.get("/api/employees?location_id=loc-mysuru&q=Guard", headers=headers).json()
     assert any(row["id"] == employee_id and row["name"] == "Test Guard Updated" for row in employees)
     assert any(row["id"] == "EMP9001" for row in employees)
@@ -621,9 +621,7 @@ def test_location_creation_assigns_only_selected_supervisor_atomically():
     )
     with engine.connect() as c:
         details = (
-            c.execute(
-                text("SELECT details FROM demo_audit WHERE action='settings.location.create' ORDER BY rowid DESC")
-            )
+            c.execute(text("SELECT details FROM demo_audit WHERE action='settings.location.create' ORDER BY at DESC"))
             .scalars()
             .all()
         )
