@@ -419,10 +419,25 @@ def remove_employee(employee_id: str, user=Depends(current_user)):
         )
         if not row:
             raise HTTPException(404, "Employee not found")
+        open_checkins = (
+            c.execute(
+                text("SELECT COUNT(*) FROM demo_attendance WHERE employee_id=:id AND status='checked_in'"),
+                {"id": employee_id},
+            ).scalar()
+            or 0
+        )
+        if open_checkins:
+            raise HTTPException(
+                409,
+                "Cannot remove this employee yet: they still have an open check-in. "
+                "Record their check-out first, then remove them. Their attendance history is kept either way.",
+            )
         c.execute(text("UPDATE demo_employees SET active=0 WHERE id=:id"), {"id": employee_id})
         if row["location_id"]:
             c.execute(
-                text("UPDATE demo_locations SET assigned_count=MAX(assigned_count-1,0) WHERE id=:id"),
+                text(
+                    "UPDATE demo_locations SET assigned_count=CASE WHEN assigned_count>0 THEN assigned_count-1 ELSE 0 END WHERE id=:id"
+                ),
                 {"id": row["location_id"]},
             )
         audit(c, user, "employee.delete", {"employee_id": employee_id, "location_id": row["location_id"]})
