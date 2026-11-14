@@ -645,6 +645,11 @@ button {
 }
 .rpPeriod {
   position: relative;
+  display: block;
+}
+.rpPeriod:focus-within .rpSelect {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
 }
 .rpSelect {
   width: 100%;
@@ -672,16 +677,23 @@ button {
   flex: none;
   color: #56657b;
 }
-.rpHiddenInput {
+/* The native date/month input covers the whole button but stays invisible.
+   16px text stops iOS from zooming the page when the input gets focus. */
+.rpPeriodInput {
   position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 1px;
-  height: 1px;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   padding: 0;
   border: 0;
   opacity: 0;
-  pointer-events: none;
+  font-size: 16px;
+  cursor: pointer;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
 }
 .rpStats {
   display: grid;
