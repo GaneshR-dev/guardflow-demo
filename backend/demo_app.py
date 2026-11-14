@@ -8,6 +8,7 @@ The seed data is fictional sample history for the demo, never real business reco
 from __future__ import annotations
 
 import csv
+import hashlib
 import hmac
 import io
 import json
@@ -20,7 +21,7 @@ from datetime import time as dt_time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
@@ -1026,9 +1027,25 @@ def create_access(body: AccessBody, user=Depends(current_user)):
 
 
 # The frontend is three static files: this HTML shell plus its stylesheet and script below.
+# The shell references the assets with a content fingerprint (?v=...) so a deploy that
+# changes them gets a fresh URL, and the shell itself is no-cache so clients always
+# pick up the current fingerprint.
+def _asset_version(*paths: Path) -> str:
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:12]
+
+
+ASSET_VERSION = _asset_version(ROOT / "attendance-app.js", ROOT / "attendance-app.css")
+
+
 @app.get("/app")
 def frontend():
-    return FileResponse(ROOT / "attendance-app.html")
+    html = (ROOT / "attendance-app.html").read_text(encoding="utf-8")
+    html = html.replace('href="/attendance-app.css"', f'href="/attendance-app.css?v={ASSET_VERSION}"')
+    html = html.replace('src="/attendance-app.js"', f'src="/attendance-app.js?v={ASSET_VERSION}"')
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/attendance-app.css")
