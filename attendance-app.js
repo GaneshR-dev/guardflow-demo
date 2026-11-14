@@ -110,6 +110,7 @@ const state = {
   report: null,
   settings: null,
   settingsView: '',
+  editAccess: null,
   showLocationForm: false,
   selected: null,
   lastCheck: null,
@@ -852,6 +853,9 @@ const AUDIT_TITLES = {
   'settings.location.enable': 'Location enabled',
   'settings.location.import': 'Location import',
   'settings.access.create': 'User access created',
+  'settings.access.locations': 'Supervisor sites updated',
+  'settings.access.disable': 'Supervisor access disabled',
+  'settings.access.enable': 'Supervisor access enabled',
   'settings.profile.update': 'Profile updated',
 };
 const auditTitle = (a) => AUDIT_TITLES[a.action] || a.action;
@@ -870,6 +874,40 @@ function auditDetail(a) {
     return `${d.created || 0} added · ${d.updated || 0} updated`;
   return d.employee_id || d.location_id || d.id || d.name || '';
 }
+function siteName(d, id) {
+  const loc = (d.locations || []).find((l) => l.id === id);
+  return loc ? loc.name : id;
+}
+function accessRow(u, d) {
+  const isAdmin = state.user.role === 'admin';
+  const disabled = u.active === 0;
+  const scope =
+    u.role === 'admin'
+      ? 'All locations'
+      : u.location_ids.map((id) => siteName(d, id)).join(', ') || 'No locations';
+  let actions = '';
+  if (isAdmin && u.role === 'supervisor') {
+    actions = `<span style="margin-left:auto;flex-shrink:0;display:flex;flex-direction:column;gap:8px;text-align:right">${
+      disabled
+        ? `<button class="link" data-en-access="${esc(u.id)}" data-name="${esc(u.name)}">Enable</button>`
+        : `<button class="link" data-edit-access="${esc(u.id)}">Edit sites</button><button class="link dangerText" data-del-access="${esc(u.id)}" data-name="${esc(u.name)}">Disable</button>`
+    }</span>`;
+  }
+  const editForm =
+    state.editAccess === u.id
+      ? `<form id="accessEditForm" data-user="${esc(u.id)}" style="margin:4px 0 10px"><div class="field"><label>Sites ${esc(
+          u.name,
+        )} can work at</label><select name="location_ids" multiple size="${Math.min(
+          Math.max(d.locations.length, 2),
+          6,
+        )}">${d.locations
+          .map((l) => `<option value="${esc(l.id)}" ${u.location_ids.includes(l.id) ? 'selected' : ''}>${esc(l.name)}</option>`)
+          .join('')}</select><small class="helper" style="display:block;margin-top:4px">Takes effect on their next request. Saving with none selected leaves them with "No location access assigned" until you add a site. Attendance history is not affected.</small></div><button class="secondary">Save sites</button> <button type="button" class="link" id="cancelAccessEdit">Cancel</button></form>`
+      : '';
+  return `<div class="person ${disabled ? 'disabledRow' : ''}"><span style="flex:1;min-width:0"><strong>${esc(u.name)} ${
+    disabled ? '<span class="badge grey">Disabled</span>' : ''
+  }</strong><small>${esc(u.id)} · ${esc(u.role)} · ${esc(scope)}</small></span>${actions}</div>${editForm}`;
+}
 function settings() {
   const d = state.settings;
   const accessCount = d ? d.access.length : null;
@@ -879,7 +917,7 @@ function settings() {
   if (d && state.settingsView === 'locations')
     panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">Locations</h2>${d.locations.map((l) => `<div class="person ${l.active ? '' : 'disabledRow'}"><span><strong>${esc(l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${esc(l.area)} · ${empCountLabel(l)} · ${esc(shiftLabel(l))}</small></span></div>`).join('') || '<p class="muted small">No locations yet. Add the first branch below.</p>'}${state.user.role === 'admin' ? `<form id="locationForm" style="margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Area</label><input name="area" required></div>${shiftFields()}${locationSupervisorField()}<button class="secondary" ${!Array.isArray(state.settings?.access) ? 'disabled' : ''}>Add location</button></form>` : '<p class="muted small">Supervisors can view assigned locations. Admins manage branches.</p>'}</div>`;
   if (d && state.settingsView === 'access')
-    panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">User access</h2>${d.access.map((u) => `<div class="person"><span><strong>${esc(u.name)}</strong><small>${esc(u.id)} · ${esc(u.role)} · ${esc(u.role === 'admin' ? 'All locations' : u.location_ids.join(', ') || 'No locations')}</small></span></div>`).join('')}${state.user.role === 'admin' ? `<form id="accessForm" style="margin-top:14px"><div class="field"><label>User ID</label><input name="id" required></div><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Temporary password (12+ characters)</label><input name="password" type="password" required></div><div class="field"><label>Locations</label><select name="location_ids" multiple size="3">${d.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div><button class="secondary">Create supervisor</button></form>` : '<p class="muted small">Only admins can create or change access.</p>'}</div>`;
+    panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">User access</h2>${d.access.map((u) => accessRow(u, d)).join('')}${state.user.role === 'admin' ? `<form id="accessForm" style="margin-top:14px"><div class="field"><label>User ID</label><input name="id" required></div><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Temporary password (12+ characters)</label><input name="password" type="password" required></div><div class="field"><label>Locations</label><select name="location_ids" multiple size="3">${d.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div><button class="secondary">Create supervisor</button></form>` : '<p class="muted small">Only admins can create or change access.</p>'}</div>`;
   if (d && state.settingsView === 'activity' && state.user?.role === 'admin')
     panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">Activity log</h2><p class="muted small">Each recorded change, newest first. Time corrections always carry a reason.</p><p style="text-align:right;margin:0 0 8px"><button class="link" id="exportAudit">Export full log (CSV)</button></p>${(state.audit || []).map((a) => `<div class="person"><span><strong>${esc(auditTitle(a))}</strong><small>${esc(auditDetail(a))}</small><small>${esc(a.user_id)} · ${esc(fmtAuditTime(a.at))}</small></span></div>`).join('') || '<p class="muted small">No activity recorded yet.</p>'}</div>`;
   const items = [
@@ -1204,6 +1242,26 @@ function bind() {
     };
   const ef = document.getElementById('employeeForm');
   if (ef) ef.onsubmit = createEmployee;
+  document
+    .querySelectorAll('[data-edit-access]')
+    .forEach((b) => (b.onclick = () => {
+      state.editAccess = b.dataset.editAccess;
+      render();
+    }));
+  document
+    .querySelectorAll('[data-del-access]')
+    .forEach((b) => (b.onclick = () => askDisableAccess(b.dataset.delAccess, b.dataset.name)));
+  document
+    .querySelectorAll('[data-en-access]')
+    .forEach((b) => (b.onclick = () => setAccessActive(b.dataset.enAccess, true)));
+  const aef = document.getElementById('accessEditForm');
+  if (aef) aef.onsubmit = saveAccessSites;
+  const cae = document.getElementById('cancelAccessEdit');
+  if (cae)
+    cae.onclick = () => {
+      state.editAccess = null;
+      render();
+    };
   const acf = document.getElementById('accessForm');
   if (acf) acf.onsubmit = createAccess;
   document.querySelectorAll('[data-screen-retry]').forEach(
@@ -1952,6 +2010,58 @@ async function createAccess(e) {
     toast('Supervisor access created');
   } catch (e) {
     state.error = e.message;
+    render();
+  }
+}
+function unsupervisedNote(r) {
+  if (!r || !Array.isArray(r.unsupervised) || !r.unsupervised.length) return '';
+  const names = r.unsupervised.map((id) => siteName(state.settings || {}, id));
+  return ' - no active supervisor left at ' + names.join(', ');
+}
+// Replace a supervisor's site coverage; grants are enforced live by the server.
+async function saveAccessSites(e) {
+  e.preventDefault();
+  const userId = e.target.dataset.user;
+  try {
+    const f = new FormData(e.target);
+    const r = await api('/api/settings/access/' + encodeURIComponent(userId) + '/locations', {
+      method: 'PATCH',
+      body: JSON.stringify({ location_ids: f.getAll('location_ids') }),
+    });
+    state.editAccess = null;
+    state.settings = await api('/api/settings');
+    toast('Sites updated' + unsupervisedNote(r));
+  } catch (err) {
+    state.error = err.message;
+    render();
+  }
+}
+function askDisableAccess(id, name) {
+  state.confirm = {
+    title: 'Disable ' + (name || id) + '?',
+    lines: [
+      { label: 'Supervisor', value: id },
+      {
+        label: 'Note',
+        value:
+          'This will sign them out immediately and block sign-in. Their sites, attendance history and activity log stay. Enable restores their site access.',
+      },
+    ],
+    okLabel: 'Disable access',
+    danger: true,
+    onOk: () => setAccessActive(id, false),
+  };
+  render();
+}
+async function setAccessActive(id, active) {
+  try {
+    const r = await api('/api/settings/access/' + encodeURIComponent(id) + (active ? '/enable' : ''), {
+      method: active ? 'POST' : 'DELETE',
+    });
+    state.settings = await api('/api/settings');
+    toast((active ? 'Access enabled' : 'Access disabled') + unsupervisedNote(r));
+  } catch (err) {
+    state.error = err.message;
     render();
   }
 }
