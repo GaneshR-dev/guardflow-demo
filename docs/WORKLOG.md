@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-14 · Application logs · Claude Code · feat/app-logging
+- Request: Add application logs. Do not log what users type.
+- Changed: `backend/demo_logging.py` (new): JSON lines to stderr, `LOG_LEVEL`, removes sensitive keys. `backend/demo_app.py`: one log line for each `/api/*` request (route template, status, ms, request ID, user ID, role), `X-Request-ID` header, a plain 500 with the stack trace in the log, `login.ok`, `login.failed` and `login.throttled` without the username. `tests/test_logging.py` (new), `AGENTS.md` (log rules), `README.md`.
+- Tests: `pytest -q tests/` without the 2 Playwright files → 86 passed. Ruff → passed.
+- Open items: Check the logs in the ethiodeploy dashboard after deployment. Uvicorn also writes its own access log with query strings; turn it off with `--no-access-log` if the owner wants.
+
 ## 2026-11-14 · Attendance integrity: stale check-outs, edit reasons, safe imports · Instinct · fix/attendance-integrity
 - Request: Find where attendance can be faked or can fail. Make the trusted-supervisor flow hard to break.
 - Changed: `backend/demo_app.py`: check-out closes a check-in left open from an earlier day and marks it "late checkout"; a new check-in is blocked while one is open; `/api/attendance` returns `stale_open`; time corrections need a reason and flag shifts over 24 hours in the audit (no hard cap until the owner confirms one); new GET `/api/audit` (admin only); imports keep the active flag, refuse disabled locations, log transfers and rebuild `assigned_count`; a repeated active phone number returns a warning, not a block. `attendance-app.js`: check-out screen lists stale check-ins; the time-edit form asks for a reason; new Settings > Activity log (admin only); duplicate-phone warnings show as toasts. `tests/test_attendance_integrity.py` (new); `tests/test_demo_app.py`, `tests/test_feature_nov14.py`, `tests/test_frontend_nov14.py` updated.

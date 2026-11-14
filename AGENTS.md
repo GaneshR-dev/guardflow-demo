@@ -139,6 +139,15 @@ Each screen and each action must handle loading, success and all failures. Do no
 - Do not put real employee or client data in the repository. Demo data is fictional.
 - Do not put secrets, passwords or tokens in the repository.
 
+### Logs
+
+- Use `event()` from `backend/demo_logging.py` for application logs. Do not use `print()`.
+- The request log already writes one line for each `/api/*` request. Do not log each request again.
+- Log the user ID and the role only. Do not log names, phone numbers, request bodies or query strings.
+- Do not log passwords, tokens, the `Authorization` header or a typed username.
+- Use `audit()` for business actions (who changed what). The audit is data, not an application log.
+- Do not catch an unhandled error only to log it. The request log logs it with the stack trace and returns a plain 500.
+
 ## 8. Work log (mandatory)
 
 At the end of each task, add an entry at the top of `docs/WORKLOG.md`. Use the template in that file. Put the entry in the same commit as the work.
