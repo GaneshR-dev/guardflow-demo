@@ -10,8 +10,9 @@ import sys
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
-from demo_app import _finish, _new_bucket, _tally, app, local_today
+from demo_app import _finish, _new_bucket, _tally, app, engine, includes_today, local_today
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 client = TestClient(app)
 
@@ -69,6 +70,15 @@ def test_finish_without_hours_gives_none():
     assert result["avg_hours"] is None
 
 
+def test_includes_today_for_today_and_the_current_month_only():
+    today = local_today()
+    month = today.isoformat()[:7]
+    assert includes_today(month, today.isoformat())
+    assert includes_today(month, None)
+    assert not includes_today(month, (today.replace(day=1) if today.day > 1 else today.replace(day=2)).isoformat())
+    assert not includes_today("2020-01", None)
+
+
 # ---- Integration tests: GET /api/reports/summary ----
 
 
@@ -91,11 +101,68 @@ def test_location_detail_today_matches_attendance_summary():
     attendance = client.get("/api/attendance?location_id=loc-hsr", headers=headers).json()["summary"]
     detail = client.get(f"/api/reports/summary?month={today[:7]}&location_id=loc-hsr", headers=headers).json()
     today_row = next(d for d in detail["days"] if d["day"] == today)
-    # Only stored records are compared. Attendance also counts employees with no record
-    # today as "not in"; the reports count stored rows only, so "not_in" can differ.
-    assert {k: today_row[k] for k in ("checked_in", "completed")} == {
-        k: attendance[k] for k in ("checked_in", "completed")
-    }
+    assert {k: today_row[k] for k in ("checked_in", "completed", "not_in")} == attendance
+
+
+def test_location_without_records_today_shows_everyone_not_in():
+    # Mysuru has no attendance records today in the demo data.
+    headers = auth()
+    today = local_today().isoformat()
+    attendance = client.get("/api/attendance?location_id=loc-mysuru", headers=headers).json()
+    expected_not_in = attendance["summary"]["not_in"]
+    assert expected_not_in > 0
+    day = client.get(
+        f"/api/reports/monthly?month={today[:7]}&day={today}&location_id=loc-mysuru", headers=headers
+    ).json()["rows"]
+    assert len(day) == len(attendance["rows"])
+    assert sum(r["status"] == "not_in" for r in day) == expected_not_in
+    assert all(r["source"] == "not recorded" for r in day if r["status"] == "not_in")
+
+
+def test_new_employee_is_not_in_on_every_report_today():
+    headers = auth()
+    today = local_today().isoformat()
+    month = today[:7]
+    created = client.post(
+        "/api/employees",
+        headers=headers,
+        json={"name": "Report Test Guard", "phone": "+91 90000 77777", "role": "Guard", "location_id": "loc-hsr"},
+    )
+    assert created.status_code in (200, 201)
+    employee_id = created.json()["id"]
+    try:
+        check_new_employee_on_reports(headers, employee_id, today, month)
+    finally:
+        # Other tests expect the exact seeded employee counts, so take the test employee out again.
+        with engine.begin() as c:
+            c.execute(text("DELETE FROM demo_employees WHERE id=:id"), {"id": employee_id})
+            c.execute(text("UPDATE demo_locations SET assigned_count=assigned_count-1 WHERE id='loc-hsr'"))
+
+
+def check_new_employee_on_reports(headers, employee_id, today, month):
+    day = client.get(f"/api/reports/monthly?month={month}&day={today}&location_id=loc-hsr", headers=headers).json()
+    assert any(r["employee_id"] == employee_id and r["status"] == "not_in" for r in day["rows"])
+
+    attendance = client.get("/api/attendance?location_id=loc-hsr", headers=headers).json()["summary"]
+    detail = client.get(f"/api/reports/summary?month={month}&location_id=loc-hsr", headers=headers).json()
+    assert next(d for d in detail["days"] if d["day"] == today)["not_in"] == attendance["not_in"]
+
+    summary = client.get(f"/api/reports/summary?month={month}", headers=headers).json()["totals"]
+    history = client.get("/api/reports/months?months=1", headers=headers).json()[0]
+    assert (summary["records"], summary["not_in"]) == (history["total_records"], history["not_in"])
+
+    csv_text = client.get(
+        f"/api/reports/export.csv?month={month}&day={today}&location_id=loc-hsr", headers=headers
+    ).text
+    assert employee_id in csv_text
+
+
+def test_past_day_is_not_filled_with_unrecorded_employees():
+    headers = auth("supervisor.demo")
+    month = local_today().isoformat()[:7]
+    detail = client.get(f"/api/reports/summary?month={month}&location_id=loc-hsr", headers=headers).json()
+    past = [d for d in detail["days"] if d["day"] < local_today().isoformat()]
+    assert past and all(d["not_in"] == 0 for d in past)
 
 
 def test_location_detail_day_counts_match_monthly_rows():
@@ -122,7 +189,9 @@ def test_summary_follows_a_check_in_and_check_out():
     start = client.get(url, headers=headers).json()["totals"]
     assert client.post("/api/attendance/checkin", headers=headers, json=body).status_code == 200
     checked_in = client.get(url, headers=headers).json()["totals"]
-    assert checked_in["records"] == start["records"] + 1
+    # The guard was already counted as "not in" today, so the record count stays the same.
+    assert checked_in["records"] == start["records"]
+    assert checked_in["not_in"] == start["not_in"] - 1
     assert checked_in["checked_in"] == start["checked_in"] + 1
 
     assert client.post("/api/attendance/checkout", headers=headers, json=body).status_code == 200
