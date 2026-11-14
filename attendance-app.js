@@ -42,8 +42,19 @@ const fmtShift = (v) => {
   d.setHours(h, m, 0, 0);
   return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }).format(d);
 };
-const shiftLabel = (l) =>
-  l.shift_start && l.shift_end ? fmtShift(l.shift_start) + ' - ' + fmtShift(l.shift_end) + ' IST' : 'No shift set';
+// Shift windows of a branch: the new list, falling back to the legacy single pair.
+const locationShifts = (l) =>
+  l.shifts && l.shifts.length
+    ? l.shifts
+    : l.shift_start && l.shift_end
+      ? [{ shift_start: l.shift_start, shift_end: l.shift_end }]
+      : [];
+const shiftLabel = (l) => {
+  const shifts = locationShifts(l);
+  if (!shifts.length) return 'No shift set';
+  if (shifts.length === 1) return fmtShift(shifts[0].shift_start) + ' - ' + fmtShift(shifts[0].shift_end) + ' IST';
+  return shifts.length + ' shifts';
+};
 const initials = (n) =>
   n
     .split(/\s+/)
@@ -282,9 +293,25 @@ function locationSupervisorField() {
   const supervisors = Array.isArray(access) ? access.filter((u) => u.role === 'supervisor') : [];
   return `<div class="field"><label for="locationSupervisor">Assign to supervisor</label><select id="locationSupervisor" name="supervisor_id" required ${!Array.isArray(access) ? 'disabled' : ''}><option value="" disabled selected>Choose a supervisor or leave unassigned</option>${supervisors.map((u) => `<option value="${esc(u.id)}">${esc(u.name)} (${esc(u.id)})</option>`).join('')}<option value="__unassigned__">Leave unassigned</option></select><small id="locationSupervisorSelection" class="helper" style="display:block;margin-top:6px">No supervisor selected.</small><small class="helper" style="display:block;margin-top:4px">${!Array.isArray(access) ? 'Supervisor list unavailable. Reopen this form to retry.' : supervisors.length ? 'Only the selected supervisor gets access. Existing assignments stay unchanged.' : 'No supervisor accounts yet. Leave unassigned, then create a supervisor in Settings > User access.'}</small></div>`;
 }
-// Optional shift start/end inside the Add location forms, revealed by the Add shift button.
-function shiftFields() {
-  return `<div class="field"><label>Shift timing (optional)</label><button type="button" class="link" id="toggleShift">+ Add shift</button><div class="shiftRow" id="shiftFields" style="display:none"><div><small class="helper">Start time (IST)</small><input name="shift_start" type="time"></div><div><small class="helper">End time (IST)</small><input name="shift_end" type="time"></div></div></div>`;
+// Shift timing rows inside the location forms: none to start, "+ Add shift" appends a row.
+function shiftRowHtml(row = {}) {
+  return `<div class="shiftRow" data-shift-row><div><small class="helper">Label (optional)</small><input name="shift_label" type="text" maxlength="40" placeholder="Morning" value="${esc(row.label || '')}"></div><div><small class="helper">Start time (IST)</small><input name="shift_start" type="time" value="${esc(row.shift_start || '')}"></div><div><small class="helper">End time (IST)</small><input name="shift_end" type="time" value="${esc(row.shift_end || '')}"></div><div class="shiftRemove"><button type="button" class="link" onclick="this.closest('[data-shift-row]').remove()">Remove</button></div></div>`;
+}
+function shiftFields(rows = []) {
+  return `<div class="field"><label>Shift timings (optional)</label><div id="shiftRows">${rows.map((r) => shiftRowHtml(r)).join('')}</div><button type="button" class="link" id="addShiftRow">+ Add shift</button></div>`;
+}
+// Read a form's shift rows. Each used row needs both times; empty rows are ignored.
+function collectShiftRows(scope) {
+  const shifts = [...scope.querySelectorAll('[data-shift-row]')]
+    .map((row) => ({
+      label: row.querySelector('[name=shift_label]').value.trim() || null,
+      shift_start: row.querySelector('[name=shift_start]').value,
+      shift_end: row.querySelector('[name=shift_end]').value,
+    }))
+    .filter((s) => s.label || s.shift_start || s.shift_end);
+  if (shifts.some((s) => !s.shift_start || !s.shift_end))
+    throw new Error('Add both start and end times for each shift, or remove the row.');
+  return shifts;
 }
 function locations() {
   const shown = state.locations.filter(
@@ -321,7 +348,7 @@ function locationDetail() {
       : e.active
         ? `<button class="outlineBtn dangerText" data-del-emp="${esc(e.id)}" data-name="${esc(e.name)}">Disable</button>`
         : `<button class="outlineBtn" data-en-emp="${esc(e.id)}" data-name="${esc(e.name)}">Enable</button>`;
-  return `<div class="page">${header()}<h1>${esc(l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</h1><p class="sub">${esc(l.area)} · ${empCountLabel(l)}${l.active ? '' : ' · Disabled locations keep their history. New attendance is off.'}</p><div class="card"><div class="detailRow"><span>Shift timing</span><strong>${esc(shiftLabel(l))}</strong></div></div><h2 class="sectionTitle">Employees at this location</h2>${
+  return `<div class="page">${header()}<h1>${esc(l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</h1><p class="sub">${esc(l.area)} · ${empCountLabel(l)}${l.active ? '' : ' · Disabled locations keep their history. New attendance is off.'}</p><div class="card"><div class="detailRow"><span>Shift timings</span><strong>${esc(shiftLabel(l))}</strong></div>${locationShifts(l).length > 1 ? locationShifts(l).map((s) => `<div class="detailRow"><span>${esc(s.label || 'Shift')}</span><strong>${fmtShift(s.shift_start)} - ${fmtShift(s.shift_end)} IST</strong></div>`).join('') : ''}${isAdmin ? `<button class="link" id="toggleShiftEdit">Edit shifts</button><form id="shiftEditForm" style="display:none">${shiftFields(locationShifts(l))}<button class="secondary">Save shifts</button> <button type="button" class="link" id="cancelShiftEdit">Cancel</button></form>` : ''}</div><h2 class="sectionTitle">Employees at this location</h2>${
     emps === null
       ? '<p class="muted small">Loading employees…</p>'
       : emps.map((e) => `<div class="person ${e.active && l.active ? '' : 'disabledRow'}"><span class="initials">${esc(initials(e.name))}</span><span><strong>${esc(e.name)} ${e.active && l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${esc(e.id)} · ${esc(e.role)}</small></span>${empButton(e)}</div>`).join('') || '<p class="muted small">No employees assigned yet.</p>'
@@ -926,14 +953,25 @@ function bind() {
       state.editTimes = null;
       render();
     };
-  const ts = document.getElementById('toggleShift');
-  if (ts)
-    ts.onclick = () => {
-      const fields = document.getElementById('shiftFields');
-      const showing = fields.style.display !== 'none';
-      fields.style.display = showing ? 'none' : 'flex';
-      ts.textContent = showing ? '+ Add shift' : 'Hide shift';
+  const addShift = document.getElementById('addShiftRow');
+  if (addShift)
+    addShift.onclick = () => {
+      document.getElementById('shiftRows').insertAdjacentHTML('beforeend', shiftRowHtml());
     };
+  const tse = document.getElementById('toggleShiftEdit');
+  if (tse)
+    tse.onclick = () => {
+      document.getElementById('shiftEditForm').style.display = 'block';
+      tse.style.display = 'none';
+    };
+  const cse = document.getElementById('cancelShiftEdit');
+  if (cse)
+    cse.onclick = () => {
+      document.getElementById('shiftEditForm').style.display = 'none';
+      document.getElementById('toggleShiftEdit').style.display = '';
+    };
+  const sef = document.getElementById('shiftEditForm');
+  if (sef) sef.onsubmit = saveShifts;
   const cOk = document.getElementById('confirmOk');
   if (cOk)
     cOk.onclick = async () => {
@@ -1602,10 +1640,10 @@ async function createLocation(e) {
     const body = Object.fromEntries(new FormData(e.target));
     if (!body.supervisor_id) throw new Error('Choose a supervisor or leave unassigned.');
     body.supervisor_id = body.supervisor_id === '__unassigned__' ? null : body.supervisor_id;
-    body.shift_start = body.shift_start || null;
-    body.shift_end = body.shift_end || null;
-    if ((body.shift_start && !body.shift_end) || (!body.shift_start && body.shift_end))
-      throw new Error('Add both shift start and end times, or remove the shift.');
+    body.shifts = collectShiftRows(e.target);
+    delete body.shift_label;
+    delete body.shift_start;
+    delete body.shift_end;
     body.id = newLocationId(body.name);
     await api('/api/settings/locations', {
       method: 'POST',
@@ -1623,6 +1661,26 @@ async function createLocation(e) {
     );
   } catch (e) {
     state.error = e.message;
+    render();
+  }
+}
+// Admin edit of a branch's shift timings from the location detail page.
+async function saveShifts(e) {
+  e.preventDefault();
+  const l = state.detail?.location;
+  if (!l) return;
+  try {
+    const shifts = collectShiftRows(e.target);
+    await api('/api/settings/locations/' + encodeURIComponent(l.id) + '/shifts', {
+      method: 'PUT',
+      body: JSON.stringify({ shifts }),
+    });
+    state.locations = await api('/api/locations');
+    state.detail = { ...state.detail, location: state.locations.find((x) => x.id === l.id) || l };
+    toast('Shifts saved');
+    render();
+  } catch (err) {
+    state.error = err.message;
     render();
   }
 }
