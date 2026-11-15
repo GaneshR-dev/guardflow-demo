@@ -50,6 +50,15 @@ Browser tests use Playwright. They skip when Playwright is not installed (see `r
 
 Covers login (including throttling and server-side logout revocation), scoped locations, dashboard, check-in/check-out, duplicate prevention, employee creation/import with validation and rollback, reports with computed hours, settings, permissions and six-month sample history.
 
+## Logs
+
+The API writes application logs as JSON lines to the console (stderr): one line for each `/api/*` request, sign-in events and server errors with the stack trace. Each response has an `X-Request-ID` header that matches its log line.
+
+- Local: the logs show in the terminal that runs `uvicorn`.
+- Live: the ethiodeploy dashboard shows the console output.
+- `LOG_LEVEL` sets the level (default `INFO`). The logs never hold passwords, tokens, names or request bodies.
+- Business actions (who changed what) are in the audit table. Admins see them in Settings > Activity log.
+
 ## Working with AI tools
 
 Collaborators work in this repository through AI tools. Each AI tool must obey these files:

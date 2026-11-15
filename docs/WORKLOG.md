@@ -21,6 +21,18 @@ Template:
 
 ## Entries
 
+## 2026-11-15 · Log sign-in on a disabled account · Claude Code · feat/app-logging
+- Request: Write a log event when a disabled account signs in.
+- Changed: `backend/demo_app.py`: `login()` writes `login.disabled` (warning, user ID and role) when the password is correct but the account is disabled. The 403 request line now also has the user ID and role. `tests/test_logging.py`: one new test.
+- Tests: `pytest -q tests/` → 112 passed, 7 skipped. Ruff → passed.
+- Open items: None.
+
+## 2026-11-14 · Application logs · Claude Code · feat/app-logging
+- Request: Add application logs. Do not log what users type.
+- Changed: `backend/demo_logging.py` (new): JSON lines to stderr, `LOG_LEVEL`, removes sensitive keys. `backend/demo_app.py`: one log line for each `/api/*` request (route template, status, ms, request ID, user ID, role), `X-Request-ID` header, a plain 500 with the stack trace in the log, `login.ok`, `login.failed` and `login.throttled` without the username. `tests/test_logging.py` (new), `AGENTS.md` (log rules), `README.md`.
+- Tests: `pytest -q tests/` without the 2 Playwright files → 86 passed. Ruff → passed.
+- Open items: Check the logs in the ethiodeploy dashboard after deployment. Uvicorn also writes its own access log with query strings; turn it off with `--no-access-log` if the owner wants.
+
 ## 2026-11-14 · Uniform UX and uninterrupted typing · Instinct · ux/uniform-cleanup
 - Request: Apply the approved whole-app cleanup. Keep functions, roles and saved data unchanged.
 - Changed: Shared touch targets, type, spacing, cards and status contrast. Attendance has one summary and visible location context. Location details have padded shift cards and a clear Edit button. Shift editing is focused, keeps failed drafts and blocks duplicate saves. Settings opens the one location directory. Search inputs stay mounted during result updates, so native repeat, word deletion and composition keep their targets. Simple location names stay visible. Reports uses the same status labels, with a neutral historical label for missing check-ins.

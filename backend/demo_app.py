@@ -12,16 +12,18 @@ import hashlib
 import hmac
 import io
 import json
+import logging
 import os
 import re
 import secrets
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 from datetime import time as dt_time
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import bindparam, text
@@ -31,6 +33,7 @@ from sqlalchemy import bindparam, text
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from demo_db import DB_URL, DEMO_MODE, LOCAL_TZ, ROOT, engine, init_db
+from demo_logging import event, setup_logging
 from demo_reports import attendance_workbook
 from demo_security import (
     insert_user,
@@ -44,6 +47,7 @@ from demo_security import (
 )
 from demo_seed import retire_legacy_demo_account, seed_access, seed_demo
 
+setup_logging()
 init_db()
 if DEMO_MODE:
     seed_demo()
@@ -59,6 +63,9 @@ app = FastAPI(
     openapi_url="/openapi.json" if API_DOCS_ENABLED else None,
 )
 bearer = HTTPBearer(auto_error=False)
+DB_KIND = "postgresql" if DB_URL.startswith("postgres") else "sqlite"
+event(logging.INFO, "app.start", database=DB_KIND, demo_mode=DEMO_MODE)
+SERVER_ERROR = "The server had a problem. Try again in a moment."
 
 
 SECURITY_HEADERS = {
@@ -69,6 +76,51 @@ SECURITY_HEADERS = {
     # Browsers ignore HSTS on plain-HTTP responses, so this is safe to send unconditionally.
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
 }
+
+
+# Registered before security_headers, so it runs inside it and its 500 response also gets the headers.
+@app.middleware("http")
+async def request_log(request: Request, call_next):
+    """Log one line per API request: route template, status, time, request ID, user ID.
+
+    No bodies, no query strings, no headers: they can hold passwords, tokens or personal data.
+    """
+    path = request.url.path
+    if not path.startswith("/api/") or path == "/api/health":
+        return await call_next(request)
+    request_id = secrets.token_hex(8)
+    request.state.request_id = request_id
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        event(
+            logging.ERROR,
+            "request.error",
+            exc_info=True,
+            **request_fields(request, request_id, 500, started),
+        )
+        response = JSONResponse({"detail": SERVER_ERROR}, status_code=500)
+    else:
+        status = response.status_code
+        level = logging.ERROR if status >= 500 else logging.WARNING if status in (401, 403, 429) else logging.INFO
+        event(level, "request", **request_fields(request, request_id, status, started))
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+def request_fields(request: Request, request_id: str, status: int, started: float) -> dict:
+    route = request.scope.get("route")
+    return {
+        "request_id": request_id,
+        "method": request.method,
+        # The route template (/api/employees/{employee_id}) keeps IDs and names out of the log.
+        "route": getattr(route, "path", "unmatched"),
+        "status": status,
+        "ms": round((time.perf_counter() - started) * 1000, 1),
+        "user_id": getattr(request.state, "user_id", None),
+        "role": getattr(request.state, "role", None),
+    }
 
 
 @app.middleware("http")
@@ -228,9 +280,14 @@ class LocationImportBody(BaseModel):
 
 
 @app.post("/api/login")
-def login(body: LoginBody):
+def login(body: LoginBody, request: Request):
     key = body.username.strip().lower()
-    login_throttle_check(key)
+    try:
+        login_throttle_check(key)
+    except HTTPException:
+        # No username in the log: a user can type the password into that field by mistake.
+        event(logging.WARNING, "login.throttled")
+        raise
     with engine.begin() as c:
         # Lock the user row so sign-in serializes with admin disable/enable on PostgreSQL:
         # either this login commits first and disable deletes its fresh session, or disable
@@ -244,8 +301,13 @@ def login(body: LoginBody):
         )
         if not row or not hmac.compare_digest(password_hash(body.password, row["salt"]), row["password"]):
             login_throttle_record(key)
+            event(logging.WARNING, "login.failed")
             raise HTTPException(401, "Invalid user ID or password")
         if c.execute(text("SELECT 1 FROM demo_disabled_users WHERE user_id=:id"), {"id": row["id"]}).first():
+            # The password was correct, so the ID is a real account and safe to log.
+            request.state.user_id = row["id"]
+            request.state.role = row["role"]
+            event(logging.WARNING, "login.disabled", user_id=row["id"], role=row["role"])
             raise HTTPException(403, "This account has been disabled. Ask an admin to re-enable it.")
         login_throttle_clear(key)
         c.execute(text("DELETE FROM demo_sessions WHERE expires<:now"), {"now": utcnow().isoformat()})
@@ -254,6 +316,7 @@ def login(body: LoginBody):
             text("INSERT INTO demo_sessions VALUES (:token,:user,:expires)"),
             {"token": token_digest(token), "user": row["id"], "expires": (utcnow() + timedelta(hours=10)).isoformat()},
         )
+        event(logging.INFO, "login.ok", user_id=row["id"], role=row["role"])
         return {"token": token, "user": {"id": row["id"], "name": row["name"], "role": row["role"]}}
 
 
@@ -267,7 +330,7 @@ def logout(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
     return {"status": "signed out"}
 
 
-def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+def current_user(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
     if not credentials:
         raise HTTPException(401, "Sign in required")
     with engine.connect() as c:
@@ -283,6 +346,9 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
         )
     if not row or datetime.fromisoformat(row["expires"]) < utcnow():
         raise HTTPException(401, "Session expired")
+    # For the request log line: the user ID and role only, not the name.
+    request.state.user_id = row["id"]
+    request.state.role = row["role"]
     if row["disabled"] is not None:
         raise HTTPException(403, "This account has been disabled. Ask an admin to re-enable it.")
     return dict(row)
@@ -469,7 +535,7 @@ def health():
     return {
         "status": "ok",
         "data_notice": "Fictional sample data only",
-        "database": "postgresql" if DB_URL.startswith("postgres") else "sqlite",
+        "database": DB_KIND,
     }
 
 
