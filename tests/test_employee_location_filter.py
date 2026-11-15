@@ -65,6 +65,11 @@ EMPLOYEES = [
 ]
 
 
+ADMIN = {"id": "admin.demo", "name": "Admin Demo", "role": "admin"}
+SUPERVISOR = {"id": "supervisor.demo", "name": "Supervisor Demo", "role": "supervisor"}
+LOGIN_USERS = [ADMIN, SUPERVISOR]
+
+
 def fulfill_frontend(route):
     match = ASSETS.get(urlsplit(route.request.url).path)
     if not match:
@@ -87,6 +92,18 @@ def open_employees(p, user, locations=None, employees=None):
         if fulfill_frontend(route):
             return
         path = urlsplit(route.request.url).path
+        if path == "/api/login":
+            # Sign-in hands back the identity matching the submitted user ID.
+            creds = json.loads(route.request.post_data or "{}")
+            login_user = next((u for u in LOGIN_USERS if u["id"] == creds.get("username")), None)
+            if login_user:
+                route.fulfill(
+                    content_type="application/json",
+                    body=json.dumps({"token": "token-" + login_user["id"], "user": login_user}),
+                )
+            else:
+                route.fulfill(content_type="application/json", body="{}", status=401)
+            return
         body = {
             "/api/locations": LOCATIONS if locations is None else locations,
             "/api/employees": EMPLOYEES if employees is None else employees,
@@ -183,6 +200,45 @@ def test_stale_location_pick_resets_to_all(tmp_path):
             assert directory_names(page) == ["Asha North"]
             # The site vanishes from the scoped list (access changed or site removed).
             page.evaluate("state.locations = state.locations.filter((l) => l.id !== 'loc-north'); render()")
+            page.wait_for_timeout(300)
+            assert page.locator("#empLocFilter").input_value() == ""
+            assert directory_names(page) == ["Asha North", "Bala South", "Chitra Free"]
+        finally:
+            browser.close()
+
+
+def test_filter_pick_resets_across_same_tab_sign_out(tmp_path):
+    # Peer review repro: admin picks "No location yet", signs out, and a
+    # supervisor signing in on the same tab must not inherit the pick.
+    with playwright.sync_playwright() as p:
+        browser, page = open_employees(p, ADMIN)
+        try:
+            page.locator("#empLocFilter").select_option("none")
+            assert directory_names(page) == ["Chitra Free"]
+            page.locator("[data-go=menu]").click()
+            page.locator("#logout").click()
+            page.wait_for_selector("#loginForm")
+            page.locator("#loginForm input[name=username]").fill("supervisor.demo")
+            page.locator("#loginForm input[name=password]").fill("demo123")
+            page.locator("#loginForm button.primary").click()
+            page.locator("[data-go=menu]").click()
+            page.locator("[data-go=employees]").click()
+            page.wait_for_selector("#empLocFilter")
+            assert page.locator("#empLocFilter").input_value() == ""
+            options = [o.strip() for o in page.locator("#empLocFilter option").all_inner_texts()]
+            assert "No location yet" not in options
+            assert directory_names(page) == ["Asha North", "Bala South", "Chitra Free"]
+        finally:
+            browser.close()
+
+
+def test_unassigned_pick_is_invalid_for_non_admin(tmp_path):
+    # Any path that leaves 'none' set for a non-admin resets to all instead of
+    # hiding every placed employee behind a filter they cannot see.
+    with playwright.sync_playwright() as p:
+        browser, page = open_employees(p, SUPERVISOR)
+        try:
+            page.evaluate("state.employeeLocation = 'none'; render()")
             page.wait_for_timeout(300)
             assert page.locator("#empLocFilter").input_value() == ""
             assert directory_names(page) == ["Asha North", "Bala South", "Chitra Free"]
