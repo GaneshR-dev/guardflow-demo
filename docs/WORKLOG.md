@@ -21,6 +21,13 @@ Template:
 
 ## Entries
 
+## 2026-11-15 · Location filter on the Employees screen · Instinct · feat/employee-location-filter
+- Request: Filter the employee directory by location with a dropdown that works together with the search box.
+- Changed: `attendance-app.js`: location dropdown under the Employees search box in the shared field style (All locations by default, sites in name order with a (Disabled) mark, "No location yet" for admins); the pick combines with the name/ID search and a removed site resets it to all. `tests/test_employee_location_filter.py` (new): admin filter, search combine, reset, unassigned pick; supervisor option set without "No location yet".
+- Review fix (same-tab role switch): an admin's "No location yet" pick survived sign-out in the tab's state, so a supervisor signing in next saw an empty directory behind a filter they cannot see. Sign-out now clears the location and search picks, and "No location yet" is invalid for non-admins (resets to all). Two new tests cover both paths; both fail on the old head and pass now.
+- Tests: `pytest -q tests/` → 155 passed, 3 skipped in this sandbox (main: 149 passed, 3 skipped; +6 new tests, no regressions). Independent review sandbox: 156 passed, 2 skipped (main: 152 passed, 2 skipped); the count difference is `tests/test_supervisor_access_pg.py` (3 backend tests), which runs there because the optional `pgserver` and `psycopg` packages are installed and skips here. Both sandboxes skip the 2 isolated-PostgreSQL tests in `tests/test_multiple_shifts.py`. Ruff check and format → passed. Playwright renders at 320 and 390 px: dropdown matches the shared field style, filter narrows the directory, no page errors.
+- Open items: Branch not merged: waiting for the owner's go-ahead.
+
 ## 2026-11-15 · Log sign-in on a disabled account · Claude Code · feat/app-logging
 - Request: Write a log event when a disabled account signs in.
 - Changed: `backend/demo_app.py`: `login()` writes `login.disabled` (warning, user ID and role) when the password is correct but the account is disabled. The 403 request line now also has the user ID and role. `tests/test_logging.py`: one new test.
