@@ -24,8 +24,9 @@ Template:
 ## 2026-11-16 · Overnight check-out shows the real hours · Instinct · fix/overnight-checkout-hours
 - Request: Fix the 0h 00m in the check-out dialog for a check-in left open from an earlier day.
 - Cause: `askCheckout()` read the today's-list row first. For an overnight worker that row is a LEFT JOIN shell with `check_in` NULL. The dialog then used the current time as the check-in time.
-- Changed: `attendance-app.js`: `askCheckout()` reads the stale open record first. `tests/test_frontend_nov16.py` (new): the dialog shows the real hours for a stale open check-in, not 0h 00m. The test fails on the old code and passes on the fix.
-- Tests: `pytest -q tests/` → 156 passed, 3 skipped. Ruff check and format → passed.
+- Changed: `attendance-app.js`: `askCheckout()` now shows the record the backend closes. The backend check-out picks the newest open day. The dialog does the same: a real checked-in row from today first, then the newest stale open record. `tests/test_frontend_nov16.py` (new): three dialog cases - overnight shell, two stale opens, mixed today and stale.
+- Review fix: the first version read the stale record first. That was wrong for legacy double-open data: the backend closes the newest open day, not the oldest stale one. It also regressed a mixed today-plus-stale record that the old code handled. The three new tests cover each case; each fails on the matching old code and passes on the fix.
+- Tests: `pytest -q tests/` → 158 passed, 3 skipped. Ruff check and format → passed.
 - Open items: Branch not merged: waiting for the owner's go-ahead.
 
 ## 2026-11-15 · Location filter on the Employees screen · Instinct · feat/employee-location-filter
