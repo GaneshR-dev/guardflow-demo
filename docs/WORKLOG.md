@@ -21,6 +21,13 @@ Template:
 
 ## Entries
 
+## 2026-11-16 · Overnight check-out shows the real hours · Instinct · fix/overnight-checkout-hours
+- Request: Fix the 0h 00m in the check-out dialog for a check-in left open from an earlier day.
+- Cause: `askCheckout()` read the today's-list row first. For an overnight worker that row is a LEFT JOIN shell with `check_in` NULL. The dialog then used the current time as the check-in time.
+- Changed: `attendance-app.js`: `askCheckout()` reads the stale open record first. `tests/test_frontend_nov16.py` (new): the dialog shows the real hours for a stale open check-in, not 0h 00m. The test fails on the old code and passes on the fix.
+- Tests: `pytest -q tests/` → 156 passed, 3 skipped. Ruff check and format → passed.
+- Open items: Branch not merged: waiting for the owner's go-ahead.
+
 ## 2026-11-15 · Location filter on the Employees screen · Instinct · feat/employee-location-filter
 - Request: Filter the employee directory by location with a dropdown that works together with the search box.
 - Changed: `attendance-app.js`: location dropdown under the Employees search box in the shared field style (All locations by default, sites in name order with a (Disabled) mark, "No location yet" for admins); the pick combines with the name/ID search and a removed site resets it to all. `tests/test_employee_location_filter.py` (new): admin filter, search combine, reset, unassigned pick; supervisor option set without "No location yet".
