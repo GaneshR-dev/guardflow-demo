@@ -500,11 +500,13 @@ function menu() {
 }
 function employees() {
   // Location filter: '' is every site the role may see, 'none' is employees not
-  // placed anywhere yet (admin only). A stale pick (site removed) resets to all.
+  // placed anywhere yet (admin only). A stale pick resets to all: the site was
+  // removed, or an admin's 'none' survived into a non-admin session.
   if (
     state.employeeLocation &&
-    state.employeeLocation !== 'none' &&
-    !state.locations.some((l) => l.id === state.employeeLocation)
+    (state.employeeLocation === 'none'
+      ? state.user?.role !== 'admin'
+      : !state.locations.some((l) => l.id === state.employeeLocation))
   )
     state.employeeLocation = '';
   const shown = state.employees.filter(
@@ -2224,6 +2226,10 @@ async function logout() {
   state.token = '';
   state.user = null;
   state.report = null;
+  // Filter picks belong to the signed-in session; drop them so a different role
+  // signing in on this tab starts unfiltered.
+  state.employeeLocation = '';
+  state.employeeQuery = '';
   state.screen = 'login';
   history.replaceState({ gfScreen: 'login' }, '', '#login');
   render();
