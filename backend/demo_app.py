@@ -280,7 +280,7 @@ class LocationImportBody(BaseModel):
 
 
 @app.post("/api/login")
-def login(body: LoginBody):
+def login(body: LoginBody, request: Request):
     key = body.username.strip().lower()
     try:
         login_throttle_check(key)
@@ -304,6 +304,10 @@ def login(body: LoginBody):
             event(logging.WARNING, "login.failed")
             raise HTTPException(401, "Invalid user ID or password")
         if c.execute(text("SELECT 1 FROM demo_disabled_users WHERE user_id=:id"), {"id": row["id"]}).first():
+            # The password was correct, so the ID is a real account and safe to log.
+            request.state.user_id = row["id"]
+            request.state.role = row["role"]
+            event(logging.WARNING, "login.disabled", user_id=row["id"], role=row["role"])
             raise HTTPException(403, "This account has been disabled. Ask an admin to re-enable it.")
         login_throttle_clear(key)
         c.execute(text("DELETE FROM demo_sessions WHERE expires<:now"), {"now": utcnow().isoformat()})

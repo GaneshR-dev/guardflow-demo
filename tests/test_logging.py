@@ -132,6 +132,37 @@ def test_successful_sign_in_logs_user_id_but_not_the_token(caplog):
     assert not any(token in t or "demo123" in t for t in text_lines)
 
 
+def test_disabled_account_sign_in_logs_user_id_but_not_the_password(caplog):
+    user_id, password = "sup.logdisabled", "temporary-pass-log1"
+    created = client.post(
+        "/api/settings/access",
+        headers=auth(),
+        json={
+            "id": user_id,
+            "name": "Log Test",
+            "password": password,
+            "role": "supervisor",
+            "location_ids": ["loc-hsr"],
+        },
+    )
+    assert created.status_code == 200, created.text
+    assert client.delete(f"/api/settings/access/{user_id}", headers=auth()).status_code == 200
+    caplog.set_level(logging.INFO, logger="guardian")
+    caplog.clear()
+    try:
+        response = client.post("/api/login", json={"username": user_id, "password": password})
+        assert response.status_code == 403
+    finally:
+        login_throttle_clear(user_id)
+    text_lines, data = lines(caplog)
+    disabled = [d for d in data if d["event"] == "login.disabled"]
+    assert disabled and disabled[0]["user_id"] == user_id and disabled[0]["level"] == "warning"
+    assert "login.ok" not in [d["event"] for d in data]
+    request = [d for d in data if d["event"] == "request" and d["status"] == 403]
+    assert request and request[0]["user_id"] == user_id
+    assert not any(password in t for t in text_lines)
+
+
 def test_401_and_403_are_logged_as_warnings(caplog):
     supervisor = auth("supervisor.demo")
     caplog.set_level(logging.INFO, logger="guardian")

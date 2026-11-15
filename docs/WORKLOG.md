@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-15 · Log sign-in on a disabled account · Claude Code · feat/app-logging
+- Request: Write a log event when a disabled account signs in.
+- Changed: `backend/demo_app.py`: `login()` writes `login.disabled` (warning, user ID and role) when the password is correct but the account is disabled. The 403 request line now also has the user ID and role. `tests/test_logging.py`: one new test.
+- Tests: `pytest -q tests/` → 112 passed, 7 skipped. Ruff → passed.
+- Open items: None.
+
 ## 2026-11-14 · Application logs · Claude Code · feat/app-logging
 - Request: Add application logs. Do not log what users type.
 - Changed: `backend/demo_logging.py` (new): JSON lines to stderr, `LOG_LEVEL`, removes sensitive keys. `backend/demo_app.py`: one log line for each `/api/*` request (route template, status, ms, request ID, user ID, role), `X-Request-ID` header, a plain 500 with the stack trace in the log, `login.ok`, `login.failed` and `login.throttled` without the username. `tests/test_logging.py` (new), `AGENTS.md` (log rules), `README.md`.
