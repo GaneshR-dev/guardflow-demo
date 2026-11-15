@@ -25,8 +25,8 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import text
+from pydantic import BaseModel, Field, field_validator, model_validator
+from sqlalchemy import bindparam, text
 
 # Sibling modules resolve whether uvicorn loads this file as `demo_app`
 # (cwd = backend/) or as `backend.demo_app` (cwd = repo root, as on ethiodeploy).
@@ -172,6 +172,33 @@ class ProfileBody(BaseModel):
 SHIFT_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 
 
+# Bound on how many windows one branch can carry; display-only metadata. Five
+# matches the slot limit in the UI reference the user picked.
+MAX_SHIFTS_PER_LOCATION = 5
+
+
+def _unique_windows(shifts: list[ShiftBody]) -> list[ShiftBody]:
+    """Two windows with the same start and end are a duplicate entry, not two shifts."""
+    if shifts is not None and len({(s.shift_start, s.shift_end) for s in shifts}) != len(shifts):
+        raise ValueError("Duplicate shift window")
+    return shifts
+
+
+class ShiftBody(BaseModel):
+    # One branch shift window. Both times are required; an optional label ("Morning")
+    # is display-only. Overnight windows (end before start) are allowed and display-only.
+    label: str | None = Field(default=None, min_length=1, max_length=40)
+    shift_start: str = Field(pattern=SHIFT_PATTERN)
+    shift_end: str = Field(pattern=SHIFT_PATTERN)
+
+    @model_validator(mode="after")
+    def _nonzero_window(self):
+        # A zero-length window (start == end) is a data entry error, not a 24h shift.
+        if self.shift_start == self.shift_end:
+            raise ValueError("Shift start and end must differ")
+        return self
+
+
 class LocationBody(BaseModel):
     supervisor_id: str | None = Field(default=None, min_length=3, max_length=80)
     id: str = Field(min_length=2, max_length=40, pattern=r"^[a-z0-9-]+$")
@@ -180,6 +207,33 @@ class LocationBody(BaseModel):
     assigned_count: int = Field(default=0, ge=0, le=10000)
     shift_start: str | None = Field(default=None, pattern=SHIFT_PATTERN)
     shift_end: str | None = Field(default=None, pattern=SHIFT_PATTERN)
+    # Multiple shift timings per branch. Omitted: the legacy pair above still works.
+    # Explicitly empty: no windows. A non-empty list wins over the pair, which then
+    # mirrors the first window for older readers.
+    shifts: list[ShiftBody] | None = Field(default=None, max_length=MAX_SHIFTS_PER_LOCATION)
+
+    _unique_shifts = field_validator("shifts")(_unique_windows)
+
+    @model_validator(mode="after")
+    def _legacy_pair_complete(self):
+        # A half-sent legacy pair (only one side) is a client bug: reject it instead of
+        # silently dropping the timing.
+        if (self.shift_start is None) != (self.shift_end is None):
+            raise ValueError("Provide both shift_start and shift_end, or neither")
+        # The equal-time rule lives here too, not only on ShiftBody: the create endpoint
+        # wraps the pair in ShiftBody itself, and a pydantic error raised there would be
+        # an uncontrolled 500 instead of this clean 422.
+        if self.shift_start is not None and self.shift_start == self.shift_end:
+            raise ValueError("Shift start and end must differ")
+        return self
+
+
+class LocationShiftsBody(BaseModel):
+    # The full replacement set for one branch. The field is required: a PUT without a
+    # "shifts" key is a 422, not a silent clear. An explicit empty list clears the timings.
+    shifts: list[ShiftBody] = Field(max_length=MAX_SHIFTS_PER_LOCATION)
+
+    _unique_shifts = field_validator("shifts")(_unique_windows)
 
 
 class AccessBody(BaseModel):
@@ -187,6 +241,12 @@ class AccessBody(BaseModel):
     name: str = Field(min_length=2, max_length=80)
     password: str = Field(min_length=12, max_length=100)
     role: str = Field(pattern="^(admin|supervisor)$")
+    location_ids: list[str] = Field(default_factory=list, max_length=50)
+
+
+class AccessLocationsBody(BaseModel):
+    # Deliberately allows an empty list: a supervisor with no sites fails closed
+    # (scoped queries match nothing) until an admin grants a site again.
     location_ids: list[str] = Field(default_factory=list, max_length=50)
 
 
@@ -229,11 +289,22 @@ def login(body: LoginBody):
         event(logging.WARNING, "login.throttled")
         raise
     with engine.begin() as c:
-        row = c.execute(text("SELECT * FROM demo_users WHERE id=:id"), {"id": body.username}).mappings().first()
+        # Lock the user row so sign-in serializes with admin disable/enable on PostgreSQL:
+        # either this login commits first and disable deletes its fresh session, or disable
+        # commits first and the marker check below rejects the sign-in. Without the lock a
+        # login racing in the disable window could bank a session that revives on re-enable.
+        lock_sql = " FOR UPDATE" if engine.dialect.name != "sqlite" else ""
+        row = (
+            c.execute(text(f"SELECT * FROM demo_users WHERE id=:id{lock_sql}"), {"id": body.username})
+            .mappings()
+            .first()
+        )
         if not row or not hmac.compare_digest(password_hash(body.password, row["salt"]), row["password"]):
             login_throttle_record(key)
             event(logging.WARNING, "login.failed")
             raise HTTPException(401, "Invalid user ID or password")
+        if c.execute(text("SELECT 1 FROM demo_disabled_users WHERE user_id=:id"), {"id": row["id"]}).first():
+            raise HTTPException(403, "This account has been disabled. Ask an admin to re-enable it.")
         login_throttle_clear(key)
         c.execute(text("DELETE FROM demo_sessions WHERE expires<:now"), {"now": utcnow().isoformat()})
         token = secrets.token_urlsafe(32)
@@ -262,7 +333,7 @@ def current_user(request: Request, credentials: HTTPAuthorizationCredentials | N
         row = (
             c.execute(
                 text(
-                    "SELECT u.id,u.name,u.role,s.expires FROM demo_sessions s JOIN demo_users u ON u.id=s.user_id WHERE s.token=:token"
+                    "SELECT u.id,u.name,u.role,s.expires,d.user_id AS disabled FROM demo_sessions s JOIN demo_users u ON u.id=s.user_id LEFT JOIN demo_disabled_users d ON d.user_id=u.id WHERE s.token=:token"
                 ),
                 {"token": token_digest(credentials.credentials)},
             )
@@ -274,6 +345,8 @@ def current_user(request: Request, credentials: HTTPAuthorizationCredentials | N
     # For the request log line: the user ID and role only, not the name.
     request.state.user_id = row["id"]
     request.state.role = row["role"]
+    if row["disabled"] is not None:
+        raise HTTPException(403, "This account has been disabled. Ask an admin to re-enable it.")
     return dict(row)
 
 
@@ -296,26 +369,82 @@ def audit(c, user, action: str, details: dict) -> None:
 DISABLED_COUNT_SQL = "(SELECT COUNT(*) FROM demo_employees e WHERE e.location_id=l.id AND e.active=0) AS disabled_count"
 
 
+def attach_shifts(c, rows: list[dict]) -> list[dict]:
+    """Add each location's shift windows (ordered by position) to location rows."""
+    if not rows:
+        return rows
+    shifts: dict[str, list] = {}
+    for s in c.execute(
+        text(
+            "SELECT location_id,label,shift_start,shift_end FROM demo_location_shifts "
+            "WHERE location_id IN :ids ORDER BY location_id,position"
+        ).bindparams(bindparam("ids", expanding=True)),
+        {"ids": [r["id"] for r in rows]},
+    ).mappings():
+        shifts.setdefault(s["location_id"], []).append(
+            {"label": s["label"], "shift_start": s["shift_start"], "shift_end": s["shift_end"]}
+        )
+    return [{**r, "shifts": shifts.get(r["id"], [])} for r in rows]
+
+
 def location_rows(user):
     with engine.connect() as c:
         if user["role"] == "admin":
-            return [
+            return attach_shifts(
+                c,
+                [
+                    dict(r)
+                    for r in c.execute(
+                        text(
+                            "SELECT l.*, "
+                            + DISABLED_COUNT_SQL
+                            + " FROM demo_locations l ORDER BY l.active DESC, l.name"
+                        )
+                    ).mappings()
+                ],
+            )
+        return attach_shifts(
+            c,
+            [
                 dict(r)
                 for r in c.execute(
-                    text("SELECT l.*, " + DISABLED_COUNT_SQL + " FROM demo_locations l ORDER BY l.active DESC, l.name")
+                    text(
+                        "SELECT l.*, "
+                        + DISABLED_COUNT_SQL
+                        + " FROM demo_locations l JOIN demo_user_locations a ON a.location_id=l.id WHERE a.user_id=:user ORDER BY l.active DESC, l.name"
+                    ),
+                    {"user": user["id"]},
                 ).mappings()
-            ]
-        return [
-            dict(r)
-            for r in c.execute(
-                text(
-                    "SELECT l.*, "
-                    + DISABLED_COUNT_SQL
-                    + " FROM demo_locations l JOIN demo_user_locations a ON a.location_id=l.id WHERE a.user_id=:user ORDER BY l.active DESC, l.name"
-                ),
-                {"user": user["id"]},
-            ).mappings()
-        ]
+            ],
+        )
+
+
+def insert_shift_rows(c, location_id: str, rows: list[ShiftBody]) -> None:
+    """Store one branch's shift windows in display order."""
+    for position, row in enumerate(rows):
+        c.execute(
+            text(
+                "INSERT INTO demo_location_shifts (id,location_id,label,shift_start,shift_end,position) "
+                "VALUES (:id,:location,:label,:start,:end,:position)"
+            ),
+            {
+                "id": f"{location_id}-shift-{position + 1}-{secrets.token_hex(3)}",
+                "location": location_id,
+                "label": row.label,
+                "start": row.shift_start,
+                "end": row.shift_end,
+                "position": position,
+            },
+        )
+
+
+def sync_legacy_shift_pair(c, location_id: str, rows: list[ShiftBody]) -> None:
+    """Mirror the first window into the legacy shift columns so older readers stay sane."""
+    first = rows[0] if rows else None
+    c.execute(
+        text("UPDATE demo_locations SET shift_start=:start, shift_end=:end WHERE id=:id"),
+        {"start": first.shift_start if first else None, "end": first.shift_end if first else None, "id": location_id},
+    )
 
 
 def scoped_sql(user: dict, column: str) -> str:
@@ -1292,7 +1421,12 @@ def settings(user=Depends(current_user)):
     with engine.connect() as c:
         if user["role"] == "admin":
             users = [
-                dict(r) for r in c.execute(text("SELECT id,name,role FROM demo_users ORDER BY role,id")).mappings()
+                dict(r)
+                for r in c.execute(
+                    text(
+                        "SELECT u.id,u.name,u.role,CASE WHEN d.user_id IS NULL THEN 1 ELSE 0 END AS active FROM demo_users u LEFT JOIN demo_disabled_users d ON d.user_id=u.id ORDER BY u.role,u.id"
+                    )
+                ).mappings()
             ]
             grants = c.execute(text("SELECT user_id,location_id FROM demo_user_locations")).mappings().all()
             by_user = {}
@@ -1337,6 +1471,14 @@ def create_location(body: LocationBody, user=Depends(current_user)):
             ).scalar()
             if supervisor != "supervisor":
                 raise HTTPException(400, "Choose an existing supervisor")
+        if body.shifts is not None:
+            # An explicit list wins, including an explicit empty list (no windows).
+            shift_rows = body.shifts
+        elif body.shift_start and body.shift_end:
+            shift_rows = [ShiftBody(shift_start=body.shift_start, shift_end=body.shift_end)]
+        else:
+            shift_rows = []
+        first = shift_rows[0] if shift_rows else None
         c.execute(
             text(
                 "INSERT INTO demo_locations (id,name,area,assigned_count,shift_start,shift_end,active) VALUES (:id,:name,:area,:count,:shift_start,:shift_end,1)"
@@ -1346,10 +1488,11 @@ def create_location(body: LocationBody, user=Depends(current_user)):
                 "name": body.name,
                 "area": body.area,
                 "count": body.assigned_count,
-                "shift_start": body.shift_start,
-                "shift_end": body.shift_end,
+                "shift_start": first.shift_start if first else None,
+                "shift_end": first.shift_end if first else None,
             },
         )
+        insert_shift_rows(c, body.id, shift_rows)
         if body.supervisor_id is not None:
             c.execute(
                 text("INSERT INTO demo_user_locations VALUES (:user,:location)"),
@@ -1357,6 +1500,45 @@ def create_location(body: LocationBody, user=Depends(current_user)):
             )
         audit(c, user, "settings.location.create", body.model_dump())
     return body.model_dump()
+
+
+@app.put("/api/settings/locations/{location_id}/shifts")
+def replace_location_shifts(location_id: str, body: LocationShiftsBody, user=Depends(current_user)):
+    """Replace a branch's shift timings. Display-only metadata: employee assignments,
+    attendance cardinality, history and reports are untouched. Admin-only write; both
+    roles read the timings through their existing scoped location lists."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        # Lock the parent row first (FOR UPDATE on PostgreSQL, where each request gets
+        # its own connection): concurrent replacements and a concurrent boot backfill
+        # serialize on this branch, so the read + delete + insert + mirror below is the
+        # only writer of this branch's windows at a time, and the unique
+        # (location_id, position) index rejects any remaining interleave loudly.
+        # NOTE: SQLite demo mode serves all requests over one shared in-memory
+        # connection (StaticPool), so overlapping requests interleave at the driver
+        # level regardless of endpoint code - a pre-existing demo-mode limitation
+        # that applies to every multi-statement endpoint, not specific to this one.
+        require_location_access(c, user, location_id, lock=True)
+        before = [
+            dict(r)
+            for r in c.execute(
+                text(
+                    "SELECT label,shift_start,shift_end FROM demo_location_shifts WHERE location_id=:id ORDER BY position"
+                ),
+                {"id": location_id},
+            ).mappings()
+        ]
+        c.execute(text("DELETE FROM demo_location_shifts WHERE location_id=:id"), {"id": location_id})
+        insert_shift_rows(c, location_id, body.shifts)
+        sync_legacy_shift_pair(c, location_id, body.shifts)
+        audit(
+            c,
+            user,
+            "settings.location.shifts",
+            {"location_id": location_id, "before": before, "after": [s.model_dump() for s in body.shifts]},
+        )
+    return {"id": location_id, "shifts": [s.model_dump() for s in body.shifts]}
 
 
 @app.delete("/api/settings/locations/{location_id}")
@@ -1464,6 +1646,129 @@ def create_access(body: AccessBody, user=Depends(current_user)):
                 )
         audit(c, user, "settings.access.create", {"id": body.id, "role": body.role, "location_ids": body.location_ids})
     return {"id": body.id, "name": body.name, "role": body.role, "location_ids": body.location_ids}
+
+
+def supervisor_row(c, user_id: str, active: int | None = None, lock: bool = False):
+    """Load a user for access management. Supervisor-only by design: admin account
+    management is out of scope for these endpoints.
+
+    The lock is taken on the base user row alone, and the disabled marker is read by a
+    separate statement AFTER lock acquisition. Filtering with a LEFT JOIN predicate
+    instead would evaluate the join on the pre-wait snapshot under READ COMMITTED: two
+    concurrent disables could both pass the filter, and the second would proceed on the
+    stale join result and duplicate-insert the marker.
+    """
+    lock_sql = " FOR UPDATE" if lock and engine.dialect.name != "sqlite" else ""
+    row = c.execute(text(f"SELECT u.* FROM demo_users u WHERE u.id=:id{lock_sql}"), {"id": user_id}).mappings().first()
+    if not row:
+        raise HTTPException(404, "Supervisor not found")
+    if row["role"] != "supervisor":
+        raise HTTPException(400, "Only supervisor accounts can be changed here")
+    if active is not None:
+        disabled = (
+            c.execute(text("SELECT 1 FROM demo_disabled_users WHERE user_id=:id"), {"id": user_id}).first() is not None
+        )
+        if disabled == bool(active):
+            raise HTTPException(404, "Supervisor not found")
+    return row
+
+
+def grant_site_ids(c, user_id: str) -> list[str]:
+    return [
+        r[0]
+        for r in c.execute(
+            text("SELECT location_id FROM demo_user_locations WHERE user_id=:id ORDER BY location_id"), {"id": user_id}
+        )
+    ]
+
+
+def unsupervised_sites(c, site_ids: list[str]) -> list[str]:
+    """Sites left without any active supervisor. A warning, never a block: an admin may
+    deliberately run a site unsupervised, and attendance history is unaffected."""
+    left = []
+    for site_id in site_ids:
+        covered = c.execute(
+            text(
+                "SELECT 1 FROM demo_user_locations g JOIN demo_users u ON u.id=g.user_id "
+                "LEFT JOIN demo_disabled_users d ON d.user_id=u.id "
+                "WHERE g.location_id=:loc AND u.role='supervisor' AND d.user_id IS NULL"
+            ),
+            {"loc": site_id},
+        ).first()
+        if not covered:
+            left.append(site_id)
+    return left
+
+
+@app.patch("/api/settings/access/{user_id}/locations")
+def update_access_locations(user_id: str, body: AccessLocationsBody, user=Depends(current_user)):
+    """Admin edit of an existing supervisor's site coverage. Grants are replaced in one
+    transaction and read live by every scoped query, so the change applies on the
+    supervisor's next request. Attendance rows reference locations, not supervisors,
+    so history, reports and exports are untouched."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        # Lock the user row: grants are replaced as DELETE+INSERT, and two concurrent edits
+        # under READ COMMITTED could otherwise interleave into a union of both edits (or a
+        # unique violation). The lock makes per-user replacements strictly serialized, so
+        # the last committer's set is exactly what remains.
+        supervisor_row(c, user_id, lock=True)
+        after = list(dict.fromkeys(body.location_ids))
+        for location_id in after:
+            if not c.execute(text("SELECT 1 FROM demo_locations WHERE id=:id"), {"id": location_id}).first():
+                raise HTTPException(404, f"Location not found: {location_id}")
+        before = grant_site_ids(c, user_id)
+        c.execute(text("DELETE FROM demo_user_locations WHERE user_id=:id"), {"id": user_id})
+        for location_id in after:
+            c.execute(
+                text("INSERT INTO demo_user_locations VALUES (:user,:location)"),
+                {"user": user_id, "location": location_id},
+            )
+        audit(c, user, "settings.access.locations", {"id": user_id, "before": before, "after": after})
+        unsupervised = unsupervised_sites(c, sorted(set(before) | set(after)))
+    return {"id": user_id, "location_ids": after, "unsupervised": unsupervised}
+
+
+@app.delete("/api/settings/access/{user_id}")
+def disable_access(user_id: str, user=Depends(current_user)):
+    """Admin disable of a departing supervisor's login. The account, site grants and all
+    history stay (enable restores coverage as it was); sessions are revoked immediately
+    and sign-in is blocked. current_user also re-checks the flag on every request, so a
+    session that survives revocation is still rejected."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    if user_id == user["id"]:
+        raise HTTPException(400, "You cannot disable your own account")
+    with engine.begin() as c:
+        row = supervisor_row(c, user_id, active=1, lock=True)
+        sites = grant_site_ids(c, user_id)
+        c.execute(
+            text("INSERT INTO demo_disabled_users VALUES (:id,:at,:by)"),
+            {"id": user_id, "at": utcnow().isoformat(), "by": user["id"]},
+        )
+        c.execute(text("DELETE FROM demo_sessions WHERE user_id=:id"), {"id": user_id})
+        audit(c, user, "settings.access.disable", {"id": user_id, "name": row["name"], "location_ids": sites})
+        unsupervised = unsupervised_sites(c, sites)
+    return {"id": user_id, "status": "disabled", "unsupervised": unsupervised}
+
+
+@app.post("/api/settings/access/{user_id}/enable")
+def enable_access(user_id: str, user=Depends(current_user)):
+    """Re-enable a disabled supervisor. Site grants were kept, so coverage resumes exactly
+    as before the disable; the supervisor signs in with their existing password."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        row = supervisor_row(c, user_id, active=0, lock=True)
+        c.execute(text("DELETE FROM demo_disabled_users WHERE user_id=:id"), {"id": user_id})
+        # Purge any session row that somehow outlived the disabled window, so no token
+        # minted before or during it can revive on re-enable. Login already serializes
+        # with disable on the user row lock; this keeps the guarantee independent of how
+        # any future code path creates sessions.
+        c.execute(text("DELETE FROM demo_sessions WHERE user_id=:id"), {"id": user_id})
+        audit(c, user, "settings.access.enable", {"id": user_id, "name": row["name"]})
+    return {"id": user_id, "status": "active"}
 
 
 # The frontend is three static files: this HTML shell plus its stylesheet and script below.

@@ -127,7 +127,9 @@ def test_location_detail_shows_shift_and_employees_to_both_roles(role, tmp_path)
         assert page.url.endswith("#locationDetail")
         page.wait_for_function("document.body.innerText.includes('Detail Guard')")
         text = page.inner_text("body")
-        assert "09:00 am - 06:30 pm IST" in text
+        assert "09:00 am" in text
+        assert "06:30 pm" in text
+        assert "Slot 1 · IST" in text
         assert "Detail Guard" in text
         # Removal controls stay admin-only; both roles see shift and employees.
         assert page.locator("[data-del-loc]").count() == (1 if role == "admin" else 0)
@@ -261,23 +263,23 @@ def test_shift_button_and_optional_employee_location(tmp_path):
     with playwright.sync_playwright() as p:
         browser, page = open_page(p, user, respond)
         page.wait_for_selector("#attSearch")
-        # Add location: shift inputs stay hidden until "Add shift" is clicked.
+        # Add location: no shift rows until "Add shift" is clicked; each click adds a row.
         page.evaluate("go('locations')")
         page.locator("[data-locaction=add]").click()
         form = page.locator("#locationForm")
-        assert form.locator("#shiftFields").is_hidden()
-        form.locator("#toggleShift").click()
-        assert form.locator("#shiftFields").is_visible()
+        assert form.locator("[data-shift-row]").count() == 0
+        form.locator("#addShiftRow").click()
+        assert form.locator("[data-shift-row]").count() == 1
         form.locator("[name=name]").fill("Shift Branch")
         form.locator("[name=area]").fill("Shift Area")
-        form.locator("[name=shift_start]").fill("08:00")
-        form.locator("[name=shift_end]").fill("20:00")
+        form.locator("[data-shift-row] [name=shift_start]").fill("08:00")
+        form.locator("[data-shift-row] [name=shift_end]").fill("20:00")
         form.locator("[name=supervisor_id]").select_option("__unassigned__")
         page.screenshot(path=str(tmp_path / "add-shift.png"))
         form.locator("button.secondary").click()
         page.wait_for_function("document.body.innerText.includes('Location added as loc-shift-branch')")
-        assert location_posts[0]["shift_start"] == "08:00"
-        assert location_posts[0]["shift_end"] == "20:00"
+        assert location_posts[0]["shifts"] == [{"label": None, "shift_start": "08:00", "shift_end": "20:00"}]
+        assert "shift_start" not in location_posts[0]
         # Add employee: the location dropdown offers "Assign location later" and posts null.
         page.evaluate("go('employees')")
         page.wait_for_selector("[data-emp=add]")

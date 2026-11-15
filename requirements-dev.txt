@@ -2,6 +2,6 @@
 #   python -m pip install -r requirements-dev.txt
 -r requirements.txt
 pytest==9.2.0
-httpx2==2.16.0
+httpx2==2.14.0
 ruff==0.17.5
 # Optional browser tests: python -m pip install playwright && python -m playwright install chromium
