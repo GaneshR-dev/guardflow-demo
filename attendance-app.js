@@ -1530,10 +1530,15 @@ async function doCheckin() {
 }
 // Check-out always asks first, showing the IST check-out time and hours worked.
 function askCheckout(id) {
-  // Prefer the open record in staleOpen: the today's-list row for the same employee
-  // is a LEFT JOIN shell with check_in NULL, which made the dialog show 0h 00m.
-  const row =
-    (state.staleOpen || []).find((r) => r.employee_id === id) || state.attendance.find((r) => r.employee_id === id);
+  // Show the record the backend closes: the newest open check-in (check_out orders
+  // open days DESC). A real checked-in row from today wins; only then the newest stale
+  // open record. The today's-list row for an overnight worker is a LEFT JOIN shell
+  // with check_in NULL - picking it made the dialog show 0h 00m.
+  const todayOpen = state.attendance.find((r) => r.employee_id === id && r.status === 'checked_in' && r.check_in);
+  const staleOpen = (state.staleOpen || [])
+    .filter((r) => r.employee_id === id && r.check_in)
+    .sort((a, b) => (a.day < b.day ? 1 : -1));
+  const row = todayOpen || staleOpen[0];
   if (!row) return;
   const nowMs = Date.now();
   const inMs = row.check_in ? new Date(row.check_in).getTime() : nowMs;
