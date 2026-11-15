@@ -24,7 +24,7 @@ Template:
 ## 2026-11-15 · Location filter on the Employees screen · Instinct · feat/employee-location-filter
 - Request: Filter the employee directory by location with a dropdown that works together with the search box.
 - Changed: `attendance-app.js`: location dropdown under the Employees search box in the shared field style (All locations by default, sites in name order with a (Disabled) mark, "No location yet" for admins); the pick combines with the name/ID search and a removed site resets it to all. `tests/test_employee_location_filter.py` (new): admin filter, search combine, reset, unassigned pick; supervisor option set without "No location yet".
-- Tests: `pytest -q tests/test_employee_location_filter.py` → 2 passed. Ruff check and format → passed. Playwright renders at 320 and 390 px: dropdown matches the shared field style, filter narrows the directory, no page errors.
+- Tests: `pytest -q tests/` → 153 passed, 3 skipped (main: 149 passed, 3 skipped; +4 new tests, no regressions). Ruff check and format → passed. Playwright renders at 320 and 390 px: dropdown matches the shared field style, filter narrows the directory, no page errors.
 - Open items: Branch not merged: waiting for the owner's go-ahead.
 
 ## 2026-11-15 · Log sign-in on a disabled account · Claude Code · feat/app-logging
