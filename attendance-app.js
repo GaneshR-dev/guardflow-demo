@@ -120,6 +120,7 @@ const state = {
   outQuery: '',
   lookupResults: null,
   employeeQuery: '',
+  employeeLocation: '',
   showEmployeeForm: false,
   filter: 'all',
   notice: '',
@@ -498,11 +499,37 @@ function menu() {
     .join('')}<button class="secondary" id="logout" style="margin-top:20px">Sign out</button></div>${message()}`;
 }
 function employees() {
+  // Location filter: '' is every site the role may see, 'none' is employees not
+  // placed anywhere yet (admin only). A stale pick (site removed) resets to all.
+  if (
+    state.employeeLocation &&
+    state.employeeLocation !== 'none' &&
+    !state.locations.some((l) => l.id === state.employeeLocation)
+  )
+    state.employeeLocation = '';
   const shown = state.employees.filter(
     (e) =>
-      !state.employeeQuery ||
-      (e.name + ' ' + e.id + ' ' + e.role).toLowerCase().includes(state.employeeQuery.toLowerCase()),
+      (!state.employeeLocation ||
+        (state.employeeLocation === 'none' ? !e.location_id : e.location_id === state.employeeLocation)) &&
+      (!state.employeeQuery ||
+        (e.name + ' ' + e.id + ' ' + e.role).toLowerCase().includes(state.employeeQuery.toLowerCase())),
   );
+  // The dropdown reuses the shared .search field style so it matches the box above it.
+  const locFilter = `<select class="search" id="empLocFilter" aria-label="Filter employees by location"><option value=""${
+    state.employeeLocation === '' ? ' selected' : ''
+  }>All locations</option>${[...state.locations]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(
+      (l) =>
+        `<option value="${esc(l.id)}"${state.employeeLocation === l.id ? ' selected' : ''}>${esc(l.name)}${
+          l.active ? '' : ' (Disabled)'
+        }</option>`,
+    )
+    .join('')}${
+    state.user?.role === 'admin'
+      ? `<option value="none"${state.employeeLocation === 'none' ? ' selected' : ''}>No location yet</option>`
+      : ''
+  }</select>`;
   const locationName = (id) => (id ? state.locations.find((l) => l.id === id)?.name || id : 'No location yet');
   // A disabled location makes its employees effectively disabled: greyed, no new attendance.
   const locationActive = (id) => {
@@ -537,7 +564,7 @@ function employees() {
     )
     .join(
       '',
-    )}${state.user?.role === 'admin' ? '<input type="file" id="importFile" accept=".csv,text/csv" style="display:none">' : ''}${form}<input class="search" id="empSearch" placeholder="Search name, role or employee ID" value="${esc(state.employeeQuery)}"><div id="directoryList">${shown.map(empRow).join('') || '<p class="muted small">No employees match.</p>'}</div></div>${nav()}${message()}`;
+    )}${state.user?.role === 'admin' ? '<input type="file" id="importFile" accept=".csv,text/csv" style="display:none">' : ''}${form}<input class="search" id="empSearch" placeholder="Search name, role or employee ID" value="${esc(state.employeeQuery)}">${locFilter}<div id="directoryList">${shown.map(empRow).join('') || '<p class="muted small">No employees match.</p>'}</div></div>${nav()}${message()}`;
 }
 // Reports screen: Day / Month / History tabs. Everything it shows comes from
 // state.report; loadReport() fetches the data for the open tab.
@@ -1151,6 +1178,12 @@ function bind() {
   if (es)
     es.oninput = (e) => {
       state.employeeQuery = e.target.value;
+      render();
+    };
+  const elf = document.getElementById('empLocFilter');
+  if (elf)
+    elf.onchange = (e) => {
+      state.employeeLocation = e.target.value;
       render();
     };
   document.querySelectorAll('[data-locaction]').forEach(
