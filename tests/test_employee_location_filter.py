@@ -74,7 +74,7 @@ def fulfill_frontend(route):
     return True
 
 
-def open_employees(p, user):
+def open_employees(p, user, locations=None, employees=None):
     browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
     page = browser.new_page(viewport={"width": 390, "height": 844})
     page.add_init_script(
@@ -88,8 +88,8 @@ def open_employees(p, user):
             return
         path = urlsplit(route.request.url).path
         body = {
-            "/api/locations": LOCATIONS,
-            "/api/employees": EMPLOYEES,
+            "/api/locations": LOCATIONS if locations is None else locations,
+            "/api/employees": EMPLOYEES if employees is None else employees,
         }.get(path, {})
         route.fulfill(content_type="application/json", body=json.dumps(body))
 
@@ -102,10 +102,7 @@ def open_employees(p, user):
 
 
 def directory_names(page):
-    return [
-        t.strip()
-        for t in page.locator("#directoryList .person strong").all_inner_texts()
-    ]
+    return [t.strip() for t in page.locator("#directoryList .person strong").all_inner_texts()]
 
 
 def test_admin_location_filter_combines_with_search_and_resets(tmp_path):
@@ -113,10 +110,7 @@ def test_admin_location_filter_combines_with_search_and_resets(tmp_path):
     with playwright.sync_playwright() as p:
         browser, page = open_employees(p, user)
         try:
-            options = [
-                o.strip()
-                for o in page.locator("#empLocFilter option").all_inner_texts()
-            ]
+            options = [o.strip() for o in page.locator("#empLocFilter option").all_inner_texts()]
             # Alphabetical sites, disabled marked, unassigned last, admin only.
             assert options == [
                 "All locations",
@@ -152,10 +146,7 @@ def test_supervisor_filter_hides_unassigned_option(tmp_path):
     with playwright.sync_playwright() as p:
         browser, page = open_employees(p, user)
         try:
-            options = [
-                o.strip()
-                for o in page.locator("#empLocFilter option").all_inner_texts()
-            ]
+            options = [o.strip() for o in page.locator("#empLocFilter option").all_inner_texts()]
             # The server scopes a supervisor's locations; "No location yet" is admin-only.
             assert options == [
                 "All locations",
@@ -167,5 +158,33 @@ def test_supervisor_filter_hides_unassigned_option(tmp_path):
             assert directory_names(page) == ["Bala South"]
             # No Disable/Enable actions for supervisors.
             assert page.locator("#directoryList .outlineBtn").count() == 0
+        finally:
+            browser.close()
+
+
+def test_supervisor_with_no_locations_gets_plain_all_option(tmp_path):
+    user = {"id": "supervisor.demo", "name": "Supervisor Demo", "role": "supervisor"}
+    with playwright.sync_playwright() as p:
+        browser, page = open_employees(p, user, locations=[], employees=[])
+        try:
+            options = [o.strip() for o in page.locator("#empLocFilter option").all_inner_texts()]
+            assert options == ["All locations"]
+            assert "No employees match." in page.locator("#directoryList").inner_text()
+        finally:
+            browser.close()
+
+
+def test_stale_location_pick_resets_to_all(tmp_path):
+    user = {"id": "admin.demo", "name": "Admin Demo", "role": "admin"}
+    with playwright.sync_playwright() as p:
+        browser, page = open_employees(p, user)
+        try:
+            page.locator("#empLocFilter").select_option("loc-north")
+            assert directory_names(page) == ["Asha North"]
+            # The site vanishes from the scoped list (access changed or site removed).
+            page.evaluate("state.locations = state.locations.filter((l) => l.id !== 'loc-north'); render()")
+            page.wait_for_timeout(300)
+            assert page.locator("#empLocFilter").input_value() == ""
+            assert directory_names(page) == ["Asha North", "Bala South", "Chitra Free"]
         finally:
             browser.close()
