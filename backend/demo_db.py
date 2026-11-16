@@ -29,7 +29,7 @@ def init_db() -> None:
         "CREATE TABLE IF NOT EXISTS demo_sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires TEXT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS demo_locations (id TEXT PRIMARY KEY, name TEXT NOT NULL, area TEXT NOT NULL, assigned_count INTEGER NOT NULL, shift_start TEXT, shift_end TEXT, active INTEGER NOT NULL DEFAULT 1)",
         "CREATE TABLE IF NOT EXISTS demo_employees (id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT NOT NULL, role TEXT NOT NULL, location_id TEXT, active INTEGER NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS demo_attendance (id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, location_id TEXT NOT NULL, day TEXT NOT NULL, status TEXT NOT NULL, check_in TEXT, check_out TEXT, source TEXT NOT NULL, UNIQUE(employee_id, day))",
+        "CREATE TABLE IF NOT EXISTS demo_attendance (id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, location_id TEXT NOT NULL, day TEXT NOT NULL, status TEXT NOT NULL, check_in TEXT, check_out TEXT, source TEXT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS demo_audit (id TEXT PRIMARY KEY, at TEXT NOT NULL, user_id TEXT NOT NULL, action TEXT NOT NULL, details TEXT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS demo_login_attempts (id TEXT PRIMARY KEY, at TEXT NOT NULL, username TEXT NOT NULL)",
         # NOTE: demo_location_shifts is deliberately NOT created in this list - see
@@ -316,6 +316,7 @@ def _migrate_schema(c) -> None:
     # Multiple shift timings per branch: copy the original single pair into the new table
     # for locations that predate it. Idempotent: a location that already has rows keeps them,
     # so repeat boots and concurrent starters (under the startup lock) apply this at most once.
+    _allow_sequential_attendance(c)
     _ensure_location_shifts(c)
     if engine.dialect.name != "sqlite":
         # Serialize the backfill against in-flight API replacements: PUT /shifts locks the
@@ -333,6 +334,62 @@ def _migrate_schema(c) -> None:
             "AND NOT EXISTS (SELECT 1 FROM demo_location_shifts s WHERE s.location_id = l.id)"
         )
     )
+
+
+def _allow_sequential_attendance(c) -> None:
+    """Keep every shift while removing the old one-record-per-day constraint."""
+    if not _columns(c, "demo_attendance"):
+        return
+    if engine.dialect.name == "sqlite":
+        old_unique = False
+        for index in c.execute(text("PRAGMA index_list(demo_attendance)")):
+            if index[2]:
+                name = index[1].replace('"', '""')
+                columns = [r[2] for r in c.execute(text(f'PRAGMA index_info("{name}")'))]
+                old_unique |= columns == ["employee_id", "day"]
+        if old_unique:
+            indexes = list(
+                c.execute(
+                    text(
+                        "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='demo_attendance' AND sql IS NOT NULL"
+                    )
+                ).scalars()
+            )
+            c.execute(
+                text(
+                    "CREATE TABLE demo_attendance_next (id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, "
+                    "location_id TEXT NOT NULL, day TEXT NOT NULL, status TEXT NOT NULL, "
+                    "check_in TEXT, check_out TEXT, source TEXT NOT NULL)"
+                )
+            )
+            c.execute(
+                text(
+                    "INSERT INTO demo_attendance_next SELECT id,employee_id,location_id,day,status,check_in,check_out,source FROM demo_attendance"
+                )
+            )
+            c.execute(text("DROP TABLE demo_attendance"))
+            c.execute(text("ALTER TABLE demo_attendance_next RENAME TO demo_attendance"))
+            for statement in indexes:
+                c.execute(text(statement))
+    else:
+        constraints = (
+            c.execute(
+                text(
+                    "SELECT con.conname FROM pg_constraint con "
+                    "WHERE con.conrelid='demo_attendance'::regclass AND con.contype='u' "
+                    "AND (SELECT array_agg(a.attname::text ORDER BY k.ord) "
+                    "FROM unnest(con.conkey) WITH ORDINALITY k(num,ord) "
+                    "JOIN pg_attribute a ON a.attrelid=con.conrelid AND a.attnum=k.num) "
+                    "= ARRAY['employee_id','day']::text[]"
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for name in constraints:
+            quoted = name.replace('"', '""')
+            c.execute(text(f'ALTER TABLE demo_attendance DROP CONSTRAINT "{quoted}"'))
+    c.execute(text("CREATE INDEX IF NOT EXISTS demo_attendance_employee_day ON demo_attendance (employee_id, day)"))
 
 
 def migrate_db() -> None:
