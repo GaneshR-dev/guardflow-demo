@@ -1910,20 +1910,73 @@ button {
   font-size: 22px;
   color: var(--muted);
 }
+.siteList {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
 .siteOption {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 11px 4px;
+  gap: 14px;
+  min-height: 52px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.siteOption:last-child {
+  border-bottom: 0;
 }
 .siteOption input {
   width: 22px;
   height: 22px;
   flex: none;
+  margin: 0;
+  accent-color: var(--blue);
 }
-.siteOption small {
+.siteOption:has(input:checked) {
+  background: #f1f6ff;
+}
+.siteText strong {
+  display: block;
+  font-size: 14px;
+}
+.siteText small {
   display: block;
   color: var(--muted);
   font-size: 11px;
+  margin-top: 2px;
+}
+.siteList .siteOption {
+  display: flex;
+  margin: 0;
+}
+.siteList .siteOption input {
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border-radius: 6px;
+  background: #fff;
+}
+.accessMeta {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.accessToggle {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.accessToggle .muted {
+  margin: 0 0 8px;
+}
+.accessToggle .outlineBtn {
+  width: auto;
+  min-height: 40px;
+  padding: 8px 16px;
+  font-size: 14px;
 }
