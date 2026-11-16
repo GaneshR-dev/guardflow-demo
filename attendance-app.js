@@ -111,7 +111,8 @@ function freshSessionState() {
     report: null,
     settings: null,
     settingsView: '',
-    editAccess: null,
+    accessUserId: '',
+    overviewLocation: '',
     showLocationForm: false,
     selected: null,
     lastCheck: null,
@@ -533,7 +534,22 @@ function checkout() {
 async function dashboard() {
   if (!state.dashboard) state.dashboard = await api('/api/dashboard');
   const d = state.dashboard;
-  return `<div class="page">${header()}<h1>Attendance overview</h1><p class="sub">Today's summary across all assigned locations.</p><div class="grid2"><div class="dashStat"><strong>${d.employees}</strong><span>Employees</span></div><div class="dashStat"><strong style="color:var(--green)">${d.checked_in}</strong><span>Checked in</span></div><div class="dashStat"><strong>${d.completed}</strong><span>Checked out</span></div><div class="dashStat"><strong style="color:var(--amber)">${d.not_checked_in}</strong><span>Not checked in</span></div></div><h2 class="sectionTitle">Location breakdown</h2>${d.locations.map((l) => `<div class="card listCard ${l.active ? '' : 'disabledCard'}"><span><strong>${esc(l.name.split(' - ')[1] || l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${empCountLabel(l)}</small></span><span style="text-align:right"><span class="badge green">${l.today.checked_in} checked in</span><small>${l.today.completed} checked out</small></span></div>`).join('')}</div>${nav()}${message()}`;
+  // "All" adds up every location this account can see; picking one location shows only its numbers.
+  const locs = d.locations;
+  const pick = locs.find((l) => l.id === state.overviewLocation) || null;
+  const t = pick
+    ? {
+        employees: pick.today.checked_in + pick.today.completed + pick.today.not_in,
+        checked_in: pick.today.checked_in,
+        completed: pick.today.completed,
+        not_checked_in: pick.today.not_in,
+      }
+    : d;
+  const short = (l) => l.name.split(' - ')[1] || l.name;
+  const chips = `<div class="filters overviewFilters" role="group" aria-label="Location"><button class="chip ${pick ? '' : 'active'}" data-overview-loc="">All locations</button>${locs.map((l) => `<button class="chip ${pick?.id === l.id ? 'active' : ''}" data-overview-loc="${esc(l.id)}">${esc(short(l))}</button>`).join('')}</div>`;
+  const card = (l) =>
+    `<button type="button" class="card listCard locCard ${l.active ? '' : 'disabledCard'}" data-overview-loc="${esc(l.id)}"><span><strong>${esc(short(l))} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${empCountLabel(l)}</small></span><span style="text-align:right"><span class="badge green">${l.today.checked_in} checked in</span><small>${l.today.completed} checked out</small><small>${l.today.not_in} not checked in</small></span></button>`;
+  return `<div class="page">${header()}<h1>Attendance overview</h1><p class="sub">Today's summary · ${pick ? esc(short(pick)) : 'all assigned locations'}</p>${chips}<div class="grid2"><div class="dashStat"><strong>${t.employees}</strong><span>Employees</span></div><div class="dashStat"><strong style="color:var(--green)">${t.checked_in}</strong><span>Checked in</span></div><div class="dashStat"><strong>${t.completed}</strong><span>Checked out</span></div><div class="dashStat"><strong style="color:var(--amber)">${t.not_checked_in}</strong><span>Not checked in</span></div></div><h2 class="sectionTitle">${pick ? 'Location' : 'Location breakdown'}</h2>${(pick ? [pick] : locs).map(card).join('') || '<p class="muted small">No locations yet.</p>'}</div>${nav()}${message()}`;
 }
 function menu() {
   return `<div class="page">${header()}<h1>Account</h1><p class="sub">${esc(state.user?.name || '')}</p><div class="person accountIdentity"><span class="initials">${esc(initials(state.user?.name || 'User'))}</span><span><strong>${esc(state.user?.name || '')}</strong><small>${esc(state.user?.id || '')} · ${esc(state.user?.role || '')}</small></span></div><button class="secondary" id="logout" style="margin-top:18px">Sign out</button></div>${nav()}${message()}`;
@@ -951,39 +967,46 @@ function siteName(d, id) {
 function accessRow(u, d) {
   const isAdmin = state.user.role === 'admin';
   const disabled = u.active === 0;
-  const editing = state.editAccess === u.id;
   const scope =
     u.role === 'admin'
       ? 'All locations'
       : (u.location_ids || []).map((id) => siteName(d, id)).join(', ') || 'No sites assigned';
-  let actions = '';
-  if (isAdmin && u.role === 'supervisor' && !editing) {
-    actions = `<div class="accessActions">${
-      disabled
-        ? `<button class="link" data-en-access="${esc(u.id)}" data-name="${esc(u.name)}">Enable</button>`
-        : `<button class="link" data-edit-access="${esc(u.id)}">Edit sites</button><button class="link dangerText" data-del-access="${esc(u.id)}" data-name="${esc(u.name)}">Disable</button>`
-    }</div>`;
-  }
-  const editForm = editing
-    ? `<div class="accessEdit"><form id="accessEditForm" data-user="${esc(u.id)}"><div class="field"><label>Sites ${esc(
-        u.name,
-      )} can work at</label><select name="location_ids" multiple size="${Math.min(
-        Math.max(d.locations.length, 2),
-        6,
-      )}">${d.locations
-        .map(
-          (l) =>
-            `<option value="${esc(l.id)}" ${u.location_ids.includes(l.id) ? 'selected' : ''}>${esc(l.name)}</option>`,
-        )
-        .join(
-          '',
-        )}</select><small class="helper" style="display:block;margin-top:4px">Takes effect on their next request. Saving with none selected leaves them with "No location access assigned" until you add a site. Attendance history is not affected.</small></div><button class="secondary">Save sites</button> <button type="button" class="link" id="cancelAccessEdit">Cancel</button></form></div>`
-    : '';
-  return `<div class="person accessCard ${disabled ? 'disabledRow' : ''}"><span class="accessTop"><span class="initials">${esc(
+  const body = `<span class="accessTop"><span class="initials">${esc(
     initials(u.name),
   )}</span><span class="accessInfo"><strong>${esc(u.name)} ${
     disabled ? '<span class="badge grey">Disabled</span>' : ''
-  }</strong><small>${esc(u.id)} · ${esc(u.role)}</small><small>${esc(scope)}</small></span></span>${actions}${editForm}</div>`;
+  }</strong><small>${esc(u.id)} · ${esc(u.role)}</small><small>${esc(scope)}</small></span>${isAdmin ? '<span class="chev" aria-hidden="true">›</span>' : ''}</span>`;
+  // Admins open a user to see and change their locations; supervisors only read the list.
+  if (isAdmin)
+    return `<button type="button" class="person accessCard accessOpen ${disabled ? 'disabledRow' : ''}" data-open-access="${esc(u.id)}" aria-label="Open ${esc(u.name)}">${body}</button>`;
+  return `<div class="person accessCard ${disabled ? 'disabledRow' : ''}">${body}</div>`;
+}
+// One user's own screen: who they are, which locations they can work at (add or remove),
+// and disable/enable. Admin only; the server enforces the same rules.
+function accessDetail(u, d) {
+  const disabled = u.active === 0;
+  const isSupervisor = u.role === 'supervisor';
+  const assigned = new Set(u.location_ids || []);
+  const sites = isSupervisor
+    ? `<form id="accessEditForm" data-user="${esc(u.id)}"><h2 class="sectionTitle">Locations</h2>${
+        d.locations
+          .map(
+            (l) =>
+              `<label class="siteOption ${l.active ? '' : 'disabledRow'}"><input type="checkbox" name="location_ids" value="${esc(l.id)}" ${assigned.has(l.id) ? 'checked' : ''}><span><strong>${esc(l.name)}</strong><small>${esc(l.area)}${l.active ? '' : ' · Disabled'}</small></span></label>`,
+          )
+          .join('') || '<p class="muted small">No locations yet. Add one under Locations first.</p>'
+      }<small class="helper" style="display:block;margin:6px 0 10px">Tick the locations ${esc(u.name)} can work at. Takes effect on their next request. Attendance history is not affected.</small><button class="secondary">Save locations</button></form>`
+    : '<h2 class="sectionTitle">Locations</h2><p class="muted small">Admins can work at all locations.</p>';
+  const actions =
+    isSupervisor && state.user.role === 'admin'
+      ? disabled
+        ? `<button class="outlineBtn" data-en-access="${esc(u.id)}" data-name="${esc(u.name)}">Enable access</button>`
+        : `<button class="outlineBtn dangerText" data-del-access="${esc(u.id)}" data-name="${esc(u.name)}">Disable access</button>`
+      : '';
+  return `<div class="card" style="padding:16px;margin:12px 0"><div class="person"><span class="initials">${esc(initials(u.name))}</span><span><strong>${esc(u.name)} ${disabled ? '<span class="badge grey">Disabled</span>' : ''}</strong><small>${esc(u.id)} · ${esc(u.role)}</small></span></div>${sites}<div style="margin-top:14px">${actions}</div></div>`;
+}
+function accessListPanel(d) {
+  return `<div class="card" style="padding:16px;margin:12px 0">${d.access.map((u) => accessRow(u, d)).join('')}${state.user.role === 'admin' ? `<form id="accessForm" style="margin-top:14px"><div class="field"><label>User ID</label><input name="id" required></div><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Password</label><input name="password" type="password" minlength="8" maxlength="100" autocomplete="new-password" placeholder="At least 8 characters" required></div><div class="field"><label>Locations</label><select name="location_ids" multiple size="3">${d.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div><button class="secondary">Create supervisor</button></form>` : '<p class="muted small">Only admins can create or change access.</p>'}</div>`;
 }
 function settings() {
   const d = state.settings;
@@ -993,8 +1016,12 @@ function settings() {
     panel = `<div class="card" style="padding:16px;margin:12px 0"><form id="profileForm"><div class="field"><label>Name</label><input name="name" value="${esc(d.profile.name)}" required></div><div class="field"><label>User ID</label><input value="${esc(d.profile.id)}" disabled></div><button class="secondary">Save profile</button></form></div>`;
   if (d && state.settingsView === 'locations')
     panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">Locations</h2>${d.locations.map((l) => `<div class="person ${l.active ? '' : 'disabledRow'}"><span><strong>${esc(l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${esc(l.area)} · ${empCountLabel(l)} · ${esc(shiftLabel(l))}</small></span></div>`).join('') || '<p class="muted small">No locations yet. Add the first branch below.</p>'}${state.user.role === 'admin' ? `<form id="locationForm" style="margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Area</label><input name="area" required></div>${shiftFields()}${locationSupervisorField()}<button class="secondary" ${!Array.isArray(state.settings?.access) ? 'disabled' : ''}>Add location</button></form>` : '<p class="muted small">Supervisors can view assigned locations. Admins manage branches.</p>'}</div>`;
-  if (d && state.settingsView === 'access')
-    panel = `<div class="card" style="padding:16px;margin:12px 0">${d.access.map((u) => accessRow(u, d)).join('')}${state.user.role === 'admin' ? `<form id="accessForm" style="margin-top:14px"><div class="field"><label>User ID</label><input name="id" required></div><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Password</label><input name="password" type="password" minlength="8" maxlength="100" autocomplete="new-password" placeholder="At least 8 characters" required></div><div class="field"><label>Locations</label><select name="location_ids" multiple size="3">${d.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div><button class="secondary">Create supervisor</button></form>` : '<p class="muted small">Only admins can create or change access.</p>'}</div>`;
+  if (d && state.settingsView === 'accessUser') {
+    const au = state.user?.role === 'admin' ? d.access.find((u) => u.id === state.accessUserId) : null;
+    if (au) panel = accessDetail(au, d);
+    else state.settingsView = 'access';
+  }
+  if (d && state.settingsView === 'access') panel = accessListPanel(d);
   if (d && state.settingsView === 'activity' && state.user?.role === 'admin')
     panel = `<div class="card" style="padding:16px;margin:12px 0"><p class="muted small">Each recorded change, newest first. Time corrections always carry a reason.</p><p style="text-align:right;margin:0 0 8px"><button class="link" id="exportAudit">Export full log (CSV)</button></p>${(state.audit || []).map((a) => `<div class="person"><span><strong>${esc(auditTitle(a))}</strong><small>${esc(auditDetail(a))}</small><small>${esc(a.user_id)} · ${esc(fmtAuditTime(a.at))}</small></span></div>`).join('') || '<p class="muted small">No activity recorded yet.</p>'}</div>`;
   const items = [
@@ -1009,8 +1036,11 @@ function settings() {
     items.push(['activity', 'Activity log', 'Each change and correction, with reasons']);
   if (state.settingsView && panel) {
     const title =
-      { profile: 'My profile', access: 'User access', activity: 'Activity log' }[state.settingsView] || 'Settings';
-    return `<div class="page">${header()}<button class="link backLink" data-settings="">‹ Settings</button><h1>${title}</h1>${panel}</div>${nav()}${message()}`;
+      state.settingsView === 'accessUser'
+        ? d.access.find((u) => u.id === state.accessUserId)?.name || 'User'
+        : { profile: 'My profile', access: 'User access', activity: 'Activity log' }[state.settingsView] || 'Settings';
+    const backTo = state.settingsView === 'accessUser' ? 'access' : '';
+    return `<div class="page">${header()}<button class="link backLink" data-settings="${backTo}">${backTo ? '‹ User access' : '‹ Settings'}</button><h1>${title}</h1>${panel}</div>${nav()}${message()}`;
   }
   return `<div class="page">${header()}<h1>Settings</h1><p class="sub">Manage your account and app preferences.</p>${items
     .map(
@@ -1314,6 +1344,13 @@ function bind() {
         else document.getElementById('importFile')?.click();
       }),
   );
+  document.querySelectorAll('[data-overview-loc]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        state.overviewLocation = b.dataset.overviewLoc;
+        render();
+      }),
+  );
   document.querySelectorAll('[data-settings]').forEach((b) => (b.onclick = () => openSettings(b.dataset.settings)));
   const pf = document.getElementById('profileForm');
   if (pf) pf.onsubmit = saveProfile;
@@ -1329,11 +1366,11 @@ function bind() {
     };
   const ef = document.getElementById('employeeForm');
   if (ef) ef.onsubmit = createEmployee;
-  document.querySelectorAll('[data-edit-access]').forEach(
+  document.querySelectorAll('[data-open-access]').forEach(
     (b) =>
       (b.onclick = () => {
-        state.editAccess = b.dataset.editAccess;
-        render();
+        state.accessUserId = b.dataset.openAccess;
+        go('settings', { settingsView: 'accessUser' });
       }),
   );
   document
@@ -1344,12 +1381,6 @@ function bind() {
     .forEach((b) => (b.onclick = () => setAccessActive(b.dataset.enAccess, true)));
   const aef = document.getElementById('accessEditForm');
   if (aef) aef.onsubmit = saveAccessSites;
-  const cae = document.getElementById('cancelAccessEdit');
-  if (cae)
-    cae.onclick = () => {
-      state.editAccess = null;
-      render();
-    };
   const acf = document.getElementById('accessForm');
   if (acf) acf.onsubmit = createAccess;
   document.querySelectorAll('[data-screen-retry]').forEach(
@@ -1421,7 +1452,7 @@ function go(screen, opts = {}) {
   state.lookupResults = null;
   state.notice = '';
   state.screenError = null;
-  if (screen === 'home') screen = state.user?.role === 'admin' ? 'dashboard' : 'attendance';
+  if (screen === 'home') screen = 'dashboard';
   if (screen === 'settings' && !state.settings) {
     openSettings(state.settingsView || '');
     return;
@@ -1483,7 +1514,7 @@ async function doLogin(e) {
     await bootstrap();
     state.notice = '';
     if (state.location) await loadAttendance();
-    state.screen = state.user.role === 'admin' ? 'dashboard' : 'attendance';
+    state.screen = 'dashboard';
     startHistory(state.screen);
     render();
   };
@@ -2149,9 +2180,8 @@ async function saveAccessSites(e) {
       method: 'PATCH',
       body: JSON.stringify({ location_ids: f.getAll('location_ids') }),
     });
-    state.editAccess = null;
     state.settings = await api('/api/settings');
-    toast('Sites updated' + unsupervisedNote(r));
+    toast('Locations updated' + unsupervisedNote(r));
   } catch (err) {
     state.error = err.message;
     render();
@@ -2321,11 +2351,7 @@ async function logout() {
     try {
       await bootstrap();
       const requested = location.hash.slice(1);
-      state.screen = appScreens.includes(requested)
-        ? requested
-        : state.user.role === 'admin'
-          ? 'dashboard'
-          : 'attendance';
+      state.screen = appScreens.includes(requested) ? requested : 'dashboard';
       if (state.screen === 'attendance' && state.location) await loadAttendance();
       startHistory(state.screen);
     } catch {
