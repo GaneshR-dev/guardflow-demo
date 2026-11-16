@@ -998,16 +998,20 @@ function accessDetail(u, d) {
   const disabled = u.active === 0;
   const isSupervisor = u.role === 'supervisor';
   const assigned = new Set(u.location_ids || []);
+  const identity = `<p class="accessMeta">${esc(u.id)} · ${esc(u.role)}${disabled ? ' <span class="badge grey">Disabled</span>' : ''}</p>`;
   const sites = isSupervisor
-    ? `<form id="accessEditForm" data-user="${esc(u.id)}"><h2 class="sectionTitle">Locations</h2>${siteChecklist(d, assigned)}<small class="helper" style="display:block;margin:8px 0 12px;text-align:left">Tick the locations ${esc(u.name)} can work at. Takes effect on their next request. Attendance history is not affected.</small><button class="secondary">Save locations</button></form>`
+    ? `<form id="accessEditForm" data-user="${esc(u.id)}"><h2 class="sectionTitle">Locations</h2>${siteChecklist(d, assigned)}<button class="primary" style="margin-top:14px">Save locations</button></form>`
     : '<h2 class="sectionTitle">Locations</h2><p class="muted small">Admins can work at all locations.</p>';
-  const actions =
+  // Disable/enable sits apart from the everyday form, with its own confirmation dialog.
+  const danger =
     isSupervisor && state.user.role === 'admin'
-      ? disabled
-        ? `<button class="outlineBtn" data-en-access="${esc(u.id)}" data-name="${esc(u.name)}">Enable access</button>`
-        : `<button class="outlineBtn dangerText" data-del-access="${esc(u.id)}" data-name="${esc(u.name)}">Disable access</button>`
+      ? `<div class="accessToggle">${
+          disabled
+            ? `<p class="muted small">Access is off. This user cannot sign in. History is kept.</p><button class="outlineBtn" data-en-access="${esc(u.id)}" data-name="${esc(u.name)}">Enable access</button>`
+            : `<button class="outlineBtn dangerText" data-del-access="${esc(u.id)}" data-name="${esc(u.name)}">Disable access</button>`
+        }</div>`
       : '';
-  return `<div class="card" style="padding:16px;margin:12px 0"><div class="person"><span class="initials">${esc(initials(u.name))}</span><span><strong>${esc(u.name)} ${disabled ? '<span class="badge grey">Disabled</span>' : ''}</strong><small>${esc(u.id)} · ${esc(u.role)}</small></span></div>${sites}<div style="margin-top:14px">${actions}</div></div>`;
+  return `<div class="card" style="padding:16px;margin:12px 0">${identity}${sites}${danger}</div>`;
 }
 function accessListPanel(d) {
   return `<div class="card" style="padding:16px;margin:12px 0">${d.access.map((u) => accessRow(u, d)).join('')}${state.user.role === 'admin' ? `<details class="addSupervisor"><summary>Add supervisor</summary><form id="accessForm" style="margin-top:14px"><div class="field"><label>User ID</label><input name="id" required></div><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Password</label><input name="password" type="password" minlength="8" maxlength="100" autocomplete="new-password" placeholder="At least 8 characters" required></div><div class="field"><label>Locations</label>${siteChecklist(d, new Set())}</div><button class="secondary">Create supervisor</button></form></details>` : '<p class="muted small">Only admins can create or change access.</p>'}</div>`;
