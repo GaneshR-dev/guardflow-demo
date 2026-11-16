@@ -215,3 +215,28 @@ def _xlsx_cells(content):
 
     wb = load_workbook(io.BytesIO(content))
     return {ws.title: [tuple(row) for row in ws.iter_rows(values_only=True)] for ws in wb.worksheets}
+
+
+def test_new_password_minimum_preserves_existing_logins():
+    headers = auth()
+    for length, expected in [(7, 422), (8, 200), (16, 200)]:
+        user_id = f"sup.password{length}"
+        password = "x" * length
+        response = client.post(
+            "/api/settings/access",
+            headers=headers,
+            json={
+                "id": user_id,
+                "name": "Password Test",
+                "password": password,
+                "role": "supervisor",
+                "location_ids": ["loc-hsr"],
+            },
+        )
+        assert response.status_code == expected, response.text
+        if expected == 200:
+            assert client.post("/api/login", json={"username": user_id, "password": password}).status_code == 200
+            with engine.begin() as c:
+                c.execute(text("DELETE FROM demo_user_locations WHERE user_id=:u"), {"u": user_id})
+                c.execute(text("DELETE FROM demo_users WHERE id=:u"), {"u": user_id})
+    assert auth()  # Existing demo123 credentials still work.
