@@ -334,6 +334,7 @@ def test_taskbar_and_second_shift_warning_cancel_confirm(role, tmp_path):
         page.wait_for_selector("[data-settings=access]")
         assert page.locator("#profileForm").count() == 0
         page.locator("[data-settings=access]").click()
+        page.wait_for_selector("h1:text('User access')")
         if role == "admin":
             password = page.locator("#accessForm [name=password]")
             assert password.get_attribute("minlength") == "8"
