@@ -81,6 +81,16 @@ Seeded attendance is fictional and marked in the `source` field. Demo users are 
 
 ## Demo roles and landing page
 
-Both built-in accounts open the attendance/check-in page after sign-in and location selection. Admins can add/import locations and employees. Supervisors can view employees and assigned locations, and continue to record check-ins/check-outs within their existing location scope. The API enforces creation/import permissions as well as the UI.
+Admins open Attendance overview after sign-in. Supervisors open Mark attendance. Both roles use one bottom taskbar. Admins can add/import locations and employees. Supervisors can view employees and assigned locations, and continue to record check-ins/check-outs within their existing location scope. The API enforces creation/import permissions as well as the UI.
 
 Startup retires only the original, unchanged `demo` sign-in identity and its sessions/location grants from existing databases. Employee records, attendance and audit history are preserved. Customized accounts are not removed automatically.
+
+## Sequential shifts
+
+An employee can have only one open check-in across all locations. Check out before starting another shift.
+A second shift shows a warning to the person marking attendance. They must confirm before the new check-in is saved.
+Each shift keeps a separate record. Attendance shows the latest shift at each site. Reports and exports keep all shifts.
+The overview counts people rather than counting the same employee once per shift.
+
+The database upgrade removes the old one-record-per-employee-per-day limit. It preserves existing attendance and open duties.
+After multiple shifts are saved, fix issues by moving forward. Older application versions assume only one record per day.
