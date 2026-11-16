@@ -57,13 +57,14 @@ def test_home_overview_has_all_and_each_location(role):
     with playwright.sync_playwright() as p:
         browser, page, _ = open_as(p, user)
         page.wait_for_selector("h1:text('Attendance overview')")
-        chips = page.locator("[data-overview-loc]").all_text_contents()
-        assert chips[:3] == ["All locations", "Site A", "Site B"]
+        options = page.locator("#overviewLocation option").all_text_contents()
+        assert options == ["All locations", "Site A", "Site B"]
+        assert page.locator("[data-overview-loc]").count() == 2  # location cards only
         assert page.locator(".dashStat strong").all_text_contents() == ["5", "2", "2", "1"]
-        page.locator(".overviewFilters [data-overview-loc=B]").click()
+        page.locator("#overviewLocation").select_option("B")
         assert page.locator(".dashStat strong").all_text_contents() == ["2", "0", "1", "1"]
         assert page.locator(".locCard").count() == 1
-        page.locator(".overviewFilters [data-overview-loc='']").click()
+        page.locator("#overviewLocation").select_option("")
         assert page.locator(".locCard").count() == 2
         assert "1 not checked in" in page.locator(".locCard").nth(1).inner_text()
         browser.close()
@@ -77,13 +78,14 @@ def test_user_access_rows_open_a_detail_screen_to_add_locations():
         page.locator("[data-nav=settings]").click()
         page.locator("[data-settings=access]").click()
         page.wait_for_selector("[data-open-access='sup.one']")
+        assert not page.locator("#accessForm").is_visible()  # add-supervisor form is collapsed
         page.locator("[data-open-access='sup.one']").click()
         page.wait_for_selector("#accessEditForm")
         assert page.locator("h1").inner_text() == "Sup One"
         boxes = page.locator("#accessEditForm input[type=checkbox]")
         assert [boxes.nth(i).is_checked() for i in range(2)] == [True, False]
         boxes.nth(1).check()
-        page.locator("#accessEditForm button.secondary").click()
+        page.locator("#accessEditForm button").click()
         page.wait_for_function("document.body.innerText.includes('Locations updated')")
         assert sorted(state["saved"]["location_ids"]) == ["A", "B"]
         page.locator("[data-settings=access]").first.click()
