@@ -35,7 +35,7 @@ def open_page(p, user, responder):
         + "))"
     )
     page.route("http://guardian.test/**", responder)
-    page.goto("http://guardian.test/app")
+    page.goto("http://guardian.test/app#attendance")
     return browser, page
 
 
@@ -68,6 +68,7 @@ def test_checkout_asks_for_confirmation_with_time_and_hours(tmp_path):
     with playwright.sync_playwright() as p:
         browser, page = open_page(p, user, respond)
         page.wait_for_selector("#attSearch")
+        page.locator("[data-nav=attendance]").click()
         page.locator("[data-go=checkout]").click()
         page.wait_for_selector("[data-checkout]")
         # Cancel keeps the employee checked in and sends nothing.
