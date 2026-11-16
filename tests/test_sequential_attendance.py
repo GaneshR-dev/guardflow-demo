@@ -320,7 +320,7 @@ def test_taskbar_and_second_shift_warning_cancel_confirm(role, tmp_path):
         )
         page.route("http://guardian.test/**", respond)
         page.goto("http://guardian.test/app")
-        page.wait_for_function("state.screen===" + json.dumps("dashboard" if role == "admin" else "attendance"))
+        page.wait_for_function("state.screen==='dashboard'")
         assert page.locator(".menuButton").count() == 0
         assert page.locator(".bottomNav button").count() == 6
         page.locator("[data-nav=settings]").click()

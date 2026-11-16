@@ -84,10 +84,10 @@ def test_login_session_restore_and_location_navigation(role, tmp_path):
         page.locator("[name=username]").fill(user["id"])
         page.locator("[name=password]").fill("local-test-password")
         page.locator("#loginForm .primary").click()
-        if role == "admin":
-            page.wait_for_selector("h1:text('Attendance overview')")
-            assert page.locator("h1").inner_text() == "Attendance overview"
-            page.locator("[data-nav=attendance]").click()
+        # Both roles land on Home, the Attendance overview (supervisors see their own locations).
+        page.wait_for_selector("h1:text('Attendance overview')")
+        assert page.locator("h1").inner_text() == "Attendance overview"
+        page.locator("[data-nav=attendance]").click()
         page.wait_for_selector("#attSearch")
         assert page.url.endswith("#attendance")
         assert page.locator("#attendanceLocation option").count() == (3 if role == "admin" else 2)
@@ -113,9 +113,8 @@ def test_login_session_restore_and_location_navigation(role, tmp_path):
         for url in ["http://guardian.test/app"]:
             page.goto(url)
             page.reload()
-            if role == "admin":
-                page.wait_for_selector("h1:text('Attendance overview')")
-                page.locator("[data-nav=attendance]").click()
+            page.wait_for_selector("h1:text('Attendance overview')")
+            page.locator("[data-nav=attendance]").click()
             page.wait_for_selector("#attSearch")
             assert page.url.endswith("#attendance")
         # Locations remains available by deliberate navigation during the session.

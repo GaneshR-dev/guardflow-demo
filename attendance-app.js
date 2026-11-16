@@ -97,42 +97,55 @@ function newLocationId(name) {
 }
 // The one mutable client-side store. Every screen renders from this object;
 // token/user persist in localStorage so a reload restores the session.
+// Everything that belongs to one signed-in account. Rebuilt from scratch whenever the
+// session changes so no screen can show a previous login's data.
+function freshSessionState() {
+  return {
+    screen: 'login',
+    locations: [],
+    location: null,
+    attendance: [],
+    summary: {},
+    employees: [],
+    dashboard: null,
+    report: null,
+    settings: null,
+    settingsView: '',
+    accessUserId: '',
+    overviewLocation: '',
+    showLocationForm: false,
+    selected: null,
+    lastCheck: null,
+    query: '',
+    locationQuery: '',
+    addQuery: '',
+    outQuery: '',
+    lookupResults: null,
+    employeeQuery: '',
+    employeeLocation: '',
+    showEmployeeForm: false,
+    filter: 'all',
+    notice: '',
+    error: '',
+    confirm: null,
+    detail: null,
+    editTimes: null,
+    shiftDraft: null,
+    shiftSaving: false,
+    shiftError: '',
+    checkingIn: false,
+  };
+}
 const state = {
   token: localStorage.getItem('gf_token') || '',
   user: JSON.parse(localStorage.getItem('gf_user') || 'null'),
-  screen: 'login',
-  locations: [],
-  location: null,
-  attendance: [],
-  summary: {},
-  employees: [],
-  dashboard: null,
-  report: null,
-  settings: null,
-  settingsView: '',
-  editAccess: null,
-  showLocationForm: false,
-  selected: null,
-  lastCheck: null,
-  query: '',
-  locationQuery: '',
-  addQuery: '',
-  outQuery: '',
-  lookupResults: null,
-  employeeQuery: '',
-  employeeLocation: '',
-  showEmployeeForm: false,
-  filter: 'all',
-  notice: '',
-  error: '',
-  confirm: null,
-  detail: null,
-  editTimes: null,
-  shiftDraft: null,
-  shiftSaving: false,
-  shiftError: '',
-  checkingIn: false,
+  ...freshSessionState(),
 };
+// Drop all per-account data (keeps nothing but the login screen state).
+function clearSessionState() {
+  for (const k of Object.keys(state)) if (k !== 'token' && k !== 'user') delete state[k];
+  Object.assign(state, freshSessionState());
+}
 // Shared yes/no overlay. `onOk` runs when the user confirms; Cancel just closes.
 function confirmModal() {
   const c = state.confirm;
@@ -157,20 +170,26 @@ function toast(msg) {
 // its exact wording; everything else surfaces the server's detail text.
 async function api(path, opts = {}) {
   let res;
+  const sentToken = state.token;
+  // A reply that lands after the session changed (sign-out, another login) belongs to the
+  // old account: it is dropped so it can never write into the new session's screens.
+  const stale = () => path !== '/api/login' && state.token !== sentToken;
   try {
     res = await fetch(API + path, {
       ...opts,
       headers: {
         'Content-Type': 'application/json',
-        ...(state.token ? { Authorization: 'Bearer ' + state.token } : {}),
+        ...(sentToken ? { Authorization: 'Bearer ' + sentToken } : {}),
       },
     });
   } catch (netErr) {
+    if (stale() && path !== '/api/logout') return new Promise(() => {});
     const err = new Error('Cannot reach the Guardian server. Check the connection and try again.');
     err.network = true;
     throw err;
   }
   const text = await res.text();
+  if (stale() && path !== '/api/logout') return new Promise(() => {});
   let data;
   try {
     data = JSON.parse(text);
@@ -207,10 +226,7 @@ function endSession() {
   localStorage.removeItem('gf_user');
   state.token = '';
   state.user = null;
-  state.report = null;
-  state.dashboard = null;
-  state.settings = null;
-  state.notice = '';
+  clearSessionState();
   state.error = SESSION_ENDED;
   state.screen = 'login';
   history.replaceState({ gfScreen: 'login' }, '', '#login');
@@ -518,7 +534,22 @@ function checkout() {
 async function dashboard() {
   if (!state.dashboard) state.dashboard = await api('/api/dashboard');
   const d = state.dashboard;
-  return `<div class="page">${header()}<h1>Attendance overview</h1><p class="sub">Today's summary across all assigned locations.</p><div class="grid2"><div class="dashStat"><strong>${d.employees}</strong><span>Employees</span></div><div class="dashStat"><strong style="color:var(--green)">${d.checked_in}</strong><span>Checked in</span></div><div class="dashStat"><strong>${d.completed}</strong><span>Checked out</span></div><div class="dashStat"><strong style="color:var(--amber)">${d.not_checked_in}</strong><span>Not checked in</span></div></div><h2 class="sectionTitle">Location breakdown</h2>${d.locations.map((l) => `<div class="card listCard ${l.active ? '' : 'disabledCard'}"><span><strong>${esc(l.name.split(' - ')[1] || l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${empCountLabel(l)}</small></span><span style="text-align:right"><span class="badge green">${l.today.checked_in} checked in</span><small>${l.today.completed} checked out</small></span></div>`).join('')}</div>${nav()}${message()}`;
+  // "All" adds up every location this account can see; picking one location shows only its numbers.
+  const locs = d.locations;
+  const pick = locs.find((l) => l.id === state.overviewLocation) || null;
+  const t = pick
+    ? {
+        employees: pick.today.checked_in + pick.today.completed + pick.today.not_in,
+        checked_in: pick.today.checked_in,
+        completed: pick.today.completed,
+        not_checked_in: pick.today.not_in,
+      }
+    : d;
+  const short = (l) => l.name.split(' - ')[1] || l.name;
+  const chips = `<div class="recordingAt overviewPicker"><label for="overviewLocation">Location</label><select id="overviewLocation"><option value="">All locations</option>${locs.map((l) => `<option value="${esc(l.id)}" ${pick?.id === l.id ? 'selected' : ''}>${esc(short(l))}</option>`).join('')}</select></div>`;
+  const card = (l) =>
+    `<button type="button" class="card listCard locCard ${l.active ? '' : 'disabledCard'}" data-overview-loc="${esc(l.id)}"><span><strong>${esc(short(l))} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${empCountLabel(l)}</small></span><span style="text-align:right"><span class="badge green">${l.today.checked_in} checked in</span><small>${l.today.completed} checked out</small><small>${l.today.not_in} not checked in</small></span></button>`;
+  return `<div class="page">${header()}<h1>Attendance overview</h1><p class="sub">Today's summary · ${pick ? esc(short(pick)) : 'all assigned locations'}</p>${chips}<div class="grid2"><div class="dashStat"><strong>${t.employees}</strong><span>Employees</span></div><div class="dashStat"><strong style="color:var(--green)">${t.checked_in}</strong><span>Checked in</span></div><div class="dashStat"><strong>${t.completed}</strong><span>Checked out</span></div><div class="dashStat"><strong style="color:var(--amber)">${t.not_checked_in}</strong><span>Not checked in</span></div></div><h2 class="sectionTitle">${pick ? 'Location' : 'Location breakdown'}</h2>${(pick ? [pick] : locs).map(card).join('') || '<p class="muted small">No locations yet.</p>'}</div>${nav()}${message()}`;
 }
 function menu() {
   return `<div class="page">${header()}<h1>Account</h1><p class="sub">${esc(state.user?.name || '')}</p><div class="person accountIdentity"><span class="initials">${esc(initials(state.user?.name || 'User'))}</span><span><strong>${esc(state.user?.name || '')}</strong><small>${esc(state.user?.id || '')} · ${esc(state.user?.role || '')}</small></span></div><button class="secondary" id="logout" style="margin-top:18px">Sign out</button></div>${nav()}${message()}`;
@@ -936,39 +967,54 @@ function siteName(d, id) {
 function accessRow(u, d) {
   const isAdmin = state.user.role === 'admin';
   const disabled = u.active === 0;
-  const editing = state.editAccess === u.id;
   const scope =
     u.role === 'admin'
       ? 'All locations'
       : (u.location_ids || []).map((id) => siteName(d, id)).join(', ') || 'No sites assigned';
-  let actions = '';
-  if (isAdmin && u.role === 'supervisor' && !editing) {
-    actions = `<div class="accessActions">${
-      disabled
-        ? `<button class="link" data-en-access="${esc(u.id)}" data-name="${esc(u.name)}">Enable</button>`
-        : `<button class="link" data-edit-access="${esc(u.id)}">Edit sites</button><button class="link dangerText" data-del-access="${esc(u.id)}" data-name="${esc(u.name)}">Disable</button>`
-    }</div>`;
-  }
-  const editForm = editing
-    ? `<div class="accessEdit"><form id="accessEditForm" data-user="${esc(u.id)}"><div class="field"><label>Sites ${esc(
-        u.name,
-      )} can work at</label><select name="location_ids" multiple size="${Math.min(
-        Math.max(d.locations.length, 2),
-        6,
-      )}">${d.locations
-        .map(
-          (l) =>
-            `<option value="${esc(l.id)}" ${u.location_ids.includes(l.id) ? 'selected' : ''}>${esc(l.name)}</option>`,
-        )
-        .join(
-          '',
-        )}</select><small class="helper" style="display:block;margin-top:4px">Takes effect on their next request. Saving with none selected leaves them with "No location access assigned" until you add a site. Attendance history is not affected.</small></div><button class="secondary">Save sites</button> <button type="button" class="link" id="cancelAccessEdit">Cancel</button></form></div>`
-    : '';
-  return `<div class="person accessCard ${disabled ? 'disabledRow' : ''}"><span class="accessTop"><span class="initials">${esc(
+  const body = `<span class="accessTop"><span class="initials">${esc(
     initials(u.name),
   )}</span><span class="accessInfo"><strong>${esc(u.name)} ${
     disabled ? '<span class="badge grey">Disabled</span>' : ''
-  }</strong><small>${esc(u.id)} · ${esc(u.role)}</small><small>${esc(scope)}</small></span></span>${actions}${editForm}</div>`;
+  }</strong><small>${esc(u.id)} · ${esc(u.role)}</small><small>${esc(scope)}</small></span>${isAdmin ? '<span class="chev" aria-hidden="true">›</span>' : ''}</span>`;
+  // Admins open a user to see and change their locations; supervisors only read the list.
+  if (isAdmin)
+    return `<button type="button" class="person accessCard accessOpen ${disabled ? 'disabledRow' : ''}" data-open-access="${esc(u.id)}" aria-label="Open ${esc(u.name)}">${body}</button>`;
+  return `<div class="person accessCard ${disabled ? 'disabledRow' : ''}">${body}</div>`;
+}
+// One user's own screen: who they are, which locations they can work at (add or remove),
+// and disable/enable. Admin only; the server enforces the same rules.
+// Location checkbox list shared by the user screen and the add-supervisor form.
+function siteChecklist(d, assigned) {
+  return `<div class="siteList">${
+    d.locations
+      .map(
+        (l) =>
+          `<label class="siteOption ${l.active ? '' : 'disabledRow'}"><input type="checkbox" name="location_ids" value="${esc(l.id)}" ${assigned.has(l.id) ? 'checked' : ''}><span class="siteText"><strong>${esc(l.name)}</strong><small>${esc(l.area)}${l.active ? '' : ' · Disabled'}</small></span></label>`,
+      )
+      .join('') || '<p class="muted small" style="padding:12px">No locations yet. Add one under Locations first.</p>'
+  }</div>`;
+}
+function accessDetail(u, d) {
+  const disabled = u.active === 0;
+  const isSupervisor = u.role === 'supervisor';
+  const assigned = new Set(u.location_ids || []);
+  const identity = `<p class="accessMeta">${esc(u.id)} · ${esc(u.role)}${disabled ? ' <span class="badge grey">Disabled</span>' : ''}</p>`;
+  const sites = isSupervisor
+    ? `<form id="accessEditForm" data-user="${esc(u.id)}"><h2 class="sectionTitle">Locations</h2>${siteChecklist(d, assigned)}<button class="primary" style="margin-top:14px">Save locations</button></form>`
+    : '<h2 class="sectionTitle">Locations</h2><p class="muted small">Admins can work at all locations.</p>';
+  // Disable/enable sits apart from the everyday form, with its own confirmation dialog.
+  const danger =
+    isSupervisor && state.user.role === 'admin'
+      ? `<div class="accessToggle">${
+          disabled
+            ? `<p class="muted small">Access is off. This user cannot sign in. History is kept.</p><button class="outlineBtn" data-en-access="${esc(u.id)}" data-name="${esc(u.name)}">Enable access</button>`
+            : `<button class="outlineBtn dangerText" data-del-access="${esc(u.id)}" data-name="${esc(u.name)}">Disable access</button>`
+        }</div>`
+      : '';
+  return `<div class="card" style="padding:16px;margin:12px 0">${identity}${sites}${danger}</div>`;
+}
+function accessListPanel(d) {
+  return `<div class="card" style="padding:16px;margin:12px 0">${d.access.map((u) => accessRow(u, d)).join('')}${state.user.role === 'admin' ? `<details class="addSupervisor"><summary>Add supervisor</summary><form id="accessForm" style="margin-top:14px"><div class="field"><label>User ID</label><input name="id" required></div><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Password</label><input name="password" type="password" minlength="8" maxlength="100" autocomplete="new-password" placeholder="At least 8 characters" required></div><div class="field"><label>Locations</label>${siteChecklist(d, new Set())}</div><button class="secondary">Create supervisor</button></form></details>` : '<p class="muted small">Only admins can create or change access.</p>'}</div>`;
 }
 function settings() {
   const d = state.settings;
@@ -978,8 +1024,12 @@ function settings() {
     panel = `<div class="card" style="padding:16px;margin:12px 0"><form id="profileForm"><div class="field"><label>Name</label><input name="name" value="${esc(d.profile.name)}" required></div><div class="field"><label>User ID</label><input value="${esc(d.profile.id)}" disabled></div><button class="secondary">Save profile</button></form></div>`;
   if (d && state.settingsView === 'locations')
     panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">Locations</h2>${d.locations.map((l) => `<div class="person ${l.active ? '' : 'disabledRow'}"><span><strong>${esc(l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${esc(l.area)} · ${empCountLabel(l)} · ${esc(shiftLabel(l))}</small></span></div>`).join('') || '<p class="muted small">No locations yet. Add the first branch below.</p>'}${state.user.role === 'admin' ? `<form id="locationForm" style="margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Area</label><input name="area" required></div>${shiftFields()}${locationSupervisorField()}<button class="secondary" ${!Array.isArray(state.settings?.access) ? 'disabled' : ''}>Add location</button></form>` : '<p class="muted small">Supervisors can view assigned locations. Admins manage branches.</p>'}</div>`;
-  if (d && state.settingsView === 'access')
-    panel = `<div class="card" style="padding:16px;margin:12px 0">${d.access.map((u) => accessRow(u, d)).join('')}${state.user.role === 'admin' ? `<form id="accessForm" style="margin-top:14px"><div class="field"><label>User ID</label><input name="id" required></div><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Password</label><input name="password" type="password" minlength="8" maxlength="100" autocomplete="new-password" placeholder="At least 8 characters" required></div><div class="field"><label>Locations</label><select name="location_ids" multiple size="3">${d.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div><button class="secondary">Create supervisor</button></form>` : '<p class="muted small">Only admins can create or change access.</p>'}</div>`;
+  if (d && state.settingsView === 'accessUser') {
+    const au = state.user?.role === 'admin' ? d.access.find((u) => u.id === state.accessUserId) : null;
+    if (au) panel = accessDetail(au, d);
+    else state.settingsView = 'access';
+  }
+  if (d && state.settingsView === 'access') panel = accessListPanel(d);
   if (d && state.settingsView === 'activity' && state.user?.role === 'admin')
     panel = `<div class="card" style="padding:16px;margin:12px 0"><p class="muted small">Each recorded change, newest first. Time corrections always carry a reason.</p><p style="text-align:right;margin:0 0 8px"><button class="link" id="exportAudit">Export full log (CSV)</button></p>${(state.audit || []).map((a) => `<div class="person"><span><strong>${esc(auditTitle(a))}</strong><small>${esc(auditDetail(a))}</small><small>${esc(a.user_id)} · ${esc(fmtAuditTime(a.at))}</small></span></div>`).join('') || '<p class="muted small">No activity recorded yet.</p>'}</div>`;
   const items = [
@@ -994,8 +1044,11 @@ function settings() {
     items.push(['activity', 'Activity log', 'Each change and correction, with reasons']);
   if (state.settingsView && panel) {
     const title =
-      { profile: 'My profile', access: 'User access', activity: 'Activity log' }[state.settingsView] || 'Settings';
-    return `<div class="page">${header()}<button class="link backLink" data-settings="">‹ Settings</button><h1>${title}</h1>${panel}</div>${nav()}${message()}`;
+      state.settingsView === 'accessUser'
+        ? d.access.find((u) => u.id === state.accessUserId)?.name || 'User'
+        : { profile: 'My profile', access: 'User access', activity: 'Activity log' }[state.settingsView] || 'Settings';
+    const backTo = state.settingsView === 'accessUser' ? 'access' : '';
+    return `<div class="page">${header()}<button class="link backLink" data-settings="${backTo}">${backTo ? '‹ User access' : '‹ Settings'}</button><h1>${title}</h1>${panel}</div>${nav()}${message()}`;
   }
   return `<div class="page">${header()}<h1>Settings</h1><p class="sub">Manage your account and app preferences.</p>${items
     .map(
@@ -1299,6 +1352,19 @@ function bind() {
         else document.getElementById('importFile')?.click();
       }),
   );
+  const ovSel = document.getElementById('overviewLocation');
+  if (ovSel)
+    ovSel.onchange = () => {
+      state.overviewLocation = ovSel.value;
+      render();
+    };
+  document.querySelectorAll('[data-overview-loc]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        state.overviewLocation = b.dataset.overviewLoc;
+        render();
+      }),
+  );
   document.querySelectorAll('[data-settings]').forEach((b) => (b.onclick = () => openSettings(b.dataset.settings)));
   const pf = document.getElementById('profileForm');
   if (pf) pf.onsubmit = saveProfile;
@@ -1314,11 +1380,11 @@ function bind() {
     };
   const ef = document.getElementById('employeeForm');
   if (ef) ef.onsubmit = createEmployee;
-  document.querySelectorAll('[data-edit-access]').forEach(
+  document.querySelectorAll('[data-open-access]').forEach(
     (b) =>
       (b.onclick = () => {
-        state.editAccess = b.dataset.editAccess;
-        render();
+        state.accessUserId = b.dataset.openAccess;
+        go('settings', { settingsView: 'accessUser' });
       }),
   );
   document
@@ -1329,12 +1395,6 @@ function bind() {
     .forEach((b) => (b.onclick = () => setAccessActive(b.dataset.enAccess, true)));
   const aef = document.getElementById('accessEditForm');
   if (aef) aef.onsubmit = saveAccessSites;
-  const cae = document.getElementById('cancelAccessEdit');
-  if (cae)
-    cae.onclick = () => {
-      state.editAccess = null;
-      render();
-    };
   const acf = document.getElementById('accessForm');
   if (acf) acf.onsubmit = createAccess;
   document.querySelectorAll('[data-screen-retry]').forEach(
@@ -1406,7 +1466,7 @@ function go(screen, opts = {}) {
   state.lookupResults = null;
   state.notice = '';
   state.screenError = null;
-  if (screen === 'home') screen = state.user?.role === 'admin' ? 'dashboard' : 'attendance';
+  if (screen === 'home') screen = 'dashboard';
   if (screen === 'settings' && !state.settings) {
     openSettings(state.settingsView || '');
     return;
@@ -1468,7 +1528,7 @@ async function doLogin(e) {
     await bootstrap();
     state.notice = '';
     if (state.location) await loadAttendance();
-    state.screen = state.user.role === 'admin' ? 'dashboard' : 'attendance';
+    state.screen = 'dashboard';
     startHistory(state.screen);
     render();
   };
@@ -2134,9 +2194,8 @@ async function saveAccessSites(e) {
       method: 'PATCH',
       body: JSON.stringify({ location_ids: f.getAll('location_ids') }),
     });
-    state.editAccess = null;
     state.settings = await api('/api/settings');
-    toast('Sites updated' + unsupervisedNote(r));
+    toast('Locations updated' + unsupervisedNote(r));
   } catch (err) {
     state.error = err.message;
     render();
@@ -2294,11 +2353,9 @@ async function logout() {
   localStorage.removeItem('gf_user');
   state.token = '';
   state.user = null;
-  state.report = null;
-  // Filter picks belong to the signed-in session; drop them so a different role
-  // signing in on this tab starts unfiltered.
-  state.employeeLocation = '';
-  state.employeeQuery = '';
+  // Every per-account object is dropped, so a different role signing in on this tab
+  // starts from a clean slate.
+  clearSessionState();
   state.screen = 'login';
   history.replaceState({ gfScreen: 'login' }, '', '#login');
   render();
@@ -2308,11 +2365,7 @@ async function logout() {
     try {
       await bootstrap();
       const requested = location.hash.slice(1);
-      state.screen = appScreens.includes(requested)
-        ? requested
-        : state.user.role === 'admin'
-          ? 'dashboard'
-          : 'attendance';
+      state.screen = appScreens.includes(requested) ? requested : 'dashboard';
       if (state.screen === 'attendance' && state.location) await loadAttendance();
       startHistory(state.screen);
     } catch {
