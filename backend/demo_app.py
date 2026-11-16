@@ -137,6 +137,7 @@ class LoginBody(BaseModel):
 
 
 class CheckBody(BaseModel):
+    confirm_second_shift: bool = False
     employee_id: str = Field(min_length=2, max_length=40)
     location_id: str = Field(min_length=2, max_length=40)
 
@@ -239,7 +240,7 @@ class LocationShiftsBody(BaseModel):
 class AccessBody(BaseModel):
     id: str = Field(min_length=3, max_length=80)
     name: str = Field(min_length=2, max_length=80)
-    password: str = Field(min_length=12, max_length=100)
+    password: str = Field(min_length=8, max_length=100)
     role: str = Field(pattern="^(admin|supervisor)$")
     location_ids: list[str] = Field(default_factory=list, max_length=50)
 
@@ -257,6 +258,7 @@ class ResetBody(BaseModel):
 class AttendanceTimeBody(BaseModel):
     """Admin correction of an existing record's check-in/check-out times (IST wall clock)."""
 
+    record_id: str | None = Field(default=None, min_length=1, max_length=80)
     employee_id: str = Field(min_length=2, max_length=40)
     location_id: str = Field(min_length=2, max_length=40)
     day: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
@@ -504,7 +506,7 @@ def attendance_summary(c, location_id: str, day: date) -> dict:
     rows = (
         c.execute(
             text(
-                "SELECT status,COUNT(*) count FROM demo_attendance WHERE location_id=:location AND day=:day AND status IN ('checked_in','completed') GROUP BY status"
+                "SELECT status,COUNT(DISTINCT employee_id) count FROM demo_attendance a WHERE location_id=:location AND day=:day AND status IN ('checked_in','completed') AND (status='checked_in' OR NOT EXISTS (SELECT 1 FROM demo_attendance o WHERE o.employee_id=a.employee_id AND o.location_id=a.location_id AND o.day=a.day AND o.status='checked_in')) GROUP BY status"
             ),
             {"location": location_id, "day": day.isoformat()},
         )
@@ -831,6 +833,9 @@ def attendance(
              COALESCE(a.source,'not recorded') source
       FROM demo_employees e
       LEFT JOIN demo_attendance a ON a.employee_id=e.id AND a.day=:day AND a.location_id=:location
+        AND a.id=(SELECT latest.id FROM demo_attendance latest WHERE latest.employee_id=e.id
+          AND latest.day=:day AND latest.location_id=:location
+          ORDER BY latest.check_in DESC,latest.id DESC LIMIT 1)
       WHERE e.active=1 AND e.location_id=:location
     """
     params = {"location": location_id, "day": selected_day}
@@ -849,6 +854,9 @@ def attendance(
                  a.status,a.check_in,a.check_out,COALESCE(a.source,'not recorded') source
           FROM demo_attendance a JOIN demo_employees e ON e.id=a.employee_id
           WHERE a.day=:day AND a.location_id=:location
+            AND a.id=(SELECT latest.id FROM demo_attendance latest WHERE latest.employee_id=e.id
+              AND latest.day=:day AND latest.location_id=:location
+              ORDER BY latest.check_in DESC,latest.id DESC LIMIT 1)
             AND (e.location_id IS NULL OR e.location_id<>:location)
         """
         adhoc_params = {"location": location_id, "day": selected_day}
@@ -900,18 +908,8 @@ def check_in(body: CheckBody, user=Depends(current_user)):
         adhoc = emp["location_id"] != body.location_id
         if not location["active"]:
             raise HTTPException(409, "This location is disabled. An admin can enable it again in the Locations screen.")
-        existing = (
-            c.execute(
-                text("SELECT * FROM demo_attendance WHERE employee_id=:employee AND day=:day"),
-                {"employee": body.employee_id, "day": today},
-            )
-            .mappings()
-            .first()
-        )
-        if existing and existing["status"] in ("checked_in", "completed"):
-            raise HTTPException(409, "Employee is already checked in")
-        # A check-in left open on an earlier day must be closed first. Without this guard a
-        # forgotten check-out strands one open record per day and blocks disabling the employee.
+        # The employee row lock serializes all locations on PostgreSQL. SQLite
+        # serializes writes. Check the global open shift before checking today's history.
         open_row = (
             c.execute(
                 text("SELECT day FROM demo_attendance WHERE employee_id=:employee AND status='checked_in'"),
@@ -922,15 +920,37 @@ def check_in(body: CheckBody, user=Depends(current_user)):
         )
         if open_row:
             raise HTTPException(
-                409,
-                f"Still checked in from {open_row['day']}. Record that check-out first, then check in again.",
+                409, f"Still checked in from {open_row['day']}. Record that check-out first, then check in again."
             )
-        if existing:
+        prior_shifts = c.execute(
+            text(
+                "SELECT COUNT(*) FROM demo_attendance WHERE employee_id=:employee AND (day=:day OR check_out>=:midnight) AND status='completed'"
+            ),
+            {"employee": body.employee_id, "day": today, "midnight": ist_stamp(today, "00:00")},
+        ).scalar()
+        if prior_shifts and os.environ.get("ALLOW_SEQUENTIAL_SHIFTS", "true").lower() != "true":
+            raise HTTPException(409, "Additional shifts are temporarily paused. Contact your admin.")
+        if prior_shifts and not body.confirm_second_shift:
+            return {
+                "requires_confirmation": True,
+                "prior_shifts": prior_shifts,
+                "employee_id": body.employee_id,
+                "name": emp["name"],
+            }
+        # A not_in placeholder is not a worked shift. Reuse it, but never replace history.
+        waiting = c.execute(
+            text(
+                "SELECT id FROM demo_attendance WHERE employee_id=:employee AND location_id=:location "
+                "AND day=:day AND status='not_in'"
+            ),
+            {"employee": body.employee_id, "location": body.location_id, "day": today},
+        ).scalar()
+        if waiting:
             c.execute(
                 text(
-                    "UPDATE demo_attendance SET status='checked_in',check_in=:stamp,check_out=NULL,source='live demo' WHERE id=:id"
+                    "UPDATE demo_attendance SET status='checked_in',check_in=:cin,check_out=NULL,source='live demo' WHERE id=:id"
                 ),
-                {"stamp": stamp, "id": existing["id"]},
+                {"id": waiting, "cin": stamp},
             )
         else:
             c.execute(
@@ -946,6 +966,7 @@ def check_in(body: CheckBody, user=Depends(current_user)):
                 },
             )
         details = body.model_dump()
+        details["prior_shifts"] = prior_shifts
         if adhoc:
             details["adhoc"] = True
             details["home_location_id"] = emp["location_id"]
@@ -962,6 +983,7 @@ def check_out(body: CheckBody, user=Depends(current_user)):
     today = local_today().isoformat()
     stamp = utcnow().isoformat()
     with engine.begin() as c:
+        c.execute(text("SELECT id FROM demo_employees WHERE id=:id" + row_lock()), {"id": body.employee_id}).first()
         require_location_access(c, user, body.location_id)
         # Close the newest open check-in at this location, even from an earlier day. Overnight
         # shifts and forgotten check-outs must not strand open records. A late close is marked
@@ -971,7 +993,7 @@ def check_out(body: CheckBody, user=Depends(current_user)):
                 text(
                     "SELECT a.*,e.name FROM demo_attendance a JOIN demo_employees e ON e.id=a.employee_id "
                     "WHERE a.employee_id=:employee AND a.location_id=:location AND a.status='checked_in' "
-                    "ORDER BY a.day DESC"
+                    "ORDER BY a.day DESC,a.check_in DESC"
                 ),
                 {"employee": body.employee_id, "location": body.location_id},
             )
@@ -1028,18 +1050,32 @@ def edit_attendance_times(body: AttendanceTimeBody, user=Depends(current_user)):
         check_out and datetime.fromisoformat(check_out) - datetime.fromisoformat(check_in) > timedelta(hours=24)
     )
     with engine.begin() as c:
+        c.execute(text("SELECT id FROM demo_employees WHERE id=:id" + row_lock()), {"id": body.employee_id}).first()
         require_location_access(c, user, body.location_id)
-        row = (
-            c.execute(
-                text("SELECT * FROM demo_attendance WHERE employee_id=:employee AND day=:day"),
-                {"employee": body.employee_id, "day": parsed_day.isoformat()},
-            )
-            .mappings()
-            .first()
-        )
-        if not row or row["location_id"] != body.location_id:
+        params = {"employee": body.employee_id, "day": parsed_day.isoformat(), "location": body.location_id}
+        sql = "SELECT * FROM demo_attendance WHERE employee_id=:employee AND day=:day AND location_id=:location"
+        if body.record_id:
+            sql += " AND id=:record"
+            params["record"] = body.record_id
+        rows = c.execute(text(sql), params).mappings().all()
+        if not rows:
             raise HTTPException(404, "No attendance record to modify for this employee and day")
+        if len(rows) != 1:
+            raise HTTPException(409, "This employee has multiple shifts. Select the shift to edit.")
+        row = rows[0]
         status = "completed" if check_out else "checked_in"
+        if (
+            status == "checked_in"
+            and c.execute(
+                text(
+                    "SELECT id FROM demo_attendance WHERE employee_id=:employee AND status='checked_in' AND id<>:record"
+                ),
+                {"employee": body.employee_id, "record": row["id"]},
+            ).first()
+        ):
+            raise HTTPException(
+                409, "This employee is checked in elsewhere. Check them out before reopening this shift."
+            )
         c.execute(
             text(
                 "UPDATE demo_attendance SET status=:status,check_in=:cin,check_out=:cout,source='admin edit' WHERE id=:id"
@@ -1098,7 +1134,7 @@ def dashboard(user=Depends(current_user)):
         ).mappings()
         rows = c.execute(
             text(
-                "SELECT location_id,status,COUNT(*) count FROM demo_attendance WHERE day=:day AND status IN ('checked_in','completed') AND "
+                "SELECT location_id,status,COUNT(DISTINCT employee_id) count FROM demo_attendance a WHERE day=:day AND status IN ('checked_in','completed') AND (status='checked_in' OR NOT EXISTS (SELECT 1 FROM demo_attendance o WHERE o.employee_id=a.employee_id AND o.location_id=a.location_id AND o.day=a.day AND o.status='checked_in')) AND "
                 + scope
                 + " GROUP BY location_id,status"
             ),
@@ -1108,8 +1144,21 @@ def dashboard(user=Depends(current_user)):
         by_location = {}
         for row in rows:
             by_location.setdefault(row["location_id"], {"checked_in": 0, "completed": 0})[row["status"]] = row["count"]
-        checked = sum(v["checked_in"] for v in by_location.values())
-        completed = sum(v["completed"] for v in by_location.values())
+        # Overview counts people, not shifts. A worker at two sites must not count twice.
+        people = c.execute(
+            text(
+                "SELECT status,COUNT(*) count FROM (SELECT employee_id, "
+                "CASE WHEN MAX(CASE WHEN status='checked_in' THEN 1 ELSE 0 END)=1 "
+                "THEN 'checked_in' ELSE 'completed' END status FROM demo_attendance "
+                "WHERE day=:day AND status IN ('checked_in','completed') AND "
+                + scope
+                + " GROUP BY employee_id) people GROUP BY status"
+            ),
+            params,
+        ).mappings()
+        totals = {row["status"]: row["count"] for row in people}
+        checked = totals.get("checked_in", 0)
+        completed = totals.get("completed", 0)
         for loc in location_rows(user):
             counts = by_location.setdefault(loc["id"], {"checked_in": 0, "completed": 0})
             counts["not_in"] = max(employee_counts.get(loc["id"], 0) - counts["checked_in"] - counts["completed"], 0)

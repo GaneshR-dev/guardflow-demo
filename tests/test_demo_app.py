@@ -324,7 +324,7 @@ def test_frontend_dashboard_labels_and_link_button():
         (root / name).read_text() for name in ("attendance-app.html", "attendance-app.css", "attendance-app.js")
     )
     assert "${l.today.checked_in} checked in" in html
-    assert "${l.today.completed} completed" in html
+    assert "${l.today.completed} checked out" in html
     assert "${l.today.checked_in+l.today.completed} checked in" not in html
     compact = re.sub(r"\s+", "", html)
     assert ".link{border:0;background:transparent;padding:0;" in compact

@@ -479,10 +479,11 @@ button {
   transform: translateX(-50%);
   width: min(430px, 100%);
   height: 72px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   background: #fff;
   border-top: 1px solid var(--line);
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   z-index: 10;
 }
 .navItem {
@@ -1801,4 +1802,75 @@ button {
   .rpRow .rpWho strong {
     overflow-wrap: normal;
   }
+}
+
+/* A single phone taskbar keeps primary actions and the hamburger menu visible. */
+.page {
+  padding-bottom: 100px;
+}
+.page.noNav {
+  padding-bottom: 28px;
+}
+.bottomNav .navItem {
+  min-height: 56px;
+  font-size: 11px;
+}
+
+/* Shared stroke icons avoid mixed font-symbol shapes and baselines. */
+.navItem b,
+.menuButton,
+.iconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.navItem svg,
+.menuButton svg,
+.iconBtn svg {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+/* The same person identity appears in attendance, directory, reports and account cards. */
+.person .initials,
+.rpAvatar {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 50%;
+  background: var(--soft);
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.person strong,
+.rpWho strong {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.person small,
+.rpWho small {
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 2px;
+}
+.person,
+.rpRow {
+  gap: 10px;
+  padding: 12px;
+}
+@media (max-width: 379px) {
+  .rpRow {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+}
+
+.locIcon svg {
+  width: 22px;
+  height: 22px;
 }

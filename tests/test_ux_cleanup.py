@@ -191,9 +191,9 @@ def test_report_labels_states_filters_and_reachable_actions(width, tmp_path):
             page.set_viewport_size({"width": width, "height": height})
             page.locator("#attSearch").focus()
             page.evaluate("window.scrollTo(0,document.documentElement.scrollHeight)")
-            for sel in ["[data-go=add]", "[data-go=checkout]"]:
+            for sel in ["[data-go=add]", "[data-nav=settings]"]:
                 assert page.locator(sel).evaluate(
-                    "e=>{const r=e.getBoundingClientRect();return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===e}"
+                    "e=>{const r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}"
                 )
         page.set_viewport_size({"width": width, "height": 844})
         page.evaluate(
@@ -202,7 +202,7 @@ def test_report_labels_states_filters_and_reachable_actions(width, tmp_path):
             + "};state.report.loading=false;render()"
         )
         assert page.locator("[data-rstatus=checked_in]").inner_text().endswith("Checked in")
-        assert page.locator("[data-rstatus=completed]").inner_text().endswith("Completed")
+        assert page.locator("[data-rstatus=completed]").inner_text().endswith("Checked out")
         assert page.locator("[data-rstatus=not_in]").inner_text().endswith("Not checked in")
         page.locator("[data-rstatus=completed]").click()
         assert page.locator(".rpRow").count() == 1

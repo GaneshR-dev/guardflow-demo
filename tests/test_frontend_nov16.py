@@ -37,7 +37,7 @@ def open_page(p, responder):
         + "))"
     )
     page.route("http://guardian.test/**", responder)
-    page.goto("http://guardian.test/app")
+    page.goto("http://guardian.test/app#attendance")
     return browser, page
 
 
@@ -72,6 +72,7 @@ def run_dialog(p, rows, stale_open):
 
     browser, page = open_page(p, respond)
     page.wait_for_selector("#attSearch")
+    page.locator("[data-nav=attendance]").click()
     page.locator("[data-go=checkout]").click()
     page.wait_for_selector("[data-checkout]")
     page.locator("[data-checkout]").first.click()
