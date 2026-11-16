@@ -1874,3 +1874,56 @@ button {
   width: 22px;
   height: 22px;
 }
+.overviewFilters {
+  flex-wrap: wrap;
+  margin: 10px 0 12px;
+}
+.overviewFilters .chip {
+  font-size: 12px;
+  padding: 8px 12px;
+}
+.locCard {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.accessOpen {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: #fff;
+}
+.accessOpen .accessTop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.accessOpen .accessInfo {
+  flex: 1;
+}
+.accessOpen .chev {
+  font-size: 22px;
+  color: var(--muted);
+}
+.siteOption {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.siteOption input {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+.siteOption small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
