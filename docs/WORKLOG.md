@@ -21,6 +21,20 @@ Template:
 
 ## Entries
 
+## 2026-11-16 · Attendance overview and sequential shifts · Instinct · feat/attendance-navigation
+- Request: Use the overview as the admin home. Keep navigation in one taskbar. Prevent parallel shifts.
+- Changed: Admin sign-in opens Attendance overview. Attendance uses Checked out. One taskbar has Home, Attend, Emp, Loc, Reports, and Settings. Settings has sign-out. Each Settings entry opens a separate screen with a back button. There is no hamburger.
+- Changed: Check-in blocks any open shift. A later shift needs a supervisor warning and confirmation. Each shift keeps its own record.
+- Changed: The schema removes the old employee/day limit. Migration keeps existing records and open duties. Time edits select one record.
+- Changed: Attendance lists the latest shift at each site. Reports and exports retain all shifts. Overview totals count people once.
+- Changed: New supervisor passwords need at least eight characters. The field label is Password. Existing account passwords stay unchanged.
+- Tests: Full pytest suite: 170 passed, 2 skipped. Ruff and Prettier pass. Both-role phone layout and warning cancel/confirm tests pass.
+- Tests: Isolated PostgreSQL upgrade keeps every attendance row. Concurrent cross-site starts queue on the employee lock. Only one starts.
+- Visual review: Checked 12 screens in each role at390px. Unified avatars, name/ID type, row spacing, and stroke icons.
+- Limits: Figma was not accessed. Existing UI components were used. No live test data was deleted, closed, or edited.
+- Recovery: ALLOW_SEQUENTIAL_SHIFTS=false pauses extra shifts without changing saved data. Forced migration failure rolls back safely. See SEQUENTIAL-SHIFT-RECOVERY.md.
+- Open items: Publish the branch, check CI, merge, and verify deployment. Preserve the existing overnight proof duty.
+
 ## 2026-11-16 · Overnight check-out shows the real hours · Instinct · fix/overnight-checkout-hours
 - Request: Fix the 0h 00m in the check-out dialog for a check-in left open from an earlier day.
 - Cause: `askCheckout()` read the today's-list row first. For an overnight worker that row is a LEFT JOIN shell with `check_in` NULL. The dialog then used the current time as the check-in time.
