@@ -131,6 +131,7 @@ const state = {
   shiftDraft: null,
   shiftSaving: false,
   shiftError: '',
+  checkingIn: false,
 };
 // Shared yes/no overlay. `onOk` runs when the user confirms; Cancel just closes.
 function confirmModal() {
@@ -221,13 +222,16 @@ function nav() {
   const items = [
     ['home', '⌂', 'Home'],
     ['attendance', '◷', 'Attendance'],
+    ['checkout', '✓', 'Check-outs'],
+    ['locations', '⌖', 'Locations'],
+    ['employees', '♙', 'Employees'],
     ['reports', '▦', 'Reports'],
     ['settings', '⚙', 'Settings'],
   ];
-  return `<div class="bottomNav">${items.map(([k, i, l]) => `<button class="navItem ${(k === 'home' && ['home', 'dashboard'].includes(state.screen)) || state.screen === k || (k === 'attendance' && ['attendance', 'add', 'checkout', 'confirmed'].includes(state.screen)) ? 'active' : ''}" data-nav="${k}"><b>${i}</b>${l}</button>`).join('')}</div>`;
+  return `<div class="bottomNav">${items.map(([k, i, l]) => `<button class="navItem ${(k === 'home' && ['home', 'dashboard'].includes(state.screen)) || state.screen === k || (k === 'attendance' && ['attendance', 'add', 'confirmed'].includes(state.screen)) ? 'active' : ''}" data-nav="${k}"><b>${i}</b>${l}</button>`).join('')}</div>`;
 }
 function header() {
-  return `<div class="top"><button class="menuButton" aria-label="Open navigation" data-go="menu">☰</button><span class="brand">Guardian</span></div>`;
+  return `<div class="top"><span class="brand">Guardian</span></div>`;
 }
 function message() {
   return `${state.error && state.screen !== 'login' ? `<div class="error">${esc(state.error)}</div>` : ''}${state.notice ? `<div class="toast">${esc(state.notice)}</div>` : ''}`;
@@ -411,7 +415,7 @@ function attendance() {
   if (!state.location)
     return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(istNow())}</p><div class="card addCard"><strong>${state.user?.role === 'admin' ? 'No location set up yet' : 'No location access assigned'}</strong><p>${state.user?.role === 'admin' ? 'Attendance is recorded per branch. Add a location first, then mark check-ins here.' : 'Your admin needs to give you location access before you can view employees or mark attendance.'}</p>${state.user?.role === 'admin' ? '<button class="primary" data-go="locations">Go to Locations</button>' : ''}</div></div>${nav()}${message()}`;
   const canEditTimes = state.user?.role === 'admin';
-  return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(istNow())} · Times in IST</p>${attendanceLocationPicker()}${editTimeForm()}<div class="stats"><div class="stat green"><strong>${s.checked_in || 0}</strong><span>Checked in</span></div><div class="stat amber"><strong>${s.not_in || 0}</strong><span>To check in</span></div><div class="stat blue"><strong>${s.completed || 0}</strong><span>Completed</span></div></div><input class="search" aria-label="Search employee attendance" id="attSearch" placeholder="Search by name or employee ID" value="${esc(state.query)}"><div class="filters"><button class="chip ${state.filter === 'all' ? 'active' : ''}" data-filter="all">All</button><button class="chip green ${state.filter === 'checked_in' ? 'active' : ''}" data-filter="checked_in">Checked in</button><button class="chip amber ${state.filter === 'not_in' ? 'active' : ''}" data-filter="not_in">To check in</button><button class="chip ${state.filter === 'completed' ? 'active' : ''}" data-filter="completed">Completed</button></div><div class="attendanceList">${rows.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}</small></span><span class="personTime">${r.check_in ? fmtTime(r.check_in) : '-'}<br><span class="badge ${r.status === 'checked_in' ? 'green' : r.status === 'completed' ? 'blue' : 'amber'}">${r.status === 'checked_in' ? 'Checked in' : r.status === 'completed' ? 'Completed' : 'Not checked in'}</span></span>${canEditTimes && r.status !== 'not_in' ? `<button class="iconBtn" aria-label="Edit times for ${esc(r.name)}" title="Edit times" data-edittime="${esc(r.employee_id)}">✎</button>` : ''}</div>`).join('') || '<p class="muted small">No employees match.</p>'}</div><button class="primary" data-go="add">Check in employee</button><button class="secondary" style="margin-top:10px" data-go="checkout">Manage check-outs</button></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(istNow())} · Times in IST</p>${attendanceLocationPicker()}${editTimeForm()}<div class="stats"><div class="stat green"><strong>${s.checked_in || 0}</strong><span>Checked in</span></div><div class="stat amber"><strong>${s.not_in || 0}</strong><span>To check in</span></div><div class="stat blue"><strong>${s.completed || 0}</strong><span>Checked out</span></div></div><input class="search" aria-label="Search employee attendance" id="attSearch" placeholder="Search by name or employee ID" value="${esc(state.query)}"><div class="filters"><button class="chip ${state.filter === 'all' ? 'active' : ''}" data-filter="all">All</button><button class="chip green ${state.filter === 'checked_in' ? 'active' : ''}" data-filter="checked_in">Checked in</button><button class="chip amber ${state.filter === 'not_in' ? 'active' : ''}" data-filter="not_in">To check in</button><button class="chip ${state.filter === 'completed' ? 'active' : ''}" data-filter="completed">Checked out</button></div><div class="attendanceList">${rows.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}</small></span><span class="personTime">${r.check_in ? fmtTime(r.check_in) : '-'}<br><span class="badge ${r.status === 'checked_in' ? 'green' : r.status === 'completed' ? 'blue' : 'amber'}">${r.status === 'checked_in' ? 'Checked in' : r.status === 'completed' ? 'Checked out' : 'Not checked in'}</span></span>${canEditTimes && r.status !== 'not_in' ? `<button class="iconBtn" aria-label="Edit times for ${esc(r.name)}" title="Edit times" data-edittime="${esc(r.id || r.employee_id)}">✎</button>` : ''}</div>`).join('') || '<p class="muted small">No employees match.</p>'}</div><button class="primary" data-go="add">Check in employee</button></div>${nav()}${message()}`;
 }
 // Admin-only correction of an existing record's check-in/check-out times (IST).
 function editTimeForm() {
@@ -429,7 +433,9 @@ function lookupResultsView(kind) {
   if (!q || !r) return '';
   const rows = r
     .filter((emp) => {
-      const today = state.attendance.find((a) => a.employee_id === emp.id);
+      const today =
+        state.attendance.find((a) => a.employee_id === emp.id && a.status === 'checked_in') ||
+        state.attendance.find((a) => a.employee_id === emp.id);
       if (kind === 'checkin') return !(today && today.status === 'not_in'); // already in the waiting list below
       const checkedInHere =
         (today && today.status === 'checked_in') || (state.staleOpen || []).some((a) => a.employee_id === emp.id);
@@ -445,18 +451,21 @@ function lookupCandidateRow(kind, emp) {
     `<div class="person disabledRow"><span class="initials">${esc(initials(emp.name))}</span><span><strong>${esc(emp.name)}</strong><small>${meta} · ${t}</small></span></div>`;
   if (kind === 'checkout') return note('Not checked in at this location');
   if (!emp.active) return note('Disabled - an admin can enable them');
-  const today = state.attendance.find((a) => a.employee_id === emp.id);
+  const today =
+    state.attendance.find((a) => a.employee_id === emp.id && a.status === 'checked_in') ||
+    state.attendance.find((a) => a.employee_id === emp.id);
   if (today && today.status === 'checked_in') return note('Already checked in here');
-  if (today && today.status === 'completed') return note('Shift already completed here today');
   return `<div class="person"><span class="initials">${esc(initials(emp.name))}</span><span><strong>${esc(emp.name)}${emp.location_id !== state.location.id ? ' <span class="badge blue">ad-hoc</span>' : ''}</strong><small>${meta}</small></span><button class="selectBtn" data-pick-checkin="${esc(emp.id)}">Select</button></div>`;
 }
 function add() {
   const available = state.attendance.filter(
     (r) =>
-      r.status === 'not_in' &&
+      r.status !== 'checked_in' &&
+      !state.attendance.some((a) => a.employee_id === r.employee_id && a.status === 'checked_in') &&
+      state.attendance.find((a) => a.employee_id === r.employee_id) === r &&
       (!state.addQuery || (r.name + ' ' + r.employee_id).toLowerCase().includes(state.addQuery.toLowerCase())),
   );
-  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Type a name or EMP ID, or choose an employee below.</p>${attendanceLocationPicker()}<input class="search" id="addSearch" placeholder="Search name or EMP ID, e.g. EMP1024" value="${esc(state.addQuery)}" autocomplete="off">${lookupResultsView('checkin')}<h2 class="sectionTitle">Pre-assigned employees waiting here</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}${r.adhoc ? ' · ad-hoc' : ''}</small></span><button class="selectBtn" data-select="${esc(r.employee_id)}">Select</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${state.user?.role === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}${state.selected ? `<div class="selected"><b>Selected employee: ${esc(state.selected.name)}</b><br>${esc(state.selected.employee_id)} · ${esc(state.location.name)}${state.selected.adhoc ? ' · ad-hoc shift' : ''}</div><button class="primary" id="doCheckin">Mark Check-in · ${nowTime()}</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Type a name or EMP ID, or choose an employee below.</p>${attendanceLocationPicker()}<input class="search" id="addSearch" placeholder="Search name or EMP ID, e.g. EMP1024" value="${esc(state.addQuery)}" autocomplete="off">${lookupResultsView('checkin')}<h2 class="sectionTitle">Ready for check-in</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}${r.adhoc ? ' · ad-hoc' : ''}</small></span><button class="selectBtn" data-select="${esc(r.employee_id)}">Select</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${state.user?.role === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}${state.selected ? `<div class="selected"><b>Selected employee: ${esc(state.selected.name)}</b><br>${esc(state.selected.employee_id)} · ${esc(state.location.name)}${state.selected.adhoc ? ' · ad-hoc shift' : ''}</div><button class="primary" id="doCheckin" ${state.checkingIn ? 'disabled' : ''}>Mark Check-in · ${nowTime()}</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
 }
 function confirmed() {
   const r = state.lastCheck;
@@ -480,24 +489,12 @@ function checkout() {
 async function dashboard() {
   if (!state.dashboard) state.dashboard = await api('/api/dashboard');
   const d = state.dashboard;
-  return `<div class="page">${header()}<h1>Attendance overview</h1><p class="sub">Today's summary across all assigned locations.</p><div class="grid2"><div class="dashStat"><strong>${d.employees}</strong><span>Employees</span></div><div class="dashStat"><strong style="color:var(--green)">${d.checked_in}</strong><span>Checked in</span></div><div class="dashStat"><strong>${d.completed}</strong><span>Completed</span></div><div class="dashStat"><strong style="color:var(--amber)">${d.not_checked_in}</strong><span>Not checked in</span></div></div><h2 class="sectionTitle">Location breakdown</h2>${d.locations.map((l) => `<div class="card listCard ${l.active ? '' : 'disabledCard'}"><span><strong>${esc(l.name.split(' - ')[1] || l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${empCountLabel(l)}</small></span><span style="text-align:right"><span class="badge green">${l.today.checked_in} checked in</span><small>${l.today.completed} completed</small></span></div>`).join('')}<h2 class="sectionTitle">Quick actions</h2><button class="primary" data-go="reports">View attendance report</button></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Attendance overview</h1><p class="sub">Today's summary across all assigned locations.</p><div class="grid2"><div class="dashStat"><strong>${d.employees}</strong><span>Employees</span></div><div class="dashStat"><strong style="color:var(--green)">${d.checked_in}</strong><span>Checked in</span></div><div class="dashStat"><strong>${d.completed}</strong><span>Checked out</span></div><div class="dashStat"><strong style="color:var(--amber)">${d.not_checked_in}</strong><span>Not checked in</span></div></div><h2 class="sectionTitle">Location breakdown</h2>${d.locations.map((l) => `<div class="card listCard ${l.active ? '' : 'disabledCard'}"><span><strong>${esc(l.name.split(' - ')[1] || l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${empCountLabel(l)}</small></span><span style="text-align:right"><span class="badge green">${l.today.checked_in} checked in</span><small>${l.today.completed} checked out</small></span></div>`).join('')}</div>${nav()}${message()}`;
 }
 function menu() {
-  return `<div class="navPanel">${header()}<h1>Navigation</h1><p class="sub">${esc(state.user?.name || '')} · ${esc(state.location?.name || 'All locations')}</p>${[
-    ['dashboard', 'Dashboard', 'Overview of all locations'],
-    ['attendance', 'Mark attendance', 'Record employee check-ins'],
-    ['checkout', 'Manage check-outs', 'Close checked-in shifts'],
-    ['locations', 'Locations', 'Choose a branch'],
-    ['employees', 'Employees', 'Employee directory'],
-    ['reports', 'Reports', 'Attendance summaries'],
-    ['settings', 'Settings', 'Account and access'],
-  ]
-    .map(
-      ([s, t, d]) =>
-        `<button class="navLink" data-go="${s}"><span><strong>${t}</strong><small>${d}</small></span><span>›</span></button>`,
-    )
-    .join('')}<button class="secondary" id="logout" style="margin-top:20px">Sign out</button></div>${message()}`;
+  return dashboard();
 }
+
 function employees() {
   // Location filter: '' is every site the role may see, 'none' is employees not
   // placed anywhere yet (admin only). A stale pick resets to all: the site was
@@ -930,8 +927,13 @@ function accessRow(u, d) {
         Math.max(d.locations.length, 2),
         6,
       )}">${d.locations
-        .map((l) => `<option value="${esc(l.id)}" ${u.location_ids.includes(l.id) ? 'selected' : ''}>${esc(l.name)}</option>`)
-        .join('')}</select><small class="helper" style="display:block;margin-top:4px">Takes effect on their next request. Saving with none selected leaves them with "No location access assigned" until you add a site. Attendance history is not affected.</small></div><button class="secondary">Save sites</button> <button type="button" class="link" id="cancelAccessEdit">Cancel</button></form></div>`
+        .map(
+          (l) =>
+            `<option value="${esc(l.id)}" ${u.location_ids.includes(l.id) ? 'selected' : ''}>${esc(l.name)}</option>`,
+        )
+        .join(
+          '',
+        )}</select><small class="helper" style="display:block;margin-top:4px">Takes effect on their next request. Saving with none selected leaves them with "No location access assigned" until you add a site. Attendance history is not affected.</small></div><button class="secondary">Save sites</button> <button type="button" class="link" id="cancelAccessEdit">Cancel</button></form></div>`
     : '';
   return `<div class="person accessCard ${disabled ? 'disabledRow' : ''}"><span class="accessTop"><span class="initials">${esc(
     initials(u.name),
@@ -957,7 +959,6 @@ function settings() {
       'My profile',
       esc((d ? d.profile.name : state.user?.name) + ' · ' + (d ? d.profile.id : state.user?.id)),
     ],
-    ['locations', 'Locations', 'View assigned branches and admin controls'],
     ['access', 'User access', 'View roles and location scope'],
   ];
   if (state.user?.role === 'admin')
@@ -1085,7 +1086,7 @@ function bind() {
   document.querySelectorAll('[data-edittime]').forEach(
     (b) =>
       (b.onclick = () => {
-        state.editTimes = state.attendance.find((r) => r.employee_id === b.dataset.edittime) || null;
+        state.editTimes = state.attendance.find((r) => (r.id || r.employee_id) === b.dataset.edittime) || null;
         render();
         document.getElementById('timeEditCard')?.scrollIntoView({ behavior: 'smooth' });
       }),
@@ -1235,7 +1236,7 @@ function bind() {
       }),
   );
   const dc = document.getElementById('doCheckin');
-  if (dc) dc.onclick = doCheckin;
+  if (dc) dc.onclick = () => doCheckin();
   document.querySelectorAll('[data-checkout]').forEach((b) => (b.onclick = () => askCheckout(b.dataset.checkout)));
   const tn = document.getElementById('toggleNew');
   if (tn)
@@ -1279,12 +1280,13 @@ function bind() {
     };
   const ef = document.getElementById('employeeForm');
   if (ef) ef.onsubmit = createEmployee;
-  document
-    .querySelectorAll('[data-edit-access]')
-    .forEach((b) => (b.onclick = () => {
-      state.editAccess = b.dataset.editAccess;
-      render();
-    }));
+  document.querySelectorAll('[data-edit-access]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        state.editAccess = b.dataset.editAccess;
+        render();
+      }),
+  );
   document
     .querySelectorAll('[data-del-access]')
     .forEach((b) => (b.onclick = () => askDisableAccess(b.dataset.delAccess, b.dataset.name)));
@@ -1364,11 +1366,12 @@ function startHistory(screen) {
   history.pushState({ gfScreen: screen, settingsView: state.settingsView || '' }, '', '#' + screen);
 }
 function go(screen, opts = {}) {
+  state.confirm = null;
   state.error = '';
   state.lookupResults = null;
   state.notice = '';
   state.screenError = null;
-  if (screen === 'home') screen = state.user?.role === 'admin' ? 'dashboard' : 'attendance';
+  if (screen === 'home' || screen === 'menu') screen = state.user?.role === 'admin' ? 'dashboard' : 'attendance';
   if (screen === 'settings' && !state.settings) {
     openSettings(state.settingsView || '');
     return;
@@ -1430,8 +1433,8 @@ async function doLogin(e) {
     await bootstrap();
     state.notice = '';
     if (state.location) await loadAttendance();
-    state.screen = 'attendance';
-    startHistory('attendance');
+    state.screen = state.user.role === 'admin' ? 'dashboard' : 'attendance';
+    startHistory(state.screen);
     render();
   };
   try {
@@ -1512,12 +1515,32 @@ async function runEmployeeSearch(kind) {
   }
   render();
 }
-async function doCheckin() {
+async function doCheckin(confirmedSecondShift = false) {
+  if (state.checkingIn || !state.selected) return;
+  state.checkingIn = true;
+  render();
   try {
     state.lastCheck = await api('/api/attendance/checkin', {
       method: 'POST',
-      body: JSON.stringify({ employee_id: state.selected.employee_id, location_id: state.location.id }),
+      body: JSON.stringify({
+        employee_id: state.selected.employee_id,
+        location_id: state.location.id,
+        confirm_second_shift: confirmedSecondShift,
+      }),
     });
+    if (state.lastCheck.requires_confirmation) {
+      state.confirm = {
+        title: 'Second shift today',
+        lines: [
+          { label: 'Employee', value: state.selected.name },
+          { label: 'Previous shifts checked out today', value: String(state.lastCheck.prior_shifts) },
+          { label: 'New location', value: state.location.name },
+        ],
+        okLabel: 'Check in',
+        onOk: () => doCheckin(true),
+      };
+      return;
+    }
     state.selected = null;
     state.dashboard = null;
     await loadAttendance();
@@ -1525,6 +1548,9 @@ async function doCheckin() {
   } catch (e) {
     if (e.status === 403 || e.status === 404) return showScreenError(e, 'attendance');
     state.error = e.message;
+    render();
+  } finally {
+    state.checkingIn = false;
     render();
   }
 }
@@ -1928,6 +1954,7 @@ async function saveTimeEdit(e) {
     await api('/api/attendance/times', {
       method: 'PATCH',
       body: JSON.stringify({
+        record_id: state.editTimes.id,
         employee_id: state.editTimes.employee_id,
         location_id: state.location.id,
         day: f.day,
@@ -2246,7 +2273,11 @@ async function logout() {
     try {
       await bootstrap();
       const requested = location.hash.slice(1);
-      state.screen = appScreens.includes(requested) ? requested : 'attendance';
+      state.screen = appScreens.includes(requested)
+        ? requested
+        : state.user.role === 'admin'
+          ? 'dashboard'
+          : 'attendance';
       if (state.screen === 'attendance' && state.location) await loadAttendance();
       startHistory(state.screen);
     } catch {
