@@ -107,13 +107,14 @@ def open_employees(p, user, locations=None, employees=None):
         body = {
             "/api/locations": LOCATIONS if locations is None else locations,
             "/api/employees": EMPLOYEES if employees is None else employees,
+            "/api/settings": {"profile": user, "locations": LOCATIONS, "access": []},
+            "/api/dashboard": {"employees": 3, "checked_in": 0, "completed": 0, "not_checked_in": 3, "locations": []},
         }.get(path, {})
         route.fulfill(content_type="application/json", body=json.dumps(body))
 
     page.route("http://guardian.test/**", respond)
     page.goto("http://guardian.test/app")
-    page.locator("[data-go=menu]").click()
-    page.locator("[data-go=employees]").click()
+    page.locator("[data-nav=employees]").click()
     page.wait_for_selector("#empLocFilter")
     return browser, page
 
@@ -215,14 +216,13 @@ def test_filter_pick_resets_across_same_tab_sign_out(tmp_path):
         try:
             page.locator("#empLocFilter").select_option("none")
             assert directory_names(page) == ["Chitra Free"]
-            page.locator("[data-go=menu]").click()
+            page.locator("[data-nav=settings]").click()
             page.locator("#logout").click()
             page.wait_for_selector("#loginForm")
             page.locator("#loginForm input[name=username]").fill("supervisor.demo")
             page.locator("#loginForm input[name=password]").fill("demo123")
             page.locator("#loginForm button.primary").click()
-            page.locator("[data-go=menu]").click()
-            page.locator("[data-go=employees]").click()
+            page.locator("[data-nav=employees]").click()
             page.wait_for_selector("#empLocFilter")
             assert page.locator("#empLocFilter").input_value() == ""
             options = [o.strip() for o in page.locator("#empLocFilter option").all_inner_texts()]
