@@ -71,6 +71,7 @@ def test_login_session_restore_and_location_navigation(role, tmp_path):
             },
             "/api/employees": [],
             "/api/logout": {},
+            "/api/dashboard": {"employees": 0, "checked_in": 0, "completed": 0, "not_checked_in": 0, "locations": []},
         }.get(path, {})
         route.fulfill(content_type="application/json", body=json.dumps(body))
 
@@ -83,6 +84,10 @@ def test_login_session_restore_and_location_navigation(role, tmp_path):
         page.locator("[name=username]").fill(user["id"])
         page.locator("[name=password]").fill("local-test-password")
         page.locator("#loginForm .primary").click()
+        if role == "admin":
+            page.wait_for_selector("h1:text('Attendance overview')")
+            assert page.locator("h1").inner_text() == "Attendance overview"
+            page.locator("[data-nav=attendance]").click()
         page.wait_for_selector("#attSearch")
         assert page.url.endswith("#attendance")
         assert page.locator("#attendanceLocation option").count() == (3 if role == "admin" else 2)
@@ -108,11 +113,13 @@ def test_login_session_restore_and_location_navigation(role, tmp_path):
         for url in ["http://guardian.test/app"]:
             page.goto(url)
             page.reload()
+            if role == "admin":
+                page.wait_for_selector("h1:text('Attendance overview')")
+                page.locator("[data-nav=attendance]").click()
             page.wait_for_selector("#attSearch")
             assert page.url.endswith("#attendance")
         # Locations remains available by deliberate navigation during the session.
-        page.locator(".menuButton").click()
-        page.locator("[data-go=locations]").click()
+        page.locator("[data-nav=locations]").click()
         page.wait_for_selector("#locSearch")
         assert page.url.endswith("#locations")
         page.locator("#continueLoc").click()
@@ -126,6 +133,7 @@ def test_login_session_restore_and_location_navigation(role, tmp_path):
         locations.clear()
         page.goto("http://guardian.test/app")
         page.reload()
+        page.locator("[data-nav=attendance]").click()
         page.wait_for_function("document.body.innerText.includes('No location')")
         page.evaluate("go('add')")
         assert page.url.endswith("#attendance")
@@ -143,7 +151,7 @@ def test_attendance_suppresses_superseded_success_and_error():
         browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
         page = browser.new_page()
         page.route(re.compile(r"http://guardian\.test/(app|attendance-app\.)"), serve_frontend_only)
-        page.goto("http://guardian.test/app")
+        page.goto("http://guardian.test/app#attendance")
         page.wait_for_selector("#loginForm")
         page.evaluate("""() => {
             window.pending=[];window.errors=[];
@@ -207,7 +215,7 @@ def test_login_error_feedback(failure, expected, tmp_path):
         browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
         page = browser.new_page(viewport={"width": 390, "height": 844})
         page.route("http://guardian.test/**", respond)
-        page.goto("http://guardian.test/app")
+        page.goto("http://guardian.test/app#attendance")
         page.locator("[name=username]").fill("supervisor.demo")
         page.locator("[name=password]").fill("incorrect-local-test")
         page.locator("#loginForm .primary").click()
@@ -269,14 +277,14 @@ def test_location_creation_prompts_for_supervisor(entry, selection, tmp_path):
             + "))"
         )
         page.route("http://guardian.test/**", respond)
-        page.goto("http://guardian.test/app")
+        page.goto("http://guardian.test/app#attendance")
         page.wait_for_selector('h1:text("Mark attendance")')
         if entry == "locations":
             page.evaluate("go('locations')")
             page.locator("[data-locaction=add]").click()
         else:
             page.locator("[data-nav=settings]").click()
-            page.locator("[data-go=locations]").click()
+            page.locator("[data-nav=locations]").click()
             page.wait_for_selector("[data-locaction=add]")
             page.locator("[data-locaction=add]").click()
         form = page.locator("#locationForm")
@@ -417,11 +425,11 @@ def test_excel_report_download_keeps_selected_filters(tmp_path):
         browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
         page = browser.new_page(viewport={"width": 390, "height": 844})
         page.route("http://guardian.test/**", respond)
-        page.goto("http://guardian.test/app")
+        page.goto("http://guardian.test/app#attendance")
         page.locator("[name=username]").fill("test")
         page.locator("[name=password]").fill("fixture-password")
         page.locator("#loginForm .primary").click()
-        page.wait_for_selector("#attSearch")
+        page.wait_for_selector("[data-nav=reports]")
         page.locator("[data-nav=reports]").click()
         page.wait_for_selector(".rpStats")
         # The date picker is a hidden native input behind the date button.
