@@ -546,7 +546,7 @@ async function dashboard() {
       }
     : d;
   const short = (l) => l.name.split(' - ')[1] || l.name;
-  const chips = `<div class="filters overviewFilters" role="group" aria-label="Location"><button class="chip ${pick ? '' : 'active'}" data-overview-loc="">All locations</button>${locs.map((l) => `<button class="chip ${pick?.id === l.id ? 'active' : ''}" data-overview-loc="${esc(l.id)}">${esc(short(l))}</button>`).join('')}</div>`;
+  const chips = `<div class="recordingAt overviewPicker"><label for="overviewLocation">Location</label><select id="overviewLocation"><option value="">All locations</option>${locs.map((l) => `<option value="${esc(l.id)}" ${pick?.id === l.id ? 'selected' : ''}>${esc(short(l))}</option>`).join('')}</select></div>`;
   const card = (l) =>
     `<button type="button" class="card listCard locCard ${l.active ? '' : 'disabledCard'}" data-overview-loc="${esc(l.id)}"><span><strong>${esc(short(l))} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${empCountLabel(l)}</small></span><span style="text-align:right"><span class="badge green">${l.today.checked_in} checked in</span><small>${l.today.completed} checked out</small><small>${l.today.not_in} not checked in</small></span></button>`;
   return `<div class="page">${header()}<h1>Attendance overview</h1><p class="sub">Today's summary · ${pick ? esc(short(pick)) : 'all assigned locations'}</p>${chips}<div class="grid2"><div class="dashStat"><strong>${t.employees}</strong><span>Employees</span></div><div class="dashStat"><strong style="color:var(--green)">${t.checked_in}</strong><span>Checked in</span></div><div class="dashStat"><strong>${t.completed}</strong><span>Checked out</span></div><div class="dashStat"><strong style="color:var(--amber)">${t.not_checked_in}</strong><span>Not checked in</span></div></div><h2 class="sectionTitle">${pick ? 'Location' : 'Location breakdown'}</h2>${(pick ? [pick] : locs).map(card).join('') || '<p class="muted small">No locations yet.</p>'}</div>${nav()}${message()}`;
@@ -983,19 +983,23 @@ function accessRow(u, d) {
 }
 // One user's own screen: who they are, which locations they can work at (add or remove),
 // and disable/enable. Admin only; the server enforces the same rules.
+// Location checkbox list shared by the user screen and the add-supervisor form.
+function siteChecklist(d, assigned) {
+  return `<div class="siteList">${
+    d.locations
+      .map(
+        (l) =>
+          `<label class="siteOption ${l.active ? '' : 'disabledRow'}"><input type="checkbox" name="location_ids" value="${esc(l.id)}" ${assigned.has(l.id) ? 'checked' : ''}><span class="siteText"><strong>${esc(l.name)}</strong><small>${esc(l.area)}${l.active ? '' : ' · Disabled'}</small></span></label>`,
+      )
+      .join('') || '<p class="muted small" style="padding:12px">No locations yet. Add one under Locations first.</p>'
+  }</div>`;
+}
 function accessDetail(u, d) {
   const disabled = u.active === 0;
   const isSupervisor = u.role === 'supervisor';
   const assigned = new Set(u.location_ids || []);
   const sites = isSupervisor
-    ? `<form id="accessEditForm" data-user="${esc(u.id)}"><h2 class="sectionTitle">Locations</h2>${
-        d.locations
-          .map(
-            (l) =>
-              `<label class="siteOption ${l.active ? '' : 'disabledRow'}"><input type="checkbox" name="location_ids" value="${esc(l.id)}" ${assigned.has(l.id) ? 'checked' : ''}><span><strong>${esc(l.name)}</strong><small>${esc(l.area)}${l.active ? '' : ' · Disabled'}</small></span></label>`,
-          )
-          .join('') || '<p class="muted small">No locations yet. Add one under Locations first.</p>'
-      }<small class="helper" style="display:block;margin:6px 0 10px">Tick the locations ${esc(u.name)} can work at. Takes effect on their next request. Attendance history is not affected.</small><button class="secondary">Save locations</button></form>`
+    ? `<form id="accessEditForm" data-user="${esc(u.id)}"><h2 class="sectionTitle">Locations</h2>${siteChecklist(d, assigned)}<small class="helper" style="display:block;margin:8px 0 12px;text-align:left">Tick the locations ${esc(u.name)} can work at. Takes effect on their next request. Attendance history is not affected.</small><button class="secondary">Save locations</button></form>`
     : '<h2 class="sectionTitle">Locations</h2><p class="muted small">Admins can work at all locations.</p>';
   const actions =
     isSupervisor && state.user.role === 'admin'
@@ -1006,7 +1010,7 @@ function accessDetail(u, d) {
   return `<div class="card" style="padding:16px;margin:12px 0"><div class="person"><span class="initials">${esc(initials(u.name))}</span><span><strong>${esc(u.name)} ${disabled ? '<span class="badge grey">Disabled</span>' : ''}</strong><small>${esc(u.id)} · ${esc(u.role)}</small></span></div>${sites}<div style="margin-top:14px">${actions}</div></div>`;
 }
 function accessListPanel(d) {
-  return `<div class="card" style="padding:16px;margin:12px 0">${d.access.map((u) => accessRow(u, d)).join('')}${state.user.role === 'admin' ? `<form id="accessForm" style="margin-top:14px"><div class="field"><label>User ID</label><input name="id" required></div><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Password</label><input name="password" type="password" minlength="8" maxlength="100" autocomplete="new-password" placeholder="At least 8 characters" required></div><div class="field"><label>Locations</label><select name="location_ids" multiple size="3">${d.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div><button class="secondary">Create supervisor</button></form>` : '<p class="muted small">Only admins can create or change access.</p>'}</div>`;
+  return `<div class="card" style="padding:16px;margin:12px 0">${d.access.map((u) => accessRow(u, d)).join('')}${state.user.role === 'admin' ? `<details class="addSupervisor"><summary>Add supervisor</summary><form id="accessForm" style="margin-top:14px"><div class="field"><label>User ID</label><input name="id" required></div><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Password</label><input name="password" type="password" minlength="8" maxlength="100" autocomplete="new-password" placeholder="At least 8 characters" required></div><div class="field"><label>Locations</label>${siteChecklist(d, new Set())}</div><button class="secondary">Create supervisor</button></form></details>` : '<p class="muted small">Only admins can create or change access.</p>'}</div>`;
 }
 function settings() {
   const d = state.settings;
@@ -1344,6 +1348,12 @@ function bind() {
         else document.getElementById('importFile')?.click();
       }),
   );
+  const ovSel = document.getElementById('overviewLocation');
+  if (ovSel)
+    ovSel.onchange = () => {
+      state.overviewLocation = ovSel.value;
+      render();
+    };
   document.querySelectorAll('[data-overview-loc]').forEach(
     (b) =>
       (b.onclick = () => {
