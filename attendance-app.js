@@ -97,42 +97,54 @@ function newLocationId(name) {
 }
 // The one mutable client-side store. Every screen renders from this object;
 // token/user persist in localStorage so a reload restores the session.
+// Everything that belongs to one signed-in account. Rebuilt from scratch whenever the
+// session changes so no screen can show a previous login's data.
+function freshSessionState() {
+  return {
+    screen: 'login',
+    locations: [],
+    location: null,
+    attendance: [],
+    summary: {},
+    employees: [],
+    dashboard: null,
+    report: null,
+    settings: null,
+    settingsView: '',
+    editAccess: null,
+    showLocationForm: false,
+    selected: null,
+    lastCheck: null,
+    query: '',
+    locationQuery: '',
+    addQuery: '',
+    outQuery: '',
+    lookupResults: null,
+    employeeQuery: '',
+    employeeLocation: '',
+    showEmployeeForm: false,
+    filter: 'all',
+    notice: '',
+    error: '',
+    confirm: null,
+    detail: null,
+    editTimes: null,
+    shiftDraft: null,
+    shiftSaving: false,
+    shiftError: '',
+    checkingIn: false,
+  };
+}
 const state = {
   token: localStorage.getItem('gf_token') || '',
   user: JSON.parse(localStorage.getItem('gf_user') || 'null'),
-  screen: 'login',
-  locations: [],
-  location: null,
-  attendance: [],
-  summary: {},
-  employees: [],
-  dashboard: null,
-  report: null,
-  settings: null,
-  settingsView: '',
-  editAccess: null,
-  showLocationForm: false,
-  selected: null,
-  lastCheck: null,
-  query: '',
-  locationQuery: '',
-  addQuery: '',
-  outQuery: '',
-  lookupResults: null,
-  employeeQuery: '',
-  employeeLocation: '',
-  showEmployeeForm: false,
-  filter: 'all',
-  notice: '',
-  error: '',
-  confirm: null,
-  detail: null,
-  editTimes: null,
-  shiftDraft: null,
-  shiftSaving: false,
-  shiftError: '',
-  checkingIn: false,
+  ...freshSessionState(),
 };
+// Drop all per-account data (keeps nothing but the login screen state).
+function clearSessionState() {
+  for (const k of Object.keys(state)) if (k !== 'token' && k !== 'user') delete state[k];
+  Object.assign(state, freshSessionState());
+}
 // Shared yes/no overlay. `onOk` runs when the user confirms; Cancel just closes.
 function confirmModal() {
   const c = state.confirm;
@@ -157,20 +169,26 @@ function toast(msg) {
 // its exact wording; everything else surfaces the server's detail text.
 async function api(path, opts = {}) {
   let res;
+  const sentToken = state.token;
+  // A reply that lands after the session changed (sign-out, another login) belongs to the
+  // old account: it is dropped so it can never write into the new session's screens.
+  const stale = () => path !== '/api/login' && state.token !== sentToken;
   try {
     res = await fetch(API + path, {
       ...opts,
       headers: {
         'Content-Type': 'application/json',
-        ...(state.token ? { Authorization: 'Bearer ' + state.token } : {}),
+        ...(sentToken ? { Authorization: 'Bearer ' + sentToken } : {}),
       },
     });
   } catch (netErr) {
+    if (stale() && path !== '/api/logout') return new Promise(() => {});
     const err = new Error('Cannot reach the Guardian server. Check the connection and try again.');
     err.network = true;
     throw err;
   }
   const text = await res.text();
+  if (stale() && path !== '/api/logout') return new Promise(() => {});
   let data;
   try {
     data = JSON.parse(text);
@@ -207,10 +225,7 @@ function endSession() {
   localStorage.removeItem('gf_user');
   state.token = '';
   state.user = null;
-  state.report = null;
-  state.dashboard = null;
-  state.settings = null;
-  state.notice = '';
+  clearSessionState();
   state.error = SESSION_ENDED;
   state.screen = 'login';
   history.replaceState({ gfScreen: 'login' }, '', '#login');
@@ -2294,11 +2309,9 @@ async function logout() {
   localStorage.removeItem('gf_user');
   state.token = '';
   state.user = null;
-  state.report = null;
-  // Filter picks belong to the signed-in session; drop them so a different role
-  // signing in on this tab starts unfiltered.
-  state.employeeLocation = '';
-  state.employeeQuery = '';
+  // Every per-account object is dropped, so a different role signing in on this tab
+  // starts from a clean slate.
+  clearSessionState();
   state.screen = 'login';
   history.replaceState({ gfScreen: 'login' }, '', '#login');
   render();
