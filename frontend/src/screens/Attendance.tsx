@@ -6,6 +6,7 @@ import { uiRole, useSession } from '@/auth/session';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorBanner } from '@/components/ErrorBanner';
 import { LoadingRows } from '@/components/LoadingRows';
+import { GuardSheet } from '@/components/GuardSheet';
 import { LocationSheet } from '@/components/LocationSheet';
 import { ScreenError } from '@/components/ScreenError';
 import { StickySearchBar } from '@/components/StickySearchBar';
@@ -16,7 +17,6 @@ import { fmtShortDay, fmtTime, shortLoc, todayISO } from '@/lib/format';
 import { oneRowEach, openRecord } from '@/lib/hours';
 import { useScrolledPast } from '@/lib/useScrolledPast';
 import type { AttendanceAnswer, AttendanceRecord, Location, LookupMatch } from '@/types/api';
-import { AddGuardSheet } from './attendance/AddGuardSheet';
 import { EditButton, GuardCard, GuardList, RowButton } from './attendance/AttendanceRow';
 import { CompactFilters } from './attendance/CompactFilters';
 import { EditTimesSheet } from './attendance/EditTimesSheet';
@@ -413,11 +413,12 @@ export function Attendance() {
             onClose={() => setEditing(null)}
             onSaved={() => queryClient.invalidateQueries({ queryKey: ['attendance'] })}
           />
-          <AddGuardSheet
+          <GuardSheet
             open={addOpen}
             site={{ id: site.id, name: shortLoc(site.name) }}
             onClose={() => setAddOpen(false)}
-            onAdded={() => {
+            onSaved={() => {
+              queryClient.invalidateQueries({ queryKey: ['employees'] });
               queryClient.invalidateQueries({ queryKey: ['attendance'] });
               queryClient.invalidateQueries({ queryKey: ['locations'] });
               queryClient.invalidateQueries({ queryKey: ['dashboard'] });

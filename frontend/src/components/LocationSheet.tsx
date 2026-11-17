@@ -12,13 +12,24 @@ interface Props {
   current: string;
   // Add an "All locations" option at the top.
   withAll?: boolean;
+  // Add a "No site yet" option (value 'none') for guards without a site.
+  withNone?: boolean;
   // The word for one person in the count, for example "guard".
   person?: string;
   onPick: (id: string) => void;
 }
 
-// Bottom sheet to choose a site (Reports and Home).
-export function LocationSheet({ open, onOpenChange, locations, current, withAll, person = 'guard', onPick }: Props) {
+// Bottom sheet to choose a site (Reports, Attendance and Guards).
+export function LocationSheet({
+  open,
+  onOpenChange,
+  locations,
+  current,
+  withAll,
+  withNone,
+  person = 'guard',
+  onPick,
+}: Props) {
   const options = [
     ...(withAll ? [{ id: '', title: 'All sites', meta: plural(locations.length, 'site') }] : []),
     ...locations.map((l) => ({
@@ -26,6 +37,7 @@ export function LocationSheet({ open, onOpenChange, locations, current, withAll,
       title: shortLoc(l.name),
       meta: [locCity(l.name), l.area, empCountLabel(l, person), l.active ? '' : 'Disabled'].filter(Boolean).join(' · '),
     })),
+    ...(withNone ? [{ id: 'none', title: 'No site yet', meta: 'Guards without a site' }] : []),
   ];
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>

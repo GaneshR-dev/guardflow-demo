@@ -134,9 +134,16 @@ export interface SettingsAnswer {
 export interface Employee {
   id: string;
   name: string;
+  phone: string;
   role: string;
   location_id: string | null;
   active: number;
+}
+
+export interface EmployeeImportAnswer {
+  created: number;
+  updated: number;
+  warnings: string[];
 }
 
 export interface AuditRow {
