@@ -10,7 +10,7 @@ Use ASD-STE100 Simplified Technical English for:
 - All work log entries.
 - All commit messages and pull request text.
 
-Do not use STE100 rules for text that users see in the app. App text follows `docs/UI-GUIDE.md`.
+Do not use STE100 rules for text that users see in the app. App text follows `docs/UI-GUIDE.md` and the word list in `docs/GLOSSARY.md`.
 
 STE100 rules to use:
 - Write short sentences. Use a maximum of 20 words in an instruction and 25 words in a description.
@@ -117,6 +117,7 @@ Each screen and each action must handle loading, success and all failures. Do no
 - Before you add a component, look for one in `docs/UI-GUIDE.md`. Use the existing CSS classes and template functions.
 - If a new screen needs its own classes, give them a short prefix. For example, the Reports screen uses `rp` (`.rpList`, `.rpSheet`).
 - Do not load libraries from a CDN. Install them with npm in `frontend/`.
+- When you move a screen, use the words in `docs/GLOSSARY.md` (for example "guard" and "site"). Code and API names do not change.
 - In `frontend/`, use shadcn/ui components first (`npx shadcn@latest add <name>`). Style them with the Tailwind tokens in `frontend/src/index.css`.
 - Do not add a second UI library, CSS framework or state library without a reason.
 

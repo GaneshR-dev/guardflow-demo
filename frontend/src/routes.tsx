@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Navigate, Outlet, Route, Routes } from 'react-router';
 import { uiRole, useSession } from '@/auth/session';
 import { AppShell } from '@/layout/AppShell';
+import { Home } from '@/screens/Home';
 import { Login } from '@/screens/Login';
 import { NotMovedYet } from '@/screens/NotMovedYet';
 import { Settings } from '@/screens/Settings';
@@ -28,16 +29,16 @@ export function AppRoutes() {
         <Route path="/owner" element={<NotMovedYet title="Your companies" oldScreen="dashboard" noNav />} />
         <Route element={<RequireCompany />}>
           <Route element={<AppShell />}>
-            <Route path="/home" element={<NotMovedYet title="Attendance overview" oldScreen="dashboard" />} />
+            <Route path="/home" element={<Home />} />
             <Route path="/attendance" element={<NotMovedYet title="Mark attendance" oldScreen="attendance" />} />
-            <Route path="/attendance/add" element={<NotMovedYet title="Employee check-in" oldScreen="add" />} />
+            <Route path="/attendance/add" element={<NotMovedYet title="Guard check-in" oldScreen="add" />} />
             <Route
               path="/attendance/checkout"
               element={<NotMovedYet title="Manage check-outs" oldScreen="checkout" />}
             />
-            <Route path="/employees" element={<NotMovedYet title="Employees" oldScreen="employees" />} />
-            <Route path="/locations" element={<NotMovedYet title="Locations" oldScreen="locations" />} />
-            <Route path="/locations/:id" element={<NotMovedYet title="Location" oldScreen="locations" />} />
+            <Route path="/employees" element={<NotMovedYet title="Guards" oldScreen="employees" />} />
+            <Route path="/locations" element={<NotMovedYet title="Sites" oldScreen="locations" />} />
+            <Route path="/locations/:id" element={<NotMovedYet title="Site" oldScreen="locations" />} />
             <Route path="/reports" element={<NotMovedYet title="Reports" oldScreen="reports" />} />
             <Route path="/settings" element={<Settings />} />
           </Route>

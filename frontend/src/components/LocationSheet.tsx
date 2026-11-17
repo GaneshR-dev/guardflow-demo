@@ -17,10 +17,10 @@ interface Props {
   onPick: (id: string) => void;
 }
 
-// Bottom sheet to choose a location (Reports and Home).
+// Bottom sheet to choose a site (Reports and Home).
 export function LocationSheet({ open, onOpenChange, locations, current, withAll, person = 'guard', onPick }: Props) {
   const options = [
-    ...(withAll ? [{ id: '', title: 'All locations', meta: plural(locations.length, 'location') }] : []),
+    ...(withAll ? [{ id: '', title: 'All sites', meta: plural(locations.length, 'site') }] : []),
     ...locations.map((l) => ({
       id: l.id,
       title: shortLoc(l.name),
@@ -34,10 +34,10 @@ export function LocationSheet({ open, onOpenChange, locations, current, withAll,
         className="mx-auto max-h-[80svh] w-full max-w-[430px] rounded-t-3xl pb-[env(safe-area-inset-bottom)]"
       >
         <SheetHeader className="px-5 pt-5 pb-0">
-          <SheetTitle className="text-lg font-bold text-text">Choose location</SheetTitle>
-          <SheetDescription className="sr-only">Pick the location to show.</SheetDescription>
+          <SheetTitle className="text-lg font-bold text-text">Choose site</SheetTitle>
+          <SheetDescription className="sr-only">Pick the site to show.</SheetDescription>
         </SheetHeader>
-        <div role="radiogroup" aria-label="Locations" className="overflow-y-auto px-5 pb-5">
+        <div role="radiogroup" aria-label="Sites" className="overflow-y-auto px-5 pb-5">
           {options.map((o) => {
             const on = o.id === current;
             return (

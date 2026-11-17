@@ -1,6 +1,6 @@
 # UI guide — theme and components
 
-Use this guide before you change a screen. Use the existing tokens, classes and functions. Add new ones only when no existing one fits.
+Use this guide before you change a screen. Use the words in [GLOSSARY.md](GLOSSARY.md) for all app text. Use the existing tokens, classes and functions. Add new ones only when no existing one fits.
 
 ## Visual reference
 
@@ -165,6 +165,21 @@ Routes: `/login`, `/owner`, `/home`, `/attendance`, `/attendance/add`, `/attenda
 - The demo box shows only when `/api/health` returns `demo_mode: true`. A demo button fills the form. It does not sign in.
 - The footer is in the page flow, so it never covers the form.
 - Background `bg-login-bg` (`#f5f9ff`).
+
+### Home screen (`screens/Home.tsx`)
+
+Home answers one question: "Are my sites covered today?"
+
+- Four big tiles in a 2 × 2 grid: Guards (normal text), Checked in (green), Checked out (grey), Not checked in (amber). The status colours are in [GLOSSARY.md](GLOSSARY.md). Numbers 26 px, labels 13 px. Each number shows one time only.
+- No location picker. The location list is the only location control. A tap on a card opens Attendance for that location (`/attendance?location=<id>`).
+- Groups (`lib/coverage.ts`): "Needs attention" (the shift started and guards are not checked in, biggest gap first), "Upcoming" (the shift has not started: "Shift starts 2:00 pm"), "All checked in", and disabled sites folded at the end.
+- One site only: no list, one "Mark attendance" button.
+- "Updated <time>" and a Refresh button. A failed refresh keeps the data and shows a banner.
+
+### Panel and text colour
+
+- Each screen is a 430 px panel on `bg-app` (`#f7faff`), the same as the old `.app`.
+- `text-muted-foreground` is `#56657b` (5.6:1 on `bg-app`). The old `--muted-text` (`#68778d`) is below 4.5:1 on light backgrounds. Use it only on white.
 
 Data rules:
 - Read data with `useQuery` and `api()`. Show `LoadingRows` while `isPending`, and `ScreenError` on `isError` with `onRetry={refetch}`.

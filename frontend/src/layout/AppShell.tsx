@@ -23,7 +23,12 @@ interface PageProps {
 
 export function Page({ title, noNav, children }: PageProps) {
   return (
-    <main className={cn('mx-auto min-h-svh w-full max-w-[430px] p-[22px] max-[379px]:p-4', !noNav && 'pb-[120px]')}>
+    <main
+      className={cn(
+        'mx-auto min-h-svh w-full max-w-[430px] bg-app p-[22px] shadow-[0_0_0_1px_#d9e1ec,0_18px_60px_rgba(0,0,0,0.1)] max-[379px]:p-4',
+        !noNav && 'pb-[120px]',
+      )}
+    >
       <Header />
       {title && <h1 className="mb-4 text-[27px] leading-tight font-bold text-text">{title}</h1>}
       {children}

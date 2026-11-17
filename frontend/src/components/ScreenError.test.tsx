@@ -8,12 +8,12 @@ import { ScreenError } from './ScreenError';
 const show = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>);
 
 describe('ScreenError', () => {
-  test('403 at a location: no "Try again", a way to choose another location', async () => {
+  test('403 at a site: no "Try again", a way to choose another site', async () => {
     const choose = vi.fn();
     show(<ScreenError error={new ApiError('x', 403)} atLocation onRetry={vi.fn()} onChooseLocation={choose} />);
-    expect(screen.getByRole('heading', { name: 'No access to this location' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'No access to this site' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Choose location' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Choose site' }));
     expect(choose).toHaveBeenCalled();
   });
 

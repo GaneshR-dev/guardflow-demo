@@ -21,6 +21,28 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · Grey for "Checked out" · Claude Code · feat/react-signin
+- Request: Show "Checked out" in grey.
+- Changed: `frontend/src/screens/Home.tsx`: the "Checked out" tile number is grey (`text-muted-foreground`, 5.9:1). `lib/format.ts`: `STATUS_TONE` gives "completed" the tone "grey". `docs/GLOSSARY.md`: one colour for each status (green = Checked in, grey = Checked out, amber = Not checked in). `docs/UI-GUIDE.md`: Home tiles.
+- Tests: `npm test` → 75 passed (Home test checks the tile colours). Lint, format, typecheck, build → passed. Browser at 390 px: contrast 5.9:1 or more on each tile.
+- Open items: Use the same colours on Attendance and Reports when they move.
+
+## 2026-11-17 · One word list for the app text · Claude Code · feat/react-signin
+- Request: Make the app words the same on each screen, as part of the migration. Keep a Markdown file that tells what each word means.
+- Decisions: "guard" (not employee or staff), "site" (not location or branch), statuses "Checked in", "Checked out", "Not checked in". React screens only. The old app does not change.
+- Changed: `docs/GLOSSARY.md` (new): app words, meanings, words not to use, screen titles, nav labels and writing rules. `AGENTS.md`, `docs/UI-GUIDE.md`, `README.md` link it.
+- Changed: React text: nav "Home, Attendance, Guards, Sites, Reports, Settings" (no short forms, one line down to 320 px). Home, `ScreenError`, `LocationSheet` and the screen titles use "guard" and "site". Times show as "9:00 am" (no leading zero).
+- Changed: `frontend/src/glossary.test.ts` (new): fails when app text in a screen has a word that the glossary does not allow.
+- Tests: `npm test` → 75 passed. Lint, format, typecheck, build → passed. `pytest -q tests/` → all pass except the 5 old `test_search_keeps_native_input…` tests (they also fail on `origin/main` on macOS). Ruff → passed. Browser at 390, 360 and 320 px.
+- Open items: The old app keeps the old words until each screen moves. URL paths (`/employees`, `/locations`) keep the old names.
+
+## 2026-11-17 · React Home screen with a clearer purpose · Claude Code · feat/react-signin
+- Request: Build the newer Home design in React. Remove the double location control. Add improvements that use the data we have today.
+- Changed: `frontend/src/screens/Home.tsx`: four big summary tiles (the collaborator chose them over one summary sentence; labels 13 px, not 10 px), no location picker, locations grouped by need (`lib/coverage.ts`: needs attention, upcoming from the shift times, everybody came, disabled folded). A card opens Attendance for that location. One location shows a "Mark attendance" button. "Updated" time and Refresh. Loading, empty (admin and supervisor), error and failed-refresh states.
+- Changed: `layout/AppShell.tsx`: the 430 px `#f7faff` panel of the old app. `index.css`: `text-muted-foreground` is now `#56657b` for 4.5:1 contrast. `components/ProgressBar.tsx`. `tests/next_app.py`: shared helper for the /next browser tests.
+- Tests: `npm test` → 58 passed. `tests/test_next_home.py` (new) and `tests/test_next_signin.py` → 9 passed. Ruff → passed. Browser at 390 px with the local API: groups, links, contrast 5.1:1 or more.
+- Open items: Attendance is not in React yet, so a card opens the "not here yet" screen. Figma not changed (plan limit): add Home with the sign-in screen. The dashboard counts only today's records, so a guard on an overnight shift from yesterday counts as "not in".
+
 ## 2026-11-17 · React sign-in screen with a better design · Claude Code · feat/react-signin
 - Request: Add the sign-in screen to Figma, make the design better and move the screen to React.
 - Changed: `frontend/src/screens/Login.tsx`: the real sign-in. Theme fields (no yellow autofill), focus ring, show/hide password, "Signing in…" state, one request only, wrong password clears and focuses the password, 5xx shows a plain message, help sheet for "Forgot password?", tap-to-fill demo accounts, footer in the page flow. shadcn `input`, `label`.

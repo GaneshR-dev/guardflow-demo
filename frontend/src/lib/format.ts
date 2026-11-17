@@ -16,7 +16,7 @@ export const fmtMonth = (d: Date) => new Intl.DateTimeFormat('en-GB', { month: '
 
 export const fmtTime = (v?: string | null) =>
   v
-    ? new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: IST_TZ }).format(
+    ? new Intl.DateTimeFormat('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: IST_TZ }).format(
         new Date(v),
       )
     : '-';
@@ -36,7 +36,7 @@ export const fmtShift = (v?: string | null) => {
   const [h, m] = v.split(':').map(Number);
   const d = new Date();
   d.setHours(h, m, 0, 0);
-  return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true }).format(d);
+  return new Intl.DateTimeFormat('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true }).format(d);
 };
 
 // Shift windows of a branch: the new list, or the legacy single pair.
@@ -64,8 +64,8 @@ export const initials = (n: string) =>
 
 export const plural = (n: number, one: string, many = one + 's') => (n === 1 ? `${n} ${one}` : `${n} ${many}`);
 
-// A branch with only disabled guards reads "0 active employees · 3 disabled", not "0 employees".
-export const empCountLabel = (l: Location, one = 'employee', many = one + 's') =>
+// A site with only disabled guards reads "0 active guards · 3 disabled", not "0 guards".
+export const empCountLabel = (l: Location, one = 'guard', many = one + 's') =>
   Number(l.disabled_count)
     ? `${plural(l.assigned_count, 'active ' + one, 'active ' + many)} · ${plural(Number(l.disabled_count), 'disabled', 'disabled')}`
     : plural(l.assigned_count, one, many);
@@ -86,8 +86,9 @@ export const STATUS_LABEL: Record<AttendanceStatus, string> = {
   completed: 'Checked out',
   not_in: 'Not checked in',
 };
-export const STATUS_TONE: Record<AttendanceStatus, 'green' | 'blue' | 'amber'> = {
+// Status colours (docs/GLOSSARY.md): green = Checked in, grey = Checked out, amber = Not checked in.
+export const STATUS_TONE: Record<AttendanceStatus, 'green' | 'grey' | 'amber'> = {
   checked_in: 'green',
-  completed: 'blue',
+  completed: 'grey',
   not_in: 'amber',
 };

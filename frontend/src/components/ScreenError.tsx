@@ -36,7 +36,7 @@ export function ScreenError({
 
   const choose = onChooseLocation && (
     <Button variant="outline" className="h-12 px-[22px]" onClick={onChooseLocation}>
-      Choose location
+      Choose site
     </Button>
   );
   const home = (
@@ -49,8 +49,8 @@ export function ScreenError({
     return atLocation ? (
       <EmptyState
         icon={<MapPin />}
-        title="No access to this location"
-        text="Ask an admin for access, or choose another location."
+        title="No access to this site"
+        text="Ask an admin for access, or choose another site."
       >
         {choose}
       </EmptyState>
@@ -66,11 +66,7 @@ export function ScreenError({
 
   if (status === 404)
     return atLocation ? (
-      <EmptyState
-        icon={<MapPin />}
-        title="Location not found"
-        text="This location no longer exists. Choose another location."
-      >
+      <EmptyState icon={<MapPin />} title="Site not found" text="This site no longer exists. Choose another site.">
         {choose}
       </EmptyState>
     ) : (
