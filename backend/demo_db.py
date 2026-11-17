@@ -415,9 +415,7 @@ def _ensure_companies(c) -> None:
     for column in ("address", "contact_person", "contact_phone"):
         if column not in company_columns:
             c.execute(text(f"ALTER TABLE demo_companies ADD COLUMN {column} TEXT"))
-    c.execute(
-        text("CREATE TABLE IF NOT EXISTS demo_audit_scope (audit_id TEXT PRIMARY KEY, company_id TEXT NOT NULL)")
-    )
+    c.execute(text("CREATE TABLE IF NOT EXISTS demo_audit_scope (audit_id TEXT PRIMARY KEY, company_id TEXT NOT NULL)"))
     if _columns(c, "demo_users"):
         # At most one owner, enforced by the database so two simultaneous setups cannot both win.
         c.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS demo_one_owner ON demo_users (role) WHERE role='owner'"))
@@ -503,7 +501,9 @@ def unscoped_row_counts(c) -> dict:
         )
     result["demo_audit"] = (
         c.execute(
-            text("SELECT COUNT(*) FROM demo_audit a WHERE NOT EXISTS (SELECT 1 FROM demo_audit_scope s WHERE s.audit_id=a.id)")
+            text(
+                "SELECT COUNT(*) FROM demo_audit a WHERE NOT EXISTS (SELECT 1 FROM demo_audit_scope s WHERE s.audit_id=a.id)"
+            )
         ).scalar()
         or 0
     )
