@@ -185,11 +185,11 @@ One screen replaces the 3 old screens (list, check-in, check-outs). Each row has
 - Filters: 4 `StatTile` buttons in a 2 × 2 grid, the same tiles as on Home (All, Not checked in, Checked in, Checked out). The counts show only here.
 - Sticky bar: the search box stays at the top while the list scrolls. When the tiles scroll out of view, a compact copy of the 4 filters shows in the bar (4 equal columns, number above a small label).
 - Cards: each guard is a card with a 10 px gap between cards. Top: initials, name (wraps, never cut), guard ID, and the edit button (admin) at the top right. Bottom: the status with a coloured dot, and one action.
-- Actions: all the same size (112 × 44 px). "Check in" (filled; outline on a checked-out card, for one more shift) and "Check out" (outline). Each button label names the guard ("Check in Anil Sharma").
+- Actions: all the same size (112 × 44 px). "Check in" (always filled, also on a checked-out card for one more shift) and "Check out" (outline). Each button label names the guard ("Check in Anil Sharma").
 - "Add a guard" (admin): an icon at the top right of the page (`Page` `action` prop). When a search finds nobody, one line ("Can't find a guard?") and an "Add a guard" link show. No box.
 - "Open from earlier days": check-ins that were not closed, with "Check out".
 - Search: filters this site and also finds guards at other sites ("ad hoc"). Disabled guards show a note and no button.
-- Dialogs: "Confirm check-in", "Second shift today", "Confirm check-out" (with hours worked). Admin sheets: "Edit times" and "Add a guard".
+- Dialogs: "Confirm check-in", "Second shift today", "Confirm check-out" (with hours worked). Admin sheets: "Edit times" (the reason is a 3-line text area with a 200-character counter) and "Add a guard".
 - `/attendance/add` and `/attendance/checkout` open the matching filter.
 - `ConfirmDialog` blocks a fast double tap. A new question in the same dialog ignores taps for 400 ms.
 

@@ -4,6 +4,7 @@ import { ErrorBanner } from '@/components/ErrorBanner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { api, friendlyError, isApiError } from '@/lib/api';
 import { toHHMM } from '@/lib/format';
@@ -49,7 +50,7 @@ function EditTimesForm({ record, siteId, day, onClose, onSaved }: Props & { reco
     check_out_day: day,
     reason: '',
   });
-  const set = (k: keyof typeof values) => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const set = (k: keyof typeof values) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setValues((v) => ({ ...v, [k]: e.target.value }));
 
   const save = useMutation({
@@ -85,8 +86,7 @@ function EditTimesForm({ record, siteId, day, onClose, onSaved }: Props & { reco
       <SheetHeader className="px-0 pt-5 pb-0">
         <SheetTitle className="text-lg font-bold text-text">Edit times · {record.name}</SheetTitle>
         <SheetDescription className="text-sm text-muted-foreground">
-          Times are IST. The activity log saves your reason. For an overnight shift, pick the next day as the check-out
-          date.
+          Times are in IST. Your reason goes to the activity log.
         </SheetDescription>
       </SheetHeader>
       <ErrorBanner message={error} />
@@ -103,6 +103,9 @@ function EditTimesForm({ record, siteId, day, onClose, onSaved }: Props & { reco
           <Label htmlFor="et-out">Check-out time</Label>
           <Input id="et-out" type="time" value={values.check_out} onChange={set('check_out')} className={FIELD} />
         </div>
+        <small className="col-span-2 -mt-1 text-xs text-muted-foreground">
+          Leave the check-out time empty if the guard is still at work.
+        </small>
         <div className="col-span-2 flex flex-col gap-1.5">
           <Label htmlFor="et-out-day">Check-out date</Label>
           <Input
@@ -113,22 +116,22 @@ function EditTimesForm({ record, siteId, day, onClose, onSaved }: Props & { reco
             disabled={!values.check_out}
             className={FIELD}
           />
-          <small className="text-xs text-muted-foreground">
-            Leave the check-out time empty if the guard is still at work.
-          </small>
+          <small className="text-xs text-muted-foreground">If the shift ends after midnight, pick the next day.</small>
         </div>
         <div className="col-span-2 flex flex-col gap-1.5">
           <Label htmlFor="et-reason">Reason</Label>
-          <Input
+          <Textarea
             id="et-reason"
             required
             minLength={3}
             maxLength={200}
+            rows={3}
             placeholder="For example: the guard did not check out"
             value={values.reason}
             onChange={set('reason')}
-            className={FIELD}
+            className="min-h-24 resize-none rounded-xl border-line bg-field px-3.5 py-3 text-base"
           />
+          <small className="self-end text-xs text-muted-foreground tabular-nums">{values.reason.length}/200</small>
         </div>
       </fieldset>
       <div className="mt-1 grid grid-cols-2 gap-2">

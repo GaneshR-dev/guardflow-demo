@@ -21,6 +21,13 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · Attendance review: check-in button, edit sheet · Claude Code · feat/react-attendance
+- Request: Show the edit button on checked-out cards. Make "Check in" on a checked-out card look like the other "Check in" buttons. Make the reason a text area. Make the edit sheet text simpler.
+- Changed: `screens/Attendance.tsx`: "Check in" is always filled. `screens/attendance/EditTimesSheet.tsx`: shadcn `Textarea` for the reason (3 lines, 0/200 counter); shorter text ("Times are in IST. Your reason goes to the activity log."); each hint is under its field.
+- Checked: the edit button already shows on checked-out cards for admins (browser and tests). Supervisors do not get it (only admins can edit times).
+- Tests: `npm test` → 111 passed. Browser tests passed. Lint, format, typecheck, build → passed.
+- Open items: none new.
+
 ## 2026-11-17 · Attendance design review changes · Claude Code · feat/react-attendance
 - Request: Use the Home tile style for the filters. Make each guard card bigger with space between cards. Give the actions the same size and put the edit icon at the top right. Add "Add a guard" at the top right. Make the screen work for many guards (the collaborator chose a sticky search and filters).
 - Changed: `components/StatTile.tsx` and `lib/tone.ts` (shared by Home and Attendance). `screens/attendance/`: `StatusTiles.tsx`, `CompactFilters.tsx`, `filters.ts`, `AttendanceRow.tsx` (`GuardCard`, `GuardList`, fixed 112 px actions). `screens/Attendance.tsx`: sticky search bar with compact filters (shown when the tiles scroll away), top-right "Add a guard", "Can't find a guard?" as one line and a link (no box, the collaborator's choice) only for an empty search. `layout/AppShell.tsx`: `Page` `action` prop.

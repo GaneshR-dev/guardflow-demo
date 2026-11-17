@@ -290,7 +290,9 @@ describe('Attendance', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Edit times · Suresh K' });
     expect(within(sheet).getByLabelText('Check-in time')).toHaveValue('09:04');
     expect(within(sheet).getByLabelText('Check-out time')).toHaveValue('18:02');
+    expect(within(sheet).getByLabelText('Reason').tagName).toBe('TEXTAREA');
     await userEvent.type(within(sheet).getByLabelText('Reason'), 'Wrong time');
+    expect(within(sheet).getByText('10/200')).toBeInTheDocument();
     await userEvent.click(within(sheet).getByRole('button', { name: 'Save times' }));
     expect(await within(sheet).findByRole('alert')).toHaveTextContent('Check-out must be after the check-in time');
     expect(within(sheet).getByLabelText('Reason')).toHaveValue('Wrong time');
@@ -324,6 +326,10 @@ describe('Attendance cards and page actions', () => {
     const checkOut = screen.getByRole('button', { name: 'Check out Meena P' });
     expect(checkIn).toHaveClass('w-28');
     expect(checkOut).toHaveClass('w-28');
+    // Every "Check in" is the same filled button, also on a checked-out card.
+    expect(checkIn).toHaveAttribute('data-variant', 'default');
+    expect(screen.getByRole('button', { name: 'Check in Suresh K' })).toHaveAttribute('data-variant', 'default');
+    expect(checkOut).toHaveAttribute('data-variant', 'outline');
     // The edit button is in the first line of the card (with the name), not next to the action.
     const meena = cards[1];
     const edit = within(meena).getByRole('button', { name: 'Edit times for Meena P' });

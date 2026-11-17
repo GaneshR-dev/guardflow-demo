@@ -218,13 +218,9 @@ export function Attendance() {
           Check out
         </RowButton>
       ) : (
-        // Not checked in, or checked out: a checked-out guard can start one more shift (the server
-        // asks to confirm it).
-        <RowButton
-          outline={r.status === 'completed'}
-          guard={r.name}
-          onClick={() => askCheckin({ id: r.employee_id, name: r.name }, !!r.adhoc)}
-        >
+        // Not checked in, or checked out: a checked-out guard can start one more shift. The same filled
+        // button as the other check-ins (the server asks to confirm a second shift).
+        <RowButton guard={r.name} onClick={() => askCheckin({ id: r.employee_id, name: r.name }, !!r.adhoc)}>
           Check in
         </RowButton>
       );
