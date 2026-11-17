@@ -157,3 +157,53 @@ export interface AccessChange {
   id: string;
   unsupervised?: string[];
 }
+
+export interface ReportRow {
+  day: string;
+  employee_id: string;
+  employee_name: string;
+  location_id: string;
+  location_name: string;
+  status: AttendanceStatus;
+  check_in: string | null;
+  check_out: string | null;
+  hours: number | null;
+}
+
+export interface DayReport {
+  month: string;
+  day: string | null;
+  rows: ReportRow[];
+}
+
+export interface SummaryBucket {
+  records: number;
+  completed: number;
+  checked_in: number;
+  not_in: number;
+  avg_hours: number | null;
+}
+
+export interface SiteBucket extends SummaryBucket {
+  id: string;
+  name: string;
+  area: string;
+  assigned_count: number;
+  active: number;
+}
+
+export interface MonthSummary {
+  month: string;
+  location_id: string | null;
+  totals: SummaryBucket;
+  locations: SiteBucket[];
+  days: (SummaryBucket & { day: string })[];
+}
+
+export interface HistoryMonth {
+  month: string;
+  checked_in: number;
+  completed: number;
+  not_in: number;
+  total_records: number;
+}

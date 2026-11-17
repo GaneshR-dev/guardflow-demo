@@ -144,6 +144,7 @@ The screens move to React one at a time. Use this table to find the React form o
 | `toast()` | `lib/toast.ts`: `toast(text)` |
 | file download (`exportAudit()`) | `lib/api.ts`: `apiFile(path, filename)`, with the same errors as `api()` |
 | `.dashStat` tiles | `components/StatTile.tsx`: a number with a label. With `onClick` it is a filter button with `aria-pressed`. Status colours from `lib/tone.ts`. |
+| search box over a long list | `components/StickySearchBar.tsx`: the search box stays at the top while the list scrolls. `lib/useScrolledPast.ts` tells when the tiles above are out of view, so the bar can show a compact copy of the filters. |
 | `confirmModal()` | `components/ConfirmDialog.tsx` (`pending` blocks a second submit, `error` shows the server message) |
 | `locationSheet()` | `components/LocationSheet.tsx` |
 | `header()`, `nav()` | `layout/Header.tsx`, `layout/BottomNav.tsx`. Use `<Page title="…">` from `layout/AppShell.tsx` for each screen. |
@@ -219,6 +220,18 @@ One screen replaces the 3 old screens (list, check-in, check-outs). Each row has
 - User access: user cards. Admins open a supervisor: sites (`SiteChecklist`), a new password (sheet), disable or enable (confirm dialog). "Add a supervisor" is an icon at the top right.
 - Activity log: titles in the glossary words, IST dates. The export icon downloads the CSV with `apiFile()`.
 - Forms use `useSingleSubmit()` (`lib/useSingleSubmit.ts`): a fast double tap sends one request.
+
+### Reports screen (`screens/Reports.tsx`, `screens/reports/`)
+
+- Title row: "Reports" and an "Excel" button (not on History). `ExcelButton` has the same corners and white background as the date and site buttons. It is 40 px high (the collaborator chose this height; the other buttons are 44 px).
+- Context row: the Day · Month · History tabs. A grey track (`bg-line`); the selected tab is a white pill with bold text. Each button is 44 px high; the pill inside it is smaller.
+- Filters: a date or month button (`PeriodButton`: the native picker input covers the whole button) and a site button (`LocationSheet`; Month has "All sites").
+- The tab, date, month, site and Day status filter are in the URL. A site detail is `/reports/sites/:id?month=`.
+- Day: 4 `StatTile` filters (All entries, Checked in, Checked out, Not checked in), "N guards · N entries", "Avg shift", read-only guard cards. The status filter works on the phone.
+- Day search: the same sticky bar as on Attendance (`StickySearchBar` and `CompactFilters`). It finds a name or a guard ID on the phone, with no new request. A new date or site clears the search. No match: "No guards match …" with "Clear search".
+- Month: `SummaryCard` ("X of Y completed", %, bar, "N open · avg shift"), then one card for each site. A site card opens the site detail ("By day"); a day opens the Day tab.
+- History: the last 6 months, each with a 44 px Excel download icon. Each month shows "completed / all entries", for example "612 / 640": green when all entries are completed, amber when some are open (attention needed), "No records" when empty. Screen readers hear "612 of 640 entries completed".
+- Excel: `apiFile()`, disabled until the data has records. Toast "Excel file is ready · <file>". A failure shows the error banner.
 
 ### Edit times sheet (`screens/attendance/EditTimesSheet.tsx`)
 
