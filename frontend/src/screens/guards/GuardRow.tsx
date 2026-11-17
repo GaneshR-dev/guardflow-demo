@@ -6,7 +6,8 @@ import type { Employee } from '@/types/api';
 
 interface Props {
   guard: Employee;
-  // The short site name, or "No site yet".
+  // The short site name, or "No site yet". Empty when the list shows one site only, so each card
+  // does not repeat it.
   site: string;
   // False when the guard or the site is disabled.
   on: boolean;
@@ -39,7 +40,8 @@ export function GuardRow({ guard, site, on, siteOn, admin, onOpen, onEnable, ena
           )}
         </strong>
         <small className="text-[13px] text-muted-foreground">
-          {guard.id} · {site}
+          {guard.id}
+          {site && ` · ${site}`}
         </small>
         {!on && admin && !siteOn && <small className="text-[13px] text-muted-foreground">Enable the site first.</small>}
       </span>
@@ -52,7 +54,7 @@ export function GuardRow({ guard, site, on, siteOn, admin, onOpen, onEnable, ena
         <button
           type="button"
           onClick={onOpen}
-          aria-label={`Edit ${guard.name}, ${guard.id}, ${site}`}
+          aria-label={`Edit ${guard.name}, ${guard.id}${site ? `, ${site}` : ''}`}
           className={cn(
             box,
             'tap-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue',

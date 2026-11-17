@@ -129,7 +129,7 @@ export function Guards() {
     <GuardRow
       key={g.id}
       guard={g}
-      site={siteName(g.location_id)}
+      site={site ? '' : siteName(g.location_id)}
       on={isOn(g)}
       siteOn={siteOn(g)}
       admin={admin}

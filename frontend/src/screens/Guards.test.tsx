@@ -87,7 +87,8 @@ describe('Guards list', () => {
   test('the site filter is in the URL; a stale site shows all sites', async () => {
     show('/employees?site=loc-wf');
     await screen.findByText('1 guard');
-    expect(screen.getByRole('button', { name: 'Change site, now Whitefield' })).toBeInTheDocument();
+    // One site: the cards do not repeat the site name.
+    expect(screen.getByRole('button', { name: 'Edit Ravi Kumar, EMP2001' })).toHaveTextContent(/^RKRavi KumarEMP2001$/);
     await userEvent.click(screen.getByRole('button', { name: 'Change site, now Whitefield' }));
     await userEvent.click(screen.getByRole('radio', { name: /No site yet/ }));
     expect(screen.getByTestId('url')).toHaveTextContent('/employees?site=none');
