@@ -29,7 +29,7 @@ describe('format', () => {
   });
 
   test('fmtTime shows IST and a dash for no value', () => {
-    expect(fmtTime('2026-11-17T03:30:00Z')).toBe('09:00 am');
+    expect(fmtTime('2026-11-17T03:30:00Z')).toBe('9:00 am');
     expect(fmtTime(null)).toBe('-');
     expect(toHHMM('2026-11-17T15:45:00Z')).toBe('21:15');
     expect(toHHMM('')).toBe('');
@@ -42,9 +42,9 @@ describe('format', () => {
     expect(plural(0, 'person', 'people')).toBe('0 people');
   });
 
-  test('empCountLabel names disabled employees', () => {
-    expect(empCountLabel(loc())).toBe('3 employees');
-    expect(empCountLabel(loc({ assigned_count: 0, disabled_count: 3 }), 'guard')).toBe('0 active guards · 3 disabled');
+  test('empCountLabel names disabled guards', () => {
+    expect(empCountLabel(loc())).toBe('3 guards');
+    expect(empCountLabel(loc({ assigned_count: 0, disabled_count: 3 }))).toBe('0 active guards · 3 disabled');
   });
 
   test('shortLoc and locCity split "City - Branch"', () => {
@@ -56,7 +56,7 @@ describe('format', () => {
 
   test('shiftLabel uses the shift list, then the old single pair', () => {
     expect(shiftLabel(loc())).toBe('No shift set');
-    expect(shiftLabel(loc({ shift_start: '08:00', shift_end: '20:00' }))).toBe('08:00 am - 08:00 pm IST');
+    expect(shiftLabel(loc({ shift_start: '08:00', shift_end: '20:00' }))).toBe('8:00 am - 8:00 pm IST');
     expect(
       shiftLabel(
         loc({

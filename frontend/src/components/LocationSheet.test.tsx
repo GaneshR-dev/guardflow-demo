@@ -10,12 +10,12 @@ const LOCS: Location[] = [
 ];
 
 describe('LocationSheet', () => {
-  test('lists "All locations" and each location, and marks the current one', async () => {
+  test('lists "All sites" and each site, and marks the current one', async () => {
     const pick = vi.fn();
     render(<LocationSheet open onOpenChange={vi.fn()} locations={LOCS} current="loc-a" withAll onPick={pick} />);
     const options = screen.getAllByRole('radio');
     expect(options.map((o) => o.textContent)).toEqual([
-      'All locations2 locations',
+      'All sites2 sites',
       'Anna NagarChennai · North · 2 guards',
       'AdyarChennai · South · 1 guard · Disabled',
     ]);

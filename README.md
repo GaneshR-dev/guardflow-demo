@@ -86,6 +86,7 @@ Collaborators work in this repository through AI tools. Each AI tool must obey t
 
 - `AGENTS.md`: rules for all AI tools (ASD-STE100, UX, UI theme, tests, commits). `CLAUDE.md` loads it for Claude Code.
 - `docs/UI-GUIDE.md`: colour tokens and existing components.
+- `docs/GLOSSARY.md`: the words for app text and what each word means.
 - `docs/WORKLOG.md`: one entry for each task, newest first.
 
 ## Security notes

@@ -1,6 +1,6 @@
 # UI guide — theme and components
 
-Use this guide before you change a screen. Use the existing tokens, classes and functions. Add new ones only when no existing one fits.
+Use this guide before you change a screen. Use the words in [GLOSSARY.md](GLOSSARY.md) for all app text. Use the existing tokens, classes and functions. Add new ones only when no existing one fits.
 
 ## Visual reference
 
@@ -170,10 +170,10 @@ Routes: `/login`, `/owner`, `/home`, `/attendance`, `/attendance/add`, `/attenda
 
 Home answers one question: "Are my sites covered today?"
 
-- Four big tiles in a 2 × 2 grid: Employees, Checked in (green), Checked out, Not checked in (amber). Numbers 26 px, labels 13 px. Each number shows one time only.
+- Four big tiles in a 2 × 2 grid: Guards, Checked in (green), Checked out, Not checked in (amber). Numbers 26 px, labels 13 px. Each number shows one time only.
 - No location picker. The location list is the only location control. A tap on a card opens Attendance for that location (`/attendance?location=<id>`).
-- Groups (`lib/coverage.ts`): "Needs attention" (the shift started and people are missing, biggest gap first), "Upcoming" (the shift has not started: "Shift starts 2:00 pm"), "Everybody came", and disabled locations folded at the end.
-- One location only: no list, one "Mark attendance" button.
+- Groups (`lib/coverage.ts`): "Needs attention" (the shift started and guards are not checked in, biggest gap first), "Upcoming" (the shift has not started: "Shift starts 2:00 pm"), "All checked in", and disabled sites folded at the end.
+- One site only: no list, one "Mark attendance" button.
 - "Updated <time>" and a Refresh button. A failed refresh keeps the data and shows a banner.
 
 ### Panel and text colour

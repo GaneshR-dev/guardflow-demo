@@ -18,10 +18,10 @@ import type { Dashboard } from '@/types/api';
 const attendanceLink = (id: string) => `/attendance?location=${encodeURIComponent(id)}`;
 
 function statusText(c: Coverage) {
-  if (c.group === 'attention') return `${c.notIn} not in`;
+  if (c.group === 'attention') return `${c.notIn} not checked in`;
   if (c.group === 'upcoming') return c.nextStart ? `Shift starts ${fmtShift(c.nextStart)}` : 'Shift not started';
   if (c.group === 'disabled') return 'Disabled';
-  return c.total ? 'Everybody came' : 'No employees';
+  return c.total ? 'All checked in' : 'No guards';
 }
 
 // One card for each location. A tap opens Attendance for that location, where the user can act.
@@ -113,16 +113,16 @@ export function Home() {
   else if (!data.locations.length)
     body =
       uiRole(session) === 'admin' ? (
-        <EmptyState icon={<MapPin />} title="No locations yet" text="Add a location to start marking attendance.">
+        <EmptyState icon={<MapPin />} title="No sites yet" text="Add a site to start marking attendance.">
           <Button asChild className="h-12 px-[22px]">
-            <Link to="/locations">Add a location</Link>
+            <Link to="/locations">Add a site</Link>
           </Button>
         </EmptyState>
       ) : (
         <EmptyState
           icon={<MapPin />}
-          title="No locations yet"
-          text="You have no location. Ask an admin to give you access to a location."
+          title="No sites yet"
+          text="You have no site. Ask an admin to give you access to a site."
         />
       );
   else {
@@ -138,7 +138,7 @@ export function Home() {
           />
         )}
         <section aria-label="Today's summary" className="grid grid-cols-2 gap-2.5">
-          <Tile value={data.employees} label="Employees" />
+          <Tile value={data.employees} label="Guards" />
           <Tile value={data.checked_in} label="Checked in" tone="green" />
           <Tile value={data.completed} label="Checked out" />
           <Tile
@@ -155,11 +155,11 @@ export function Home() {
           <>
             <Section title="Needs attention" items={groups.attention} />
             <Section title="Upcoming" items={groups.upcoming} />
-            <Section title="Everybody came" items={groups.ok} />
+            <Section title="All checked in" items={groups.ok} />
             {groups.disabled.length > 0 && (
               <details className="mt-4">
                 <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-blue">
-                  {plural(groups.disabled.length, 'disabled location')}
+                  {plural(groups.disabled.length, 'disabled site')}
                 </summary>
                 {groups.disabled.map((c) => (
                   <LocationCard key={c.location.id} c={c} />

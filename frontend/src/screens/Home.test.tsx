@@ -79,7 +79,7 @@ describe('Home', () => {
     const tiles = within(summary)
       .getAllByText(/^\d+$/)
       .map((n) => `${n.textContent} ${n.nextElementSibling?.textContent}`);
-    expect(tiles).toEqual(['54 Employees', '16 Checked in', '3 Checked out', '35 Not checked in']);
+    expect(tiles).toEqual(['54 Guards', '16 Checked in', '3 Checked out', '35 Not checked in']);
     expect(screen.getByText(/Today · Tue 17 Nov · Updated 10:30 am/)).toBeInTheDocument();
   });
 
@@ -88,16 +88,16 @@ describe('Home', () => {
     const attention = await screen.findByRole('region', { name: 'Needs attention' });
     const cards = within(attention).getAllByRole('link');
     expect(cards.map((c) => c.getAttribute('aria-label'))).toEqual([
-      'Whitefield, 0 of 18 came today, 18 not in',
-      'HSR Layout, 19 of 24 came today, 5 not in',
+      'Whitefield, 0 of 18 came today, 18 not checked in',
+      'HSR Layout, 19 of 24 came today, 5 not checked in',
     ]);
     expect(within(screen.getByRole('region', { name: 'Upcoming' })).getByRole('link')).toHaveAccessibleName(
-      'City Centre, 0 of 12 came today, Shift starts 02:00 pm',
+      'City Centre, 0 of 12 came today, Shift starts 2:00 pm',
     );
-    expect(screen.queryByRole('region', { name: 'Everybody came' })).not.toBeInTheDocument();
-    expect(screen.getByText('1 disabled location')).toBeInTheDocument();
-    // No location picker: the list is the only location control.
-    expect(screen.queryByRole('button', { name: /location/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'All checked in' })).not.toBeInTheDocument();
+    expect(screen.getByText('1 disabled site')).toBeInTheDocument();
+    // No site picker: the list is the only site control.
+    expect(screen.queryByRole('button', { name: /site/i })).not.toBeInTheDocument();
   });
 
   test('a card opens Attendance for that location', async () => {
@@ -114,15 +114,15 @@ describe('Home', () => {
     expect(screen.queryByRole('region', { name: 'Needs attention' })).not.toBeInTheDocument();
   });
 
-  test('no locations: admin gets "Add a location", supervisor gets a next step', async () => {
+  test('no sites: admin gets "Add a site", supervisor gets a next step', async () => {
     answers = [{ status: 200, body: { ...DASH, locations: [] } }];
     const { unmount } = show();
-    expect(await screen.findByRole('link', { name: 'Add a location' })).toHaveAttribute('href', '/locations');
+    expect(await screen.findByRole('link', { name: 'Add a site' })).toHaveAttribute('href', '/locations');
     unmount();
     startSession('t', { id: 'supervisor.demo', name: 'Sup', role: 'supervisor', company_id: 'c1' });
     show();
     expect(await screen.findByText(/Ask an admin to give you access/)).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Add a location' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Add a site' })).not.toBeInTheDocument();
   });
 
   test('load failure: error state with "Try again", which loads again', async () => {
