@@ -318,6 +318,7 @@ def _migrate_schema(c) -> None:
     # so repeat boots and concurrent starters (under the startup lock) apply this at most once.
     _allow_sequential_attendance(c)
     _ensure_location_shifts(c)
+    _ensure_companies(c)
     if engine.dialect.name != "sqlite":
         # Serialize the backfill against in-flight API replacements: PUT /shifts locks the
         # parent location row first, so this waits for any open replacement and the
@@ -390,6 +391,147 @@ def _allow_sequential_attendance(c) -> None:
             quoted = name.replace('"', '""')
             c.execute(text(f'ALTER TABLE demo_attendance DROP CONSTRAINT "{quoted}"'))
     c.execute(text("CREATE INDEX IF NOT EXISTS demo_attendance_employee_day ON demo_attendance (employee_id, day)"))
+
+
+DEFAULT_COMPANY_ID = "company-1"
+DEFAULT_COMPANY_NAME = os.environ.get("DEFAULT_COMPANY_NAME", "Professional Manpower Services")
+
+
+def _ensure_companies(c) -> None:
+    """Add the company boundary. Every step is additive and safe to repeat.
+
+    Rollback safety: only new tables, new nullable columns and indexes are added. Old code
+    names its columns in every INSERT into these tables, so a rollback keeps working. The
+    audit scope lives in a side table because old code inserts audit rows by position.
+    """
+    c.execute(
+        text(
+            "CREATE TABLE IF NOT EXISTS demo_companies (id TEXT PRIMARY KEY, name TEXT NOT NULL, "
+            "active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, created_by TEXT)"
+        )
+    )
+    # Optional owner-entered company details. Additive and idempotent: nullable text columns only.
+    company_columns = _columns(c, "demo_companies")
+    for column in ("address", "contact_person", "contact_phone"):
+        if column not in company_columns:
+            c.execute(text(f"ALTER TABLE demo_companies ADD COLUMN {column} TEXT"))
+    c.execute(
+        text("CREATE TABLE IF NOT EXISTS demo_audit_scope (audit_id TEXT PRIMARY KEY, company_id TEXT NOT NULL)")
+    )
+    if _columns(c, "demo_users"):
+        # At most one owner, enforced by the database so two simultaneous setups cannot both win.
+        c.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS demo_one_owner ON demo_users (role) WHERE role='owner'"))
+    for table in ("demo_users", "demo_locations", "demo_employees"):
+        columns = _columns(c, table)
+        if not columns:
+            continue  # table not created yet on this database (only partial test fixtures)
+        if "company_id" not in columns:
+            c.execute(text(f"ALTER TABLE {table} ADD COLUMN company_id TEXT"))
+        c.execute(text(f"CREATE INDEX IF NOT EXISTS {table}_company ON {table} (company_id)"))
+    c.execute(text("CREATE INDEX IF NOT EXISTS demo_audit_scope_company ON demo_audit_scope (company_id)"))
+    assign_orphans_to_default_company(c)
+
+
+def assign_orphans_to_default_company(c) -> int:
+    """Put every row that has no company into the first company. Nothing is deleted or changed otherwise.
+
+    The first company is created only when such rows exist. Owner accounts are never assigned.
+    Returns the number of rows that were assigned.
+    """
+    orphans = {
+        "demo_users": "company_id IS NULL AND role<>'owner'",
+        "demo_locations": "company_id IS NULL",
+        "demo_employees": "company_id IS NULL",
+    }
+    orphans = {t: w for t, w in orphans.items() if _columns(c, t)}
+    has_audit = bool(_columns(c, "demo_audit"))
+    audit_orphans = (
+        (
+            c.execute(
+                text(
+                    "SELECT COUNT(*) FROM demo_audit a WHERE NOT EXISTS "
+                    "(SELECT 1 FROM demo_audit_scope s WHERE s.audit_id=a.id)"
+                )
+            ).scalar()
+            or 0
+        )
+        if has_audit
+        else 0
+    )
+    counts = {t: c.execute(text(f"SELECT COUNT(*) FROM {t} WHERE {w}")).scalar() or 0 for t, w in orphans.items()}
+    total = sum(counts.values()) + audit_orphans
+    if not total:
+        return 0
+    c.execute(
+        text(
+            "INSERT INTO demo_companies (id,name,active,created_at,created_by) "
+            "SELECT :id,:name,1,:at,'migration' WHERE NOT EXISTS (SELECT 1 FROM demo_companies WHERE id=:id)"
+        ),
+        {"id": DEFAULT_COMPANY_ID, "name": DEFAULT_COMPANY_NAME, "at": time_iso()},
+    )
+    for table, where in orphans.items():
+        c.execute(text(f"UPDATE {table} SET company_id=:cid WHERE {where}"), {"cid": DEFAULT_COMPANY_ID})
+    if has_audit:
+        c.execute(
+            text(
+                "INSERT INTO demo_audit_scope (audit_id,company_id) "
+                "SELECT a.id,:cid FROM demo_audit a WHERE NOT EXISTS (SELECT 1 FROM demo_audit_scope s WHERE s.audit_id=a.id)"
+            ),
+            {"cid": DEFAULT_COMPANY_ID},
+        )
+    return total
+
+
+def time_iso() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
+
+
+def unscoped_row_counts(c) -> dict:
+    """Migration check: how many tenant rows have no company, or a company that does not exist."""
+    result = {}
+    for table, extra in (("demo_users", " AND role<>'owner'"), ("demo_locations", ""), ("demo_employees", "")):
+        result[table] = (
+            c.execute(
+                text(
+                    f"SELECT COUNT(*) FROM {table} t WHERE (company_id IS NULL OR NOT EXISTS "
+                    f"(SELECT 1 FROM demo_companies k WHERE k.id=t.company_id)){extra.replace('role', 't.role')}"
+                )
+            ).scalar()
+            or 0
+        )
+    result["demo_audit"] = (
+        c.execute(
+            text("SELECT COUNT(*) FROM demo_audit a WHERE NOT EXISTS (SELECT 1 FROM demo_audit_scope s WHERE s.audit_id=a.id)")
+        ).scalar()
+        or 0
+    )
+    result["cross_company_grants"] = (
+        c.execute(
+            text(
+                "SELECT COUNT(*) FROM demo_user_locations g JOIN demo_users u ON u.id=g.user_id "
+                "JOIN demo_locations l ON l.id=g.location_id WHERE (u.company_id IS NULL OR l.company_id IS NULL OR u.company_id<>l.company_id)"
+            )
+        ).scalar()
+        or 0
+    )
+    result["cross_company_employee_sites"] = (
+        c.execute(
+            text(
+                "SELECT COUNT(*) FROM demo_employees e JOIN demo_locations l ON l.id=e.location_id "
+                "WHERE (e.company_id IS NULL OR l.company_id IS NULL OR e.company_id<>l.company_id)"
+            )
+        ).scalar()
+        or 0
+    )
+    return result
+
+
+def run_company_backfill() -> int:
+    """Re-run the orphan assignment after seeding. Safe to repeat."""
+    with engine.begin() as c:
+        return assign_orphans_to_default_company(c)
 
 
 def migrate_db() -> None:
