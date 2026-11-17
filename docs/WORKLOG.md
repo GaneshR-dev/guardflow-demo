@@ -21,6 +21,13 @@ Template:
 
 ## Entries
 
+## 2026-11-18 · React Guards screen · Claude Code · feat/react-guards
+- Request: Move the Guards screen to React. Add "Edit guard" (name, phone, site) and keep the CSV import. Use a search and a site button; fold the disabled guards.
+- Changed: `backend/demo_app.py` (new `PATCH /api/employees/{id}`), `screens/Guards.tsx`, `screens/guards/GuardRow.tsx`, `components/GuardSheet.tsx` (replaces `AddGuardSheet`), `components/LocationSheet.tsx` ("No site yet"), `lib/csv.ts`, `routes.tsx`, `screens/settings/data.ts` (activity log title), `types/api.ts`.
+- Tests: `tests/test_employee_edit.py` (new, 8 tests). `Guards.test.tsx` (new, 14 tests), `lib/csv.test.ts` (new). `tests/test_next_guards.py` (new). `npm test` → 197 passed. Browser at 390 px with the local API: import, move a site, disable, enable, the activity log, the 409 for a checked-in guard, a touch tap on a card.
+- Open items: there is no Figma frame for Guards.
+- Also fixed: `test_record_specific_time_edit_and_reopen_guard` failed between 00:00 and 08:00 IST. It found a record by its place in a list sorted by check-in time. It now finds the record by its ID.
+
 ## 2026-11-17 · Hover states for all buttons · Claude Code · feat/react-hover
 - Request: Add a hover effect to all buttons. Add it as a design rule.
 - Changed: `index.css` (`tap-card`, `tap-icon`, `tap-tab`), shadcn `button.tsx` (`default` and `outline` hover), `input.tsx` and `textarea.tsx` (border hover), and the clickable items on all React screens. Rule in `AGENTS.md` §4 and `docs/UI-GUIDE.md` ("Hover and press states").

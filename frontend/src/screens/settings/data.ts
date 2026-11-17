@@ -34,6 +34,7 @@ export const AUDIT_TITLES: Record<string, string> = {
   'employee.enable': 'Guard enabled',
   'employee.import': 'Guards imported',
   'employee.transfer': 'Guard moved to another site',
+  'employee.update': 'Guard details changed',
   'settings.location.create': 'Site added',
   'settings.location.shifts': 'Site shifts changed',
   'settings.location.disable': 'Site disabled',
@@ -59,6 +60,10 @@ export function auditDetail(a: AuditRow) {
   if (a.action === 'attendance.checkin' || a.action === 'attendance.checkout') return `${guard} · ${site}`;
   if (a.action === 'employee.transfer')
     return `${guard} · ${a.labels.from_name ? shortLoc(a.labels.from_name) : 'no site'} to ${a.labels.to_name ? shortLoc(a.labels.to_name) : 'no site'}`;
+  if (a.action === 'employee.update') {
+    const fields = (a.details as { fields?: string[] }).fields || [];
+    return fields.length ? `${guard} · ${fields.join(' and ')} changed` : guard;
+  }
   if (a.action === 'employee.import' || a.action === 'settings.location.import')
     return `${d.created || 0} added · ${d.updated || 0} updated`;
   return guard || site || (d.name as string) || (d.id as string) || '';

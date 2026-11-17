@@ -139,7 +139,9 @@ def test_record_specific_time_edit_and_reopen_guard(employee):
         client.patch("/api/attendance/times", headers=headers, json={**body, "record_id": rows[0]["id"]}).status_code
         == 200
     )
-    assert records(employee)[1] == rows[1]
+    # Find the other record by its ID, not by its place: records() sorts by check-in, and between
+    # 00:00 and 08:00 IST the edited record (now 08:00) moves after the live one.
+    assert next(r for r in records(employee) if r["id"] == rows[1]["id"]) == rows[1]
     assert mark("checkin", employee, "loc-hsr", headers, confirm_second_shift=True).status_code == 200
     assert (
         client.patch(

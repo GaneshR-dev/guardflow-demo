@@ -30,10 +30,10 @@ describe('routes', () => {
 
   test('a signed-in admin sees the screen and the bottom navigation', () => {
     startSession('t', { id: 'admin.demo', name: 'Admin', role: 'admin', company_id: 'c1' });
-    at('/employees');
-    expect(screen.getByRole('heading', { name: 'Guards' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open in the current app' })).toHaveAttribute('href', '/app#employees');
-    // Guards opens from Settings, so the Settings tab is active.
+    at('/locations');
+    expect(screen.getByRole('heading', { name: 'Sites' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open in the current app' })).toHaveAttribute('href', '/app#locations');
+    // Sites opens from Settings, so the Settings tab is active.
     expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('aria-current', 'page');
     const tabs = within(screen.getByRole('navigation', { name: 'Main' })).getAllByRole('link');
     expect(tabs.map((t) => t.textContent)).toEqual(['Home', 'Attendance', 'Reports', 'Settings']);
