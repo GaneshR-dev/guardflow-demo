@@ -21,6 +21,14 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · Edit times uses the site shift · Claude Code · feat/react-attendance
+- Request: Fill the check-out time from the site shift, never past the shift end, and work out the check-out date. Make it fool-proof with few taps. Add the few-taps rule to the project file.
+- Decisions: block a check-out after the shift end in the app and on the server; no check-out date field.
+- Changed: `backend/demo_app.py`: `shift_window()` (the shift of a check-in: the nearest start on the day before, the day, or the day after; overnight shifts), `location_shift_rows()`, and `PATCH /api/attendance/times` refuses a check-in or check-out after the shift end (400) and works out the check-out date when it is not sent. The old app uses the same endpoint, so it gets the same rule.
+- Changed: `frontend/src/lib/shift.ts` (the same rule), `screens/attendance/EditTimesSheet.tsx` (shift line, check-out filled from the shift, "Use shift end", "Still at work", worked-out date text, inline error and disabled Save). `AGENTS.md` §4: few taps and fool-proof rules. `docs/UI-GUIDE.md`: Edit times section.
+- Tests: `tests/test_edit_times_shift.py` (new, 9 passed), `tests/shift_helpers.py` (changes a site's shifts for one test and restores them). Updated 3 old tests that edited past the HSR shift end. `npm test` → 125 passed. `pytest -q tests/` → all pass except the 5 old search tests that also fail on `origin/main` on macOS. Browser with the restarted local API: auto-fill, 400 from the server, inline error.
+- Open items: Live check-out (the Check out button) still records the real time, also after the shift end. A record with such a check-out cannot be edited until its check-out is at or before the shift end.
+
 ## 2026-11-17 · Attendance review: check-in button, edit sheet · Claude Code · feat/react-attendance
 - Request: Show the edit button on checked-out cards. Make "Check in" on a checked-out card look like the other "Check in" buttons. Make the reason a text area. Make the edit sheet text simpler.
 - Changed: `screens/Attendance.tsx`: "Check in" is always filled. `screens/attendance/EditTimesSheet.tsx`: shadcn `Textarea` for the reason (3 lines, 0/200 counter); shorter text ("Times are in IST. Your reason goes to the activity log."); each hint is under its field.

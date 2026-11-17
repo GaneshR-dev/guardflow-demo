@@ -425,7 +425,7 @@ export function Attendance() {
         <>
           <EditTimesSheet
             record={editing}
-            siteId={site.id}
+            site={site}
             day={list.data?.day || ''}
             onClose={() => setEditing(null)}
             onSaved={() => queryClient.invalidateQueries({ queryKey: ['attendance'] })}

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -357,6 +357,80 @@ describe('Attendance cards and page actions', () => {
     show('/attendance?location=loc-hsr&q=zz');
     expect(await screen.findByText(/Ask an admin to add the guard\./)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add a guard' })).not.toBeInTheDocument();
+  });
+});
+
+describe('Edit times uses the site shift', () => {
+  const withShift = (shift_start: string, shift_end: string) =>
+    reply('GET /api/locations', {
+      status: 200,
+      body: SITES.map((l) => (l.id === 'loc-hsr' ? { ...l, shifts: [{ shift_start, shift_end }] } : l)),
+    });
+  async function openSheet(name = 'Meena P') {
+    show();
+    await userEvent.click(await screen.findByRole('button', { name: `Edit times for ${name}` }));
+    return screen.findByRole('dialog', { name: `Edit times · ${name}` });
+  }
+  const setTime = (sheet: HTMLElement, label: string, value: string) =>
+    fireEvent.change(within(sheet).getByLabelText(label), { target: { value } });
+
+  test('a new check-in fills the check-out with the shift end; the date is worked out', async () => {
+    withShift('09:00', '18:00');
+    const sheet = await openSheet();
+    expect(sheet).toHaveTextContent('Shift 9:00 am – 6:00 pm');
+    expect(within(sheet).queryByLabelText('Check-out date')).not.toBeInTheDocument();
+    setTime(sheet, 'Check-in time', '09:10');
+    expect(within(sheet).getByLabelText('Check-out time')).toHaveValue('18:00');
+    expect(sheet).toHaveTextContent('Check-out: Tue 17 Nov');
+  });
+
+  test('a check-out after the shift end shows an error and blocks Save', async () => {
+    withShift('09:00', '18:00');
+    const sheet = await openSheet();
+    setTime(sheet, 'Check-out time', '18:30');
+    expect(within(sheet).getByRole('alert')).toHaveTextContent(
+      'Check-out must be at or before the shift end (6:00 pm).',
+    );
+    await userEvent.type(within(sheet).getByLabelText('Reason'), 'Late fix');
+    expect(within(sheet).getByRole('button', { name: 'Save times' })).toBeDisabled();
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Use shift end' }));
+    expect(within(sheet).getByLabelText('Check-out time')).toHaveValue('18:00');
+    expect(within(sheet).getByRole('button', { name: 'Save times' })).toBeEnabled();
+  });
+
+  test('a typed check-out stays when the check-in changes; "Still at work" clears it', async () => {
+    withShift('09:00', '18:00');
+    const sheet = await openSheet();
+    setTime(sheet, 'Check-out time', '17:00');
+    setTime(sheet, 'Check-in time', '09:30');
+    expect(within(sheet).getByLabelText('Check-out time')).toHaveValue('17:00');
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Still at work' }));
+    expect(within(sheet).getByLabelText('Check-out time')).toHaveValue('');
+    expect(sheet).toHaveTextContent('No check-out: the guard is still at work.');
+  });
+
+  test('overnight shift: the check-out is on the next day, and the server works out the date', async () => {
+    withShift('22:00', '06:00');
+    reply('PATCH /api/attendance/times', { status: 200, body: {} });
+    const sheet = await openSheet();
+    setTime(sheet, 'Check-in time', '22:05');
+    expect(within(sheet).getByLabelText('Check-out time')).toHaveValue('06:00');
+    expect(sheet).toHaveTextContent('Check-out: Wed 18 Nov (next day)');
+    await userEvent.type(within(sheet).getByLabelText('Reason'), 'Night shift fix');
+    await userEvent.click(within(sheet).getByRole('button', { name: 'Save times' }));
+    await waitFor(() => expect(calls('PATCH /api/attendance/times')).toHaveLength(1));
+    expect(JSON.parse(calls('PATCH /api/attendance/times')[0][1].body)).toMatchObject({
+      check_in: '22:05',
+      check_out: '06:00',
+      check_out_day: null,
+    });
+  });
+
+  test('a site with no shift says so and has no limit', async () => {
+    const sheet = await openSheet();
+    expect(sheet).toHaveTextContent('No shift set for this site.');
+    setTime(sheet, 'Check-out time', '23:00');
+    expect(within(sheet).queryByRole('alert')).not.toBeInTheDocument();
   });
 });
 

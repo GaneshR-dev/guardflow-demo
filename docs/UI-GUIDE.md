@@ -189,9 +189,25 @@ One screen replaces the 3 old screens (list, check-in, check-outs). Each row has
 - "Add a guard" (admin): an icon at the top right of the page (`Page` `action` prop). When a search finds nobody, one line ("Can't find a guard?") and an "Add a guard" link show. No box.
 - "Open from earlier days": check-ins that were not closed, with "Check out".
 - Search: filters this site and also finds guards at other sites ("ad hoc"). Disabled guards show a note and no button.
-- Dialogs: "Confirm check-in", "Second shift today", "Confirm check-out" (with hours worked). Admin sheets: "Edit times" (the reason is a 3-line text area with a 200-character counter) and "Add a guard".
+- Dialogs: "Confirm check-in", "Second shift today", "Confirm check-out" (with hours worked). Admin sheets: "Edit times" and "Add a guard".
 - `/attendance/add` and `/attendance/checkout` open the matching filter.
 - `ConfirmDialog` blocks a fast double tap. A new question in the same dialog ignores taps for 400 ms.
+
+### Edit times sheet (`screens/attendance/EditTimesSheet.tsx`)
+
+The sheet uses the site shift (`lib/shift.ts`; the server has the same rule in `shift_window()`).
+
+- The shift of a check-in is the shift whose start is nearest to the check-in (on the day before, the day, or the day after). This covers an early check-in and an overnight shift.
+- When the admin changes the check-in time, the check-out time is set to the shift end. A check-out time that the admin typed stays.
+- "Use shift end" fills the check-out time. "Still at work" clears it. One tap each.
+- There is no check-out date field. A check-out that is not later than the check-in is on the next day: "Check-out: Wed 18 Nov (next day)".
+- A check-out after the shift end, or a check-in after the shift end, shows an error under the field and disables "Save times". The server refuses it too (400).
+- A site with no shift has no limit.
+- The reason is a 3-line text area with a 200-character counter.
+
+### General rule: fewer taps
+
+Fill each value that the app can work out. Ask the user only for what the app cannot know.
 
 ### Panel and text colour
 
