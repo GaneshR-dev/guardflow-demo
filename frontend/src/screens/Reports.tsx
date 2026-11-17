@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown, Download, MapPin } from 'lucide-react';
+import { ChevronDown, MapPin } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { uiRole, useSession } from '@/auth/session';
@@ -8,7 +8,6 @@ import { ErrorBanner } from '@/components/ErrorBanner';
 import { LoadingRows } from '@/components/LoadingRows';
 import { LocationSheet } from '@/components/LocationSheet';
 import { ScreenError } from '@/components/ScreenError';
-import { Button } from '@/components/ui/button';
 import { Page } from '@/layout/AppShell';
 import { api, friendlyError, isApiError } from '@/lib/api';
 import { fmtShortDay, fmtShortMonth, fmtTime, shortLoc, todayISO } from '@/lib/format';
@@ -24,6 +23,7 @@ import {
   type Tab,
 } from './reports/data';
 import { DayReportView } from './reports/DayReport';
+import { ExcelButton } from './reports/ExcelButton';
 import { HistoryReportView } from './reports/HistoryReport';
 import { MonthReportView } from './reports/MonthReport';
 import { PeriodButton } from './reports/PeriodButton';
@@ -80,28 +80,21 @@ export function Reports() {
     tab === 'day' ? !!day.data?.rows.length : tab === 'month' ? !!monthData.data?.totals.records : false;
   const excelButton =
     tab === 'history' ? undefined : (
-      <Button
-        variant="outline"
-        className="h-11 gap-1.5 px-3.5 text-blue"
-        disabled={!hasRecords || excel.isPending || current.isFetching}
-        aria-busy={excel.isPending || undefined}
+      <ExcelButton
+        disabled={!hasRecords || current.isFetching}
+        busy={excel.isPending}
         onClick={() =>
           excel.mutate(
             tab === 'day' ? { month: date.slice(0, 7), day: date, site: daySite } : { month, site: monthSite },
           )
         }
-      >
-        <Download className="size-[18px]" aria-hidden="true" />
-        Excel
-      </Button>
+      />
     );
 
+  // A segmented control: a grey track, the selected tab is a white pill. Each button is 44 px high;
+  // the pill inside it is smaller, so the touch target stays 44 px.
   const tabs = (
-    <div
-      role="group"
-      aria-label="Report type"
-      className="grid h-11 w-full grid-cols-3 rounded-xl bg-card ring-1 ring-line"
-    >
+    <div role="group" aria-label="Report type" className="grid h-11 w-full grid-cols-3 rounded-xl bg-line">
       {TABS.map((t) => (
         <button
           key={t.key}
@@ -111,12 +104,16 @@ export function Reports() {
             excel.reset();
             set({ tab: t.key === 'day' ? '' : t.key, site: '', status: '' });
           }}
-          className={cn(
-            'h-11 rounded-xl text-sm font-semibold text-muted-foreground focus-visible:outline-2 focus-visible:outline-blue',
-            tab === t.key && 'bg-blue text-white',
-          )}
+          className="group h-11 rounded-xl p-1 focus-visible:outline-2 focus-visible:outline-blue"
         >
-          {t.label}
+          <span
+            className={cn(
+              'flex h-full items-center justify-center rounded-lg text-sm font-semibold text-muted-foreground',
+              tab === t.key && 'bg-card font-bold text-text shadow-[0_1px_3px_rgba(20,45,90,0.16)]',
+            )}
+          >
+            {t.label}
+          </span>
         </button>
       ))}
     </div>
@@ -190,6 +187,7 @@ export function Reports() {
   else if (tab === 'day')
     body = (
       <DayReportView
+        key={`${daySite}|${date}`}
         rows={day.data!.rows}
         date={date}
         site={siteRow}

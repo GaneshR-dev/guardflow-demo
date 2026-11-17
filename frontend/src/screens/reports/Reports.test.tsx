@@ -52,6 +52,7 @@ const DETAIL = {
 const HISTORY = [
   { month: '2026-11', checked_in: 2, completed: 8, not_in: 0, total_records: 10 },
   { month: '2026-10', checked_in: 0, completed: 0, not_in: 0, total_records: 0 },
+  { month: '2026-09', checked_in: 0, completed: 5, not_in: 0, total_records: 5 },
 ];
 
 type Reply = { status: number; body: unknown };
@@ -124,6 +125,35 @@ describe('Day', () => {
     expect(screen.getByTestId('url')).toHaveTextContent('status=not_in');
   });
 
+  test('the tabs: the selected tab is pressed', async () => {
+    show();
+    const tabs = await screen.findByRole('group', { name: 'Report type' });
+    expect(within(tabs).getByRole('button', { name: 'Day' })).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.click(within(tabs).getByRole('button', { name: 'Month' }));
+    expect(within(tabs).getByRole('button', { name: 'Month' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(tabs).getByRole('button', { name: 'Day' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('the search finds a name or a guard ID with no new request', async () => {
+    show();
+    await screen.findByText('Anil');
+    const loads = calls('GET /api/reports/monthly').length;
+    const search = screen.getByRole('searchbox', { name: 'Search guards by name or guard ID' });
+    await userEvent.type(search, 'meena');
+    expect(screen.getByText('1 entry found')).toBeInTheDocument();
+    expect(screen.queryByText('Anil')).not.toBeInTheDocument();
+    await userEvent.clear(search);
+    await userEvent.type(search, 'emp3');
+    expect(screen.getByText('Suresh')).toBeInTheDocument();
+    expect(screen.queryByText('Meena')).not.toBeInTheDocument();
+    await userEvent.type(search, '9');
+    expect(screen.getByRole('heading', { name: 'No guards match "emp39"' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(search).toHaveValue('');
+    expect(screen.getByText('3 guards · 3 entries')).toBeInTheDocument();
+    expect(calls('GET /api/reports/monthly')).toHaveLength(loads);
+  });
+
   test('the date and the site change the request', async () => {
     show();
     await screen.findByText('Anil');
@@ -194,6 +224,11 @@ describe('History and Excel', () => {
     show('/reports?tab=history');
     expect(await screen.findByText('In progress')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download October 2026 as Excel' })).toBeDisabled();
+    // "x / y": amber with open entries, green when all are completed. Screen readers get full words.
+    expect(screen.getByText('8 / 10').parentElement).toHaveClass('text-amber-text');
+    expect(screen.getByText('5 / 5').parentElement).toHaveClass('text-green-text');
+    expect(screen.getByText('8 of 10 entries completed')).toHaveClass('sr-only');
+    expect(screen.getByText('No records')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Excel' })).toBeNull();
     reply('GET /api/reports/export.xlsx', { status: 200, body: 'xlsx' });
     await userEvent.click(screen.getByRole('button', { name: 'Download November 2026 as Excel' }));
@@ -205,6 +240,8 @@ describe('History and Excel', () => {
     reply('GET /api/reports/export.xlsx', { status: 500, body: { detail: 'x' } });
     show();
     const excel = await screen.findByRole('button', { name: 'Excel' });
+    // The same height and white background as the date and site buttons.
+    expect(excel).toHaveClass('h-11', 'bg-card');
     await waitFor(() => expect(excel).toBeEnabled());
     await userEvent.click(excel);
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not download the Excel file.');

@@ -41,7 +41,60 @@ DAY = {
     "day": "2026-11-17",
     "rows": [row(i, s) for i, s in enumerate(["not_in", "checked_in", "completed"] * 4)],
 }
+LONG_DAY = {**DAY, "rows": [row(i, s) for i, s in enumerate(["not_in", "checked_in", "completed"] * 20)]}
 ANSWERS = {"/api/locations": SITES, "/api/reports/monthly": DAY}
+
+
+def open_reports(p, answers=ANSWERS):
+    browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+    page = browser.new_page(viewport={"width": 390, "height": 844})
+    page.add_init_script(
+        "localStorage.setItem('gf_token','local-test-token');localStorage.setItem('gf_user',JSON.stringify("
+        + json.dumps(USER)
+        + "))"
+    )
+
+    def respond(route):
+        if fulfill_next(route):
+            return
+        body = answers.get(urlsplit(route.request.url).path)
+        if body is None:
+            return route.fulfill(status=404, content_type="application/json", body='{"detail":"Not found"}')
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+    page.route("http://guardian.test/**", respond)
+    page.goto("http://guardian.test/next/reports?date=2026-11-17")
+    page.get_by_role("group", name="Filter entries by status").wait_for()
+    return browser, page
+
+
+def test_reports_buttons_match_and_search_sticks():
+    with playwright.sync_playwright() as p:
+        browser, page = open_reports(p, {**ANSWERS, "/api/reports/monthly": LONG_DAY})
+        # The Excel, date and site buttons have the same height and a white background.
+        boxes = [
+            page.get_by_role("button", name="Excel"),
+            page.locator("label:has(input[type=date])"),
+            page.get_by_role("button", name="Change site, now HSR Layout"),
+        ]
+        for item in boxes:
+            assert item.bounding_box()["height"] == 44
+            assert item.evaluate("e => getComputedStyle(e).backgroundColor") == "rgb(255, 255, 255)"
+        for tab in page.get_by_role("group", name="Report type").get_by_role("button").all():
+            assert tab.bounding_box()["height"] == 44
+        # After a scroll, the search stays at the top and the compact filters show.
+        page.mouse.wheel(0, 1500)
+        page.wait_for_timeout(300)
+        search = page.get_by_role("searchbox", name="Search guards by name or guard ID")
+        assert 0 <= search.bounding_box()["y"] <= 20
+        compact = page.get_by_role("group", name="Filter by status")
+        compact.wait_for()
+        compact.get_by_role("button", name="20 Not checked in").click()
+        page.get_by_text("20 entries · not checked in").wait_for()
+        search.fill("EMP1003")
+        page.get_by_text("1 entry · not checked in").wait_for()
+        assert page.evaluate("document.documentElement.scrollWidth") <= 390
+        browser.close()
 
 
 def test_reports_day_at_phone_width(tmp_path):

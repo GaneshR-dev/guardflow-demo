@@ -1,16 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
-import { BarChart3, ChevronRight, Download } from 'lucide-react';
+import { BarChart3, ChevronRight } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorBanner } from '@/components/ErrorBanner';
 import { LoadingRows } from '@/components/LoadingRows';
 import { ScreenError } from '@/components/ScreenError';
-import { Button } from '@/components/ui/button';
 import { Page } from '@/layout/AppShell';
 import { api, friendlyError, isApiError } from '@/lib/api';
 import { fmtMonth, locCity, plural, shortLoc, todayISO } from '@/lib/format';
 import type { Location } from '@/types/api';
 import { thisMonth, useExcel, useMonthReport } from './data';
+import { ExcelButton } from './ExcelButton';
 import { SummaryCard } from './SummaryCard';
 
 // One site for one month: the summary and one row for each day. A day opens the Day tab.
@@ -92,16 +92,11 @@ export function SiteDetail() {
       title={site ? shortLoc(site.name) : 'Site'}
       back={{ to: `/reports?tab=month&month=${month}`, label: 'Reports' }}
       action={
-        <Button
-          variant="outline"
-          className="h-11 gap-1.5 px-3.5 text-blue"
-          disabled={!d?.totals.records || excel.isPending}
-          aria-busy={excel.isPending || undefined}
+        <ExcelButton
+          disabled={!d?.totals.records}
+          busy={excel.isPending}
           onClick={() => excel.mutate({ month, site: id })}
-        >
-          <Download className="size-[18px]" aria-hidden="true" />
-          Excel
-        </Button>
+        />
       }
       context={
         <p className="text-sm text-muted-foreground">

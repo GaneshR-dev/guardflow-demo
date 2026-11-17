@@ -4,6 +4,7 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { Button } from '@/components/ui/button';
 import { percent } from '@/lib/coverage';
 import { fmtCount, fmtMonth } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import type { HistoryMonth } from '@/types/api';
 import { thisMonth } from './data';
 
@@ -42,17 +43,19 @@ export function HistoryReportView({ months, admin, downloading, onDownload, onTh
             <li key={m.month} className="flex items-center gap-3 rounded-2xl border bg-card px-4 py-3">
               <span className="flex min-w-0 flex-1 flex-col gap-2">
                 <span className="flex items-center gap-2">
-                  <strong className="text-[15px]">{label}</strong>
+                  <strong className="text-[15px] whitespace-nowrap">{label}</strong>
                   {m.month === current && (
-                    <span className="rounded-full bg-amber-soft px-2 py-0.5 text-xs font-semibold text-amber-text">
+                    <span className="rounded-full whitespace-nowrap bg-amber-soft px-2 py-0.5 text-xs font-semibold text-amber-text">
                       In progress
                     </span>
                   )}
                 </span>
-                <ProgressBar value={percent(m.completed, m.total_records)} />
-                <small className="text-[13px] text-muted-foreground">
-                  {fmtCount(m.completed)} of {fmtCount(m.total_records)} entries completed
-                </small>
+                <span className="flex items-center gap-3">
+                  <span className="min-w-0 flex-1">
+                    <ProgressBar value={percent(m.completed, m.total_records)} />
+                  </span>
+                  <CompletedCount completed={m.completed} total={m.total_records} />
+                </span>
               </span>
               <Button
                 variant="ghost"
@@ -73,5 +76,26 @@ export function HistoryReportView({ months, admin, downloading, onDownload, onTh
         Each download is one Excel file for the whole month.
       </p>
     </>
+  );
+}
+
+// "612 / 640": completed entries of all entries. Green when all are completed. Amber when some
+// entries are open, so the month needs attention.
+function CompletedCount({ completed, total }: { completed: number; total: number }) {
+  if (!total) return <span className="shrink-0 text-[13px] text-muted-foreground">No records</span>;
+  return (
+    <span
+      className={cn(
+        'shrink-0 text-[15px] font-bold whitespace-nowrap tabular-nums',
+        completed >= total ? 'text-green-text' : 'text-amber-text',
+      )}
+    >
+      <span aria-hidden="true">
+        {fmtCount(completed)} / {fmtCount(total)}
+      </span>
+      <span className="sr-only">
+        {fmtCount(completed)} of {fmtCount(total)} entries completed
+      </span>
+    </span>
   );
 }
