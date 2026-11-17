@@ -63,6 +63,7 @@ We move the frontend to React one screen at a time. Each screen moves in its own
 - In the error state, show a "Try again" button. Keep the filters of the user.
 - Keep text contrast at 4.5:1 or more.
 - Use real `<button>` elements for actions. Give an icon-only button an `aria-label`.
+- Give each button, clickable item and input a hover state. Use `tap-card`, `tap-icon` or `tap-tab`, a shadcn `Button` or a shadcn `Input`. Do not show hover on a disabled or selected item. An icon in an item does not get its own hover. `frontend/src/hover.test.ts` checks this.
 - Show each number one time only on a screen. Do not show the same data again on each row.
 - Escape each dynamic value with `esc()` before you put it into HTML.
 

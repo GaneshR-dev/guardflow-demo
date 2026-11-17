@@ -27,7 +27,7 @@ export function BottomNav() {
             to={to}
             aria-current={active ? 'page' : undefined}
             className={cn(
-              'flex min-h-11 flex-col items-center justify-center gap-[5px] text-xs whitespace-nowrap text-[#5f6f86]',
+              'tap-icon flex min-h-11 flex-col items-center justify-center gap-[5px] text-xs whitespace-nowrap text-[#5f6f86]',
               active && 'font-semibold text-navy [&_svg]:text-blue',
             )}
           >

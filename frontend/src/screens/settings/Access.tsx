@@ -65,7 +65,10 @@ function UserCard({ d, u, open }: { d: SettingsAnswer; u: AccessUser; open: bool
       {open ? (
         <Link
           to={`/settings/access/${encodeURIComponent(u.id)}`}
-          className={cn(box, 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue')}
+          className={cn(
+            box,
+            'tap-card focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue',
+          )}
         >
           {body}
         </Link>

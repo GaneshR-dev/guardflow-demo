@@ -34,7 +34,7 @@ function LocationCard({ c }: { c: Coverage }) {
       to={attendanceLink(c.location.id)}
       aria-label={`${name}, ${c.came} of ${c.total} came today, ${status}`}
       className={cn(
-        'mb-2.5 flex min-h-11 flex-col gap-2.5 rounded-2xl border bg-card px-4 py-3.5 text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue',
+        'tap-card mb-2.5 flex min-h-11 flex-col gap-2.5 rounded-2xl border bg-card px-4 py-3.5 text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue',
         c.group === 'disabled' && 'opacity-70',
       )}
     >

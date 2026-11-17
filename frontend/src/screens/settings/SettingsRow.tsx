@@ -16,7 +16,7 @@ export function SettingsRow({ to, Icon, title, detail, count }: Props) {
     <li>
       <Link
         to={to}
-        className="flex min-h-16 items-center gap-3 rounded-2xl border bg-card px-4 py-3 text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
+        className="tap-card flex min-h-16 items-center gap-3 rounded-2xl border bg-card px-4 py-3 text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
       >
         <span
           aria-hidden="true"

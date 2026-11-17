@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · Hover states for all buttons · Claude Code · feat/react-hover
+- Request: Add a hover effect to all buttons. Add it as a design rule.
+- Changed: `index.css` (`tap-card`, `tap-icon`, `tap-tab`), shadcn `button.tsx` (`default` and `outline` hover), `input.tsx` and `textarea.tsx` (border hover), and the clickable items on all React screens. Rule in `AGENTS.md` §4 and `docs/UI-GUIDE.md` ("Hover and press states").
+- Tests: `src/hover.test.ts` (new): each clickable item has a hover class. `tests/test_next_hover.py` (new): hover with a mouse; no hover look after a tap on a phone.
+- Open items: none.
+
 ## 2026-11-17 · Reports review changes · Claude Code · feat/react-reports
 - Request: New tab design (white pill on a grey track); the Excel button with the same height and white background as the other buttons; "x / y" with a colour in History; search and a sticky bar on the Day tab.
 - Changed: `screens/Reports.tsx`, `screens/reports/` (`ExcelButton.tsx` new, `DayReport.tsx`, `HistoryReport.tsx`, `SiteDetail.tsx`). New shared parts: `components/StickySearchBar.tsx`, `lib/useScrolledPast.ts`. `screens/Attendance.tsx` uses them (no visual change).

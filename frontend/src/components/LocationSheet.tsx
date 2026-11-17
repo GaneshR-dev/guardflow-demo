@@ -48,7 +48,7 @@ export function LocationSheet({ open, onOpenChange, locations, current, withAll,
                 aria-checked={on}
                 onClick={() => onPick(o.id)}
                 className={cn(
-                  'mb-2 flex min-h-16 w-full items-center gap-3 rounded-[14px] border bg-card px-3.5 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue',
+                  'tap-card mb-2 flex min-h-16 w-full items-center gap-3 rounded-[14px] border bg-card px-3.5 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue',
                   on && 'border-blue bg-blue-tint',
                 )}
               >

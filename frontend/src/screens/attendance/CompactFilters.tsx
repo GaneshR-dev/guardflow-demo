@@ -22,7 +22,7 @@ export function CompactFilters({ value, counts, onChange }: Props) {
             aria-pressed={on}
             onClick={() => onChange(f.key)}
             className={cn(
-              'flex min-h-12 flex-col items-center justify-center rounded-xl border bg-card px-1 leading-tight focus-visible:outline-2 focus-visible:outline-blue',
+              'tap-card flex min-h-12 flex-col items-center justify-center rounded-xl border bg-card px-1 leading-tight focus-visible:outline-2 focus-visible:outline-blue',
               on && 'border-blue bg-blue-tint ring-1 ring-blue',
             )}
           >

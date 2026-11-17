@@ -48,7 +48,7 @@ export function Page({ title, noNav, action, context, back, children }: PageProp
               <Link
                 to={back.to}
                 aria-label={`Back to ${back.label}`}
-                className="-ml-3 grid size-11 shrink-0 place-items-center rounded-lg text-blue focus-visible:outline-2 focus-visible:outline-blue"
+                className="tap-icon -ml-3 grid size-11 shrink-0 place-items-center rounded-lg text-blue focus-visible:outline-2 focus-visible:outline-blue"
               >
                 <ChevronLeft className="size-6" aria-hidden="true" />
               </Link>

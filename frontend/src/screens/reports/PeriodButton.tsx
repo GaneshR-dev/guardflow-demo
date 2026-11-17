@@ -12,7 +12,7 @@ interface Props {
 // not work on many phones.
 export function PeriodButton({ type, value, label, onChange }: Props) {
   return (
-    <label className="relative flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border bg-card px-3 text-[15px] font-semibold text-text has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-blue">
+    <label className="tap-card relative flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border bg-card px-3 text-[15px] font-semibold text-text has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-blue">
       <Calendar className="size-[18px] shrink-0 text-blue" aria-hidden="true" />
       <span className="truncate">{label}</span>
       <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground" aria-hidden="true" />

@@ -59,7 +59,7 @@ export function SiteDetail() {
                 <button
                   type="button"
                   onClick={() => navigate(`/reports?date=${x.day}&site=${encodeURIComponent(id)}`)}
-                  className="flex w-full items-center gap-3 rounded-2xl border bg-card px-4 py-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
+                  className="tap-card flex w-full items-center gap-3 rounded-2xl border bg-card px-4 py-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
                 >
                   <span className="flex w-10 shrink-0 flex-col items-center leading-tight">
                     <strong className="text-lg">{dt.getDate()}</strong>{' '}
