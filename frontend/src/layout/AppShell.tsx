@@ -18,10 +18,12 @@ interface PageProps {
   title?: string;
   // No bottom navigation on this screen (sign-in, owner console).
   noNav?: boolean;
+  // A small action at the right of the title, for example an icon button.
+  action?: ReactNode;
   children: ReactNode;
 }
 
-export function Page({ title, noNav, children }: PageProps) {
+export function Page({ title, noNav, action, children }: PageProps) {
   return (
     <main
       className={cn(
@@ -30,7 +32,12 @@ export function Page({ title, noNav, children }: PageProps) {
       )}
     >
       <Header />
-      {title && <h1 className="mb-4 text-[27px] leading-tight font-bold text-text">{title}</h1>}
+      {title && (
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h1 className="text-[27px] leading-tight font-bold text-text">{title}</h1>
+          {action}
+        </div>
+      )}
       {children}
     </main>
   );

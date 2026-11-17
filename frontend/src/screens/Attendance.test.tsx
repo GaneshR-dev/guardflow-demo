@@ -112,7 +112,7 @@ describe('Attendance', () => {
       within(filters)
         .getAllByRole('button')
         .map((b) => b.textContent),
-    ).toEqual(['All3', 'Not checked in1', 'Checked in1', 'Checked out1']);
+    ).toEqual(['3 All', '1 Not checked in', '1 Checked in', '1 Checked out']);
     expect(within(list()).getByRole('button', { name: 'Check in Anil Sharma' })).toBeInTheDocument();
     expect(within(list()).getByRole('button', { name: 'Check out Meena P' })).toBeInTheDocument();
     // A guard who checked out can start one more shift.
@@ -126,7 +126,7 @@ describe('Attendance', () => {
   test('a filter changes the URL and the request; the site sheet changes the site', async () => {
     show();
     await screen.findByText('Anil Sharma');
-    await userEvent.click(screen.getByRole('button', { name: /^Not checked in/ }));
+    await userEvent.click(screen.getByRole('button', { name: '1 Not checked in' }));
     await waitFor(() => expect(screen.getByTestId('url')).toHaveTextContent('status=not_in'));
     await waitFor(() => expect(lastUrl('GET /api/attendance')).toContain('status=not_in'));
     await userEvent.click(screen.getByRole('button', { name: 'Change site, now HSR Layout' }));
@@ -286,7 +286,7 @@ describe('Attendance', () => {
     });
     show();
     expect(await screen.findByRole('button', { name: 'Add a guard' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Edit times for Suresh K' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit times for Suresh K' }));
     const sheet = await screen.findByRole('dialog', { name: 'Edit times · Suresh K' });
     expect(within(sheet).getByLabelText('Check-in time')).toHaveValue('09:04');
     expect(within(sheet).getByLabelText('Check-out time')).toHaveValue('18:02');
@@ -310,6 +310,47 @@ describe('Attendance', () => {
     expect(await screen.findByRole('heading', { name: 'No guards are checked in.' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Show all' }));
     await waitFor(() => expect(screen.getByTestId('url')).not.toHaveTextContent('status='));
+  });
+});
+
+describe('Attendance cards and page actions', () => {
+  test('each guard is a separate card; actions have the same width; edit is at the top of the card', async () => {
+    show();
+    const cards = await within(await screen.findByRole('region', { name: 'Guards at this site' })).findAllByRole(
+      'listitem',
+    );
+    expect(cards).toHaveLength(3);
+    const checkIn = screen.getByRole('button', { name: 'Check in Anil Sharma' });
+    const checkOut = screen.getByRole('button', { name: 'Check out Meena P' });
+    expect(checkIn).toHaveClass('w-28');
+    expect(checkOut).toHaveClass('w-28');
+    // The edit button is in the first line of the card (with the name), not next to the action.
+    const meena = cards[1];
+    const edit = within(meena).getByRole('button', { name: 'Edit times for Meena P' });
+    expect(edit.closest('div')).toContainElement(within(meena).getByText('Meena P'));
+    expect(edit.closest('div')).not.toContainElement(checkOut);
+  });
+
+  test('admin: "Add a guard" at the top; the bottom card shows only when a search finds nobody', async () => {
+    show();
+    await screen.findByText('Anil Sharma');
+    const top = screen.getByRole('button', { name: 'Add a guard' });
+    expect(top.closest('div')).toContainElement(screen.getByRole('heading', { name: 'Mark attendance' }));
+    expect(screen.queryByText(/Can't find a guard\?/)).not.toBeInTheDocument();
+    reply('GET /api/attendance', { status: 200, body: { ...ANSWER, rows: [] } });
+    await userEvent.type(screen.getByRole('searchbox'), 'zz');
+    expect(await screen.findByText(/Can't find a guard\?/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Add a guard' })).toHaveLength(2);
+    await userEvent.click(screen.getAllByRole('button', { name: 'Add a guard' })[1]);
+    expect(await screen.findByRole('dialog', { name: 'Add a guard' })).toBeInTheDocument();
+  });
+
+  test('supervisor: no "Add a guard"; the empty search says to ask an admin', async () => {
+    startSession('t', { id: 'supervisor.demo', name: 'Sup', role: 'supervisor', company_id: 'c1' });
+    reply('GET /api/attendance', { status: 200, body: { ...ANSWER, rows: [] } });
+    show('/attendance?location=loc-hsr&q=zz');
+    expect(await screen.findByText(/Ask an admin to add the guard\./)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add a guard' })).not.toBeInTheDocument();
   });
 });
 

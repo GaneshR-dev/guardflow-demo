@@ -142,6 +142,7 @@ The screens move to React one at a time. Use this table to find the React form o
 | `skeletonRows()`, `.rpSkel` | `components/LoadingRows.tsx`: `<LoadingRows label="Loading the report…" />` |
 | `message()` error banner | `components/ErrorBanner.tsx` |
 | `toast()` | `lib/toast.ts`: `toast(text)` |
+| `.dashStat` tiles | `components/StatTile.tsx`: a number with a label. With `onClick` it is a filter button with `aria-pressed`. Status colours from `lib/tone.ts`. |
 | `confirmModal()` | `components/ConfirmDialog.tsx` (`pending` blocks a second submit, `error` shows the server message) |
 | `locationSheet()` | `components/LocationSheet.tsx` |
 | `header()`, `nav()` | `layout/Header.tsx`, `layout/BottomNav.tsx`. Use `<Page title="…">` from `layout/AppShell.tsx` for each screen. |
@@ -181,8 +182,11 @@ Home answers one question: "Are my sites covered today?"
 One screen replaces the 3 old screens (list, check-in, check-outs). Each row has its own action.
 
 - Site: a button that opens `LocationSheet` (active sites only). The site, the filter and the search are in the URL (`?location=`, `?status=`, `?q=`).
-- Filters: 4 buttons in a 2 × 2 grid with the counts (All, Not checked in, Checked in, Checked out). The counts show only here.
-- Row: initials, name (wraps, never cut), guard ID and the status in its colour. Actions: "Check in" (not checked in, and checked out for one more shift), "Check out" (checked in), and for admins an edit button. Each button label names the guard ("Check in Anil Sharma").
+- Filters: 4 `StatTile` buttons in a 2 × 2 grid, the same tiles as on Home (All, Not checked in, Checked in, Checked out). The counts show only here.
+- Sticky bar: the search box stays at the top while the list scrolls. When the tiles scroll out of view, a compact copy of the 4 filters shows in the bar (4 equal columns, number above a small label).
+- Cards: each guard is a card with a 10 px gap between cards. Top: initials, name (wraps, never cut), guard ID, and the edit button (admin) at the top right. Bottom: the status with a coloured dot, and one action.
+- Actions: all the same size (112 × 44 px). "Check in" (filled; outline on a checked-out card, for one more shift) and "Check out" (outline). Each button label names the guard ("Check in Anil Sharma").
+- "Add a guard" (admin): an icon at the top right of the page (`Page` `action` prop). When a search finds nobody, one line ("Can't find a guard?") and an "Add a guard" link show. No box.
 - "Open from earlier days": check-ins that were not closed, with "Check out".
 - Search: filters this site and also finds guards at other sites ("ad hoc"). Disabled guards show a note and no button.
 - Dialogs: "Confirm check-in", "Second shift today", "Confirm check-out" (with hours worked). Admin sheets: "Edit times" and "Add a guard".

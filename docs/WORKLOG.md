@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · Attendance design review changes · Claude Code · feat/react-attendance
+- Request: Use the Home tile style for the filters. Make each guard card bigger with space between cards. Give the actions the same size and put the edit icon at the top right. Add "Add a guard" at the top right. Make the screen work for many guards (the collaborator chose a sticky search and filters).
+- Changed: `components/StatTile.tsx` and `lib/tone.ts` (shared by Home and Attendance). `screens/attendance/`: `StatusTiles.tsx`, `CompactFilters.tsx`, `filters.ts`, `AttendanceRow.tsx` (`GuardCard`, `GuardList`, fixed 112 px actions). `screens/Attendance.tsx`: sticky search bar with compact filters (shown when the tiles scroll away), top-right "Add a guard", "Can't find a guard?" as one line and a link (no box, the collaborator's choice) only for an empty search. `layout/AppShell.tsx`: `Page` `action` prop.
+- Tests: `npm test` → 111 passed. `tests/test_next_attendance.py` → 5 passed (card gap, equal button width, edit position, sticky bar with 60 guards). Browser at 390 and 320 px with the local API.
+- Open items: none new.
+
 ## 2026-11-17 · React Attendance screen · Claude Code · feat/react-attendance
 - Request: Move Attendance to React. The collaborator chose one screen with an action on each row, in place of the 3 old screens.
 - Changed: `frontend/src/screens/Attendance.tsx` and `screens/attendance/` (filter grid, guard row, actions hook, edit-times and add-guard sheets). `lib/hours.ts` (hours worked, the record that check-out closes, one row for each guard). Types in `types/api.ts`. `routes.tsx`: `/attendance`, and the old `/attendance/add` and `/attendance/checkout` open the matching filter.

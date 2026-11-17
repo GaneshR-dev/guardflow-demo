@@ -13,42 +13,59 @@ interface Props {
   meta?: string;
   adhoc?: boolean;
   faded?: boolean;
+  // The edit button (admin). It shows at the top right of the card.
+  edit?: ReactNode;
+  // The action button. It shows at the bottom right of the card.
   action?: ReactNode;
 }
 
-// One guard row: initials, name, guard ID and status, and one action on the right.
-export function GuardRow({ name, id, status, meta, adhoc, faded, action }: Props) {
+// One guard card: initials, name and guard ID at the top; the status and one action at the bottom.
+export function GuardCard({ name, id, status, meta, adhoc, faded, edit, action }: Props) {
   return (
-    <li
-      className={cn('flex min-h-16 items-center gap-3 border-b px-3.5 py-2.5 last:border-b-0', faded && 'opacity-70')}
-    >
-      <span
-        aria-hidden="true"
-        className="grid size-10 shrink-0 place-items-center rounded-full bg-soft text-[13px] font-bold text-blue-text"
-      >
-        {initials(name)}
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col">
-        <strong className="text-[15px] leading-snug break-words text-text">
-          {name}
-          {adhoc && (
-            <span className="ml-1.5 rounded-full bg-blue-tint px-2 py-0.5 align-middle text-[11px] font-semibold text-blue-text">
-              ad hoc
-            </span>
-          )}
-        </strong>
-        {/* The status keeps one line. When the space is too small, it moves under the ID. */}
-        <small className="flex flex-wrap gap-x-1.5 text-[13px] leading-snug text-muted-foreground">
-          <span>
+    <li className={cn('rounded-2xl border bg-card p-4', faded && 'opacity-70')}>
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden="true"
+          className="grid size-10 shrink-0 place-items-center rounded-full bg-soft text-[13px] font-bold text-blue-text"
+        >
+          {initials(name)}
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col pt-0.5">
+          <strong className="text-base leading-snug break-words text-text">
+            {name}
+            {adhoc && (
+              <span className="ml-1.5 rounded-full bg-blue-tint px-2 py-0.5 align-middle text-[11px] font-semibold text-blue-text">
+                ad hoc
+              </span>
+            )}
+          </strong>
+          <small className="text-[13px] text-muted-foreground">
             {id}
             {meta && ` · ${meta}`}
-          </span>
-          {status && <span className={cn('font-semibold whitespace-nowrap', status.tone)}>{status.text}</span>}
-        </small>
-      </span>
-      {action}
+          </small>
+        </span>
+        {edit && <span className="-mt-2 -mr-2">{edit}</span>}
+      </div>
+      {(status || action) && (
+        <div className="mt-3 flex items-center justify-between gap-3">
+          {status ? (
+            <span className={cn('flex items-center gap-2 text-sm font-semibold', status.tone)}>
+              <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-current" />
+              {status.text}
+            </span>
+          ) : (
+            <span />
+          )}
+          {action}
+        </div>
+      )}
     </li>
   );
+}
+
+// The list of guard cards, with space between the cards.
+export function GuardList({ children }: { children: ReactNode }) {
+  return <ul className="flex flex-col gap-2.5">{children}</ul>;
 }
 
 export function EditButton({ name, onClick }: { name: string; onClick: () => void }) {
@@ -65,7 +82,8 @@ export function EditButton({ name, onClick }: { name: string; onClick: () => voi
   );
 }
 
-// A row action. The label names the guard, so a screen reader can tell the rows apart.
+// A card action. All actions have the same width. The label names the guard, so a screen reader
+// can tell the cards apart.
 export function RowButton({
   children,
   guard,
@@ -80,7 +98,7 @@ export function RowButton({
   return (
     <Button
       variant={outline ? 'outline' : 'default'}
-      className="h-11 shrink-0 px-4 text-sm font-bold"
+      className="h-11 w-28 shrink-0 text-sm font-bold"
       aria-label={`${children} ${guard}`}
       onClick={onClick}
     >

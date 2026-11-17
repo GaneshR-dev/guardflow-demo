@@ -14,12 +14,15 @@ import { Page } from '@/layout/AppShell';
 import { api, ApiError, friendlyError, isApiError } from '@/lib/api';
 import { fmtShortDay, fmtTime, shortLoc, todayISO } from '@/lib/format';
 import { oneRowEach, openRecord } from '@/lib/hours';
+import { cn } from '@/lib/utils';
 import type { AttendanceAnswer, AttendanceRecord, Location, LookupMatch } from '@/types/api';
 import { AddGuardSheet } from './attendance/AddGuardSheet';
-import { EditButton, GuardRow, RowButton } from './attendance/AttendanceRow';
+import { EditButton, GuardCard, GuardList, RowButton } from './attendance/AttendanceRow';
+import { CompactFilters } from './attendance/CompactFilters';
 import { EditTimesSheet } from './attendance/EditTimesSheet';
 import { statusOf } from './attendance/status';
-import { StatusChips, type StatusFilter } from './attendance/StatusChips';
+import type { StatusFilter } from './attendance/filters';
+import { StatusTiles } from './attendance/StatusTiles';
 import { useAttendanceActions } from './attendance/useAttendanceActions';
 
 const FILTERS: StatusFilter[] = ['all', 'not_in', 'checked_in', 'completed'];
@@ -115,6 +118,20 @@ export function Attendance() {
   const others = useQuery({ queryKey: ['lookup', q], enabled: !!site && q.length >= 2, queryFn: () => lookup(q) });
 
   const { askCheckin, askCheckout, dialog } = useAttendanceActions(site, setBlocked);
+  const setStatus = (v: StatusFilter) => setParam('status', v === 'all' ? '' : v);
+
+  // Show the compact filters in the sticky bar when the big tiles are above the screen.
+  const tilesRef = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+  const tilesShown = !!site && !blocked;
+  useEffect(() => {
+    const el = tilesRef.current;
+    // Old browsers and the test runner have no IntersectionObserver. Then the tiles are enough.
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(([e]) => setCompact(!e.isIntersecting && e.boundingClientRect.top < 0));
+    io.observe(el);
+    return () => io.disconnect();
+  }, [tilesShown]);
   const changeSite = (id: string) => {
     setBlocked(null);
     setSheetOpen(false);
@@ -186,29 +203,60 @@ export function Attendance() {
     const matches = (others.data || []).filter(
       (m) => m.location_id !== site.id && !rows.some((r) => r.employee_id === m.id),
     );
+    const editFor = (r: AttendanceRecord) =>
+      admin && r.status !== 'not_in' ? <EditButton name={r.name} onClick={() => setEditing(r)} /> : undefined;
+    const actionFor = (r: AttendanceRecord) =>
+      r.status === 'checked_in' ? (
+        <RowButton
+          outline
+          guard={r.name}
+          onClick={() => {
+            const open = openRecord(r.employee_id, data!.rows, data!.stale_open);
+            askCheckout({ id: r.employee_id, name: r.name }, open?.check_in ?? r.check_in);
+          }}
+        >
+          Check out
+        </RowButton>
+      ) : (
+        // Not checked in, or checked out: a checked-out guard can start one more shift (the server
+        // asks to confirm it).
+        <RowButton
+          outline={r.status === 'completed'}
+          guard={r.name}
+          onClick={() => askCheckin({ id: r.employee_id, name: r.name }, !!r.adhoc)}
+        >
+          Check in
+        </RowButton>
+      );
     body = (
       <>
-        <div className="relative mb-3">
-          <Search
-            className="pointer-events-none absolute top-1/2 left-3.5 size-[18px] -translate-y-1/2 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <Input
-            type="search"
-            aria-label="Search guards by name or guard ID"
-            placeholder="Search name or guard ID"
-            autoComplete="off"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            className="h-12 rounded-xl border-line bg-field pl-10 text-base"
-          />
+        <StatusTiles ref={tilesRef} value={status} counts={data?.summary} disabled={!data} onChange={setStatus} />
+
+        {/* The search stays at the top while the list scrolls. When the big tiles scroll out of view,
+            a one-line copy of the filters shows here too. */}
+        <div
+          className={cn(
+            'sticky top-0 z-10 -mx-[22px] mt-3 bg-app px-[22px] py-2 max-[379px]:-mx-4 max-[379px]:px-4',
+            compact && 'border-b shadow-[0_6px_12px_-10px_rgba(20,45,90,0.35)]',
+          )}
+        >
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute top-1/2 left-3.5 size-[18px] -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <Input
+              type="search"
+              aria-label="Search guards by name or guard ID"
+              placeholder="Search name or guard ID"
+              autoComplete="off"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              className="h-12 rounded-xl border-line bg-field pl-10 text-base"
+            />
+          </div>
+          {compact && data && <CompactFilters value={status} counts={data.summary} onChange={setStatus} />}
         </div>
-        <StatusChips
-          value={status}
-          counts={data?.summary}
-          disabled={!data}
-          onChange={(v) => setParam('status', v === 'all' ? '' : v)}
-        />
 
         {list.error && data && (
           <ErrorBanner
@@ -231,22 +279,22 @@ export function Attendance() {
         ) : (
           <>
             {stale.length > 0 && (
-              <section aria-label="Open from earlier days" className="mt-4">
+              <section aria-label="Open from earlier days" className="mt-3">
                 <h2 className="mb-1 text-base font-bold">Open from earlier days</h2>
-                <p className="mb-2 text-[13px] text-muted-foreground">
+                <p className="mb-2.5 text-[13px] text-muted-foreground">
                   These check-ins were not closed. Check out each guard. An admin can then correct the times.
                 </p>
-                <ul className="overflow-hidden rounded-2xl border bg-card">
+                <GuardList>
                   {stale.map((r) => (
-                    <GuardRow
+                    <GuardCard
                       key={r.employee_id + r.day}
                       name={r.name}
                       id={r.employee_id}
                       status={{ text: `Since ${fmtShortDay(r.day)}, ${fmtTime(r.check_in)}`, tone: 'text-amber-text' }}
                       action={
                         <RowButton
-                          guard={r.name}
                           outline
+                          guard={r.name}
                           onClick={() =>
                             askCheckout({ id: r.employee_id, name: r.name }, r.check_in, fmtShortDay(r.day))
                           }
@@ -256,73 +304,50 @@ export function Attendance() {
                       }
                     />
                   ))}
-                </ul>
+                </GuardList>
               </section>
             )}
 
-            <section aria-label="Guards at this site" className="mt-4">
+            <section aria-label="Guards at this site" className="mt-3">
+              {stale.length > 0 && rows.length > 0 && <h2 className="mb-2.5 text-base font-bold">Today</h2>}
               {rows.length ? (
-                <ul className="overflow-hidden rounded-2xl border bg-card">
+                <GuardList>
                   {rows.map((r) => (
-                    <GuardRow
+                    <GuardCard
                       key={r.employee_id}
                       name={r.name}
                       id={r.employee_id}
                       adhoc={r.adhoc}
                       status={statusOf(r)}
-                      action={
-                        r.status === 'not_in' ? (
-                          <RowButton
-                            guard={r.name}
-                            onClick={() => askCheckin({ id: r.employee_id, name: r.name }, !!r.adhoc)}
-                          >
-                            Check in
-                          </RowButton>
-                        ) : r.status === 'checked_in' ? (
-                          <span className="flex items-center">
-                            {admin && <EditButton name={r.name} onClick={() => setEditing(r)} />}
-                            <RowButton
-                              guard={r.name}
-                              outline
-                              onClick={() => {
-                                const open = openRecord(r.employee_id, data.rows, data.stale_open);
-                                askCheckout({ id: r.employee_id, name: r.name }, open?.check_in ?? r.check_in);
-                              }}
-                            >
-                              Check out
-                            </RowButton>
-                          </span>
-                        ) : (
-                          // Checked out: the guard can start one more shift (the server asks to confirm it).
-                          <span className="flex items-center">
-                            {admin && <EditButton name={r.name} onClick={() => setEditing(r)} />}
-                            <RowButton
-                              outline
-                              guard={r.name}
-                              onClick={() => askCheckin({ id: r.employee_id, name: r.name }, !!r.adhoc)}
-                            >
-                              Check in
-                            </RowButton>
-                          </span>
-                        )
-                      }
+                      edit={editFor(r)}
+                      action={actionFor(r)}
                     />
                   ))}
-                </ul>
+                </GuardList>
+              ) : q ? (
+                <EmptyState icon={<Search />} title={`No guards match "${q}"`} text="Check the name or guard ID.">
+                  {/* Simple text and a link, not a box (the collaborator's choice). */}
+                  <p className="text-[13px] text-muted-foreground">
+                    Can't find a guard?{' '}
+                    {admin ? `Add a new guard to ${shortLoc(site.name)}.` : 'Ask an admin to add the guard.'}
+                  </p>
+                  {admin && (
+                    <Button variant="link" className="h-11 gap-1.5 px-0 text-blue" onClick={() => setAddOpen(true)}>
+                      <UserPlus className="size-[18px]" aria-hidden="true" />
+                      Add a guard
+                    </Button>
+                  )}
+                </EmptyState>
               ) : (
                 <EmptyState
                   icon={<Search />}
-                  title={q ? `No guards match "${q}"` : EMPTY[status]}
+                  title={EMPTY[status]}
                   text={
-                    q
-                      ? 'Check the name or guard ID.'
-                      : status === 'all'
-                        ? 'Guards that join this site show here.'
-                        : 'Show all guards to see the full list.'
+                    status === 'all' ? 'Guards that join this site show here.' : 'Show all guards to see the full list.'
                   }
                 >
                   {status !== 'all' && (
-                    <Button variant="outline" className="h-12 px-[22px]" onClick={() => setParam('status', '')}>
+                    <Button variant="outline" className="h-12 px-[22px]" onClick={() => setStatus('all')}>
                       Show all
                     </Button>
                   )}
@@ -333,13 +358,13 @@ export function Attendance() {
             {/* Show this section only when another site has a match, or the search failed. */}
             {q.length >= 2 && (matches.length > 0 || others.isError) ? (
               <section aria-label={`Other guards matching "${q}"`} className="mt-5">
-                <h2 className="mb-2 text-base font-bold">Other guards matching “{q}”</h2>
+                <h2 className="mb-2.5 text-base font-bold">Other guards matching “{q}”</h2>
                 {others.isError ? (
                   <ErrorBanner message="Could not search the other sites. Try again in a moment." />
-                ) : matches.length ? (
-                  <ul className="overflow-hidden rounded-2xl border bg-card">
+                ) : (
+                  <GuardList>
                     {matches.map((m) => (
-                      <GuardRow
+                      <GuardCard
                         key={m.id}
                         name={m.name}
                         id={m.id}
@@ -360,31 +385,31 @@ export function Attendance() {
                         }
                       />
                     ))}
-                  </ul>
-                ) : (
-                  <p className="text-[13px] text-muted-foreground">No other guards match.</p>
+                  </GuardList>
                 )}
               </section>
             ) : null}
-
-            {admin && (
-              <div className="mt-6 flex flex-col items-start gap-1 rounded-2xl border bg-card p-4">
-                <strong className="text-[15px]">Can't find a guard?</strong>
-                <p className="text-[13px] text-muted-foreground">Add a new guard to {shortLoc(site.name)}.</p>
-                <Button variant="link" className="h-11 gap-1.5 px-0 text-blue" onClick={() => setAddOpen(true)}>
-                  <UserPlus className="size-[18px]" aria-hidden="true" />
-                  Add a guard
-                </Button>
-              </div>
-            )}
           </>
         )}
       </>
     );
   }
 
+  const addButton =
+    admin && site ? (
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-11 text-blue"
+        aria-label="Add a guard"
+        onClick={() => setAddOpen(true)}
+      >
+        <UserPlus className="size-[22px]" aria-hidden="true" />
+      </Button>
+    ) : undefined;
+
   return (
-    <Page title="Mark attendance">
+    <Page title="Mark attendance" action={addButton}>
       <div className="-mt-2 mb-4 flex items-center justify-between gap-3">
         {siteControl}
         <span className="text-sm text-muted-foreground">

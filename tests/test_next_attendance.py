@@ -49,7 +49,7 @@ ATTENDANCE = {
 }
 
 
-def open_attendance(p, calls):
+def open_attendance(p, calls, attendance=ATTENDANCE):
     browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
     page = browser.new_page(viewport={"width": 390, "height": 844})
     page.add_init_script(
@@ -66,7 +66,7 @@ def open_attendance(p, calls):
         calls.append((request.method, path, request.post_data))
         body = {
             "/api/locations": SITES,
-            "/api/attendance": ATTENDANCE,
+            "/api/attendance": attendance,
             "/api/attendance/checkin": {"employee_id": "EMP1001", "name": "Anil Kumar Sharma Venkataraman"},
         }.get(path)
         if body is None:
@@ -117,4 +117,43 @@ def test_check_in_flow_sends_one_request():
             "location_id": "loc-hsr",
             "confirm_second_shift": False,
         }
+        browser.close()
+
+
+def test_cards_have_gaps_and_equal_action_buttons():
+    with playwright.sync_playwright() as p:
+        browser, page = open_attendance(p, [])
+        cards = page.get_by_role("region", name="Guards at this site").get_by_role("listitem").all()
+        boxes = [c.bounding_box() for c in cards]
+        assert boxes[1]["y"] - (boxes[0]["y"] + boxes[0]["height"]) >= 8
+        widths = {
+            round(page.get_by_role("button", name=n).bounding_box()["width"])
+            for n in ["Check in Anil Kumar Sharma Venkataraman", "Check out Meena P", "Check in Suresh K"]
+        }
+        assert len(widths) == 1
+        # The edit button is at the top right of the card.
+        card = cards[1].bounding_box()
+        edit = page.get_by_role("button", name="Edit times for Meena P").bounding_box()
+        assert edit["y"] < card["y"] + 24
+        assert edit["x"] + edit["width"] > card["x"] + card["width"] - 24
+        browser.close()
+
+
+def test_search_and_filters_stay_at_the_top_of_a_long_list():
+    many = dict(ATTENDANCE)
+    many["rows"] = [row(f"EMP{2000 + i}", f"Guard {i:02d}", "not_in") for i in range(60)]
+    many["summary"] = {"checked_in": 0, "completed": 0, "not_in": 60}
+    with playwright.sync_playwright() as p:
+        browser, page = open_attendance(p, [], attendance=many)
+        page.mouse.wheel(0, 3000)
+        page.wait_for_timeout(300)
+        search = page.get_by_role("searchbox").bounding_box()
+        assert 0 <= search["y"] < 40
+        compact = page.locator(".sticky").get_by_role("group", name="Filter by status")
+        compact.wait_for()
+        for button in compact.get_by_role("button").all():
+            box = button.bounding_box()
+            assert box["height"] >= 44 and box["x"] + box["width"] <= 390
+        compact.get_by_role("button", name="0 Checked in").click()
+        page.wait_for_url("**status=checked_in**")
         browser.close()
