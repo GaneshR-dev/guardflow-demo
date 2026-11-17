@@ -32,7 +32,10 @@ LOCATIONS = [
     ("loc-demo-central", "Demo Central Office", "Fictional Road 2", "09:00", "18:00", 8),
     ("loc-demo-south", "Demo South Yard", "Fictional Road 3", "07:00", "19:00", 6),
 ]
-SUPERVISORS = [("demo.sup.one", "Demo Supervisor One", ["loc-demo-north", "loc-demo-central"]), ("demo.sup.two", "Demo Supervisor Two", ["loc-demo-south"])]
+SUPERVISORS = [
+    ("demo.sup.one", "Demo Supervisor One", ["loc-demo-north", "loc-demo-central"]),
+    ("demo.sup.two", "Demo Supervisor Two", ["loc-demo-south"]),
+]
 ADMIN = ("demo.company.admin", "Demo Company Admin")
 
 
@@ -68,7 +71,11 @@ def new_password() -> str:
     alphabet = string.ascii_letters + string.digits
     while True:
         value = secrets.choice(string.ascii_letters) + "".join(secrets.choice(alphabet) for _ in range(17))
-        if any(ch.islower() for ch in value) and any(ch.isupper() for ch in value) and any(ch.isdigit() for ch in value):
+        if (
+            any(ch.islower() for ch in value)
+            and any(ch.isupper() for ch in value)
+            and any(ch.isdigit() for ch in value)
+        ):
             return value
 
 
@@ -81,11 +88,15 @@ def seed(c, secrets_dir: str | None) -> dict:
     )
     for lid, name, area, start, end, count in LOCATIONS:
         c.execute(
-            text("INSERT INTO demo_locations (id,name,area,assigned_count,shift_start,shift_end,active,company_id) VALUES (:id,:name,:area,:count,:s,:e,1,:co)"),
+            text(
+                "INSERT INTO demo_locations (id,name,area,assigned_count,shift_start,shift_end,active,company_id) VALUES (:id,:name,:area,:count,:s,:e,1,:co)"
+            ),
             {"id": lid, "name": name, "area": area, "count": count, "s": start, "e": end, "co": COMPANY_ID},
         )
         c.execute(
-            text("INSERT INTO demo_location_shifts (id,location_id,label,shift_start,shift_end,position) VALUES (:id,:loc,'Day',:s,:e,0)"),
+            text(
+                "INSERT INTO demo_location_shifts (id,location_id,label,shift_start,shift_end,position) VALUES (:id,:loc,'Day',:s,:e,0)"
+            ),
             {"id": f"{lid}-shift-1-demo", "loc": lid, "s": start, "e": end},
         )
     written = []
@@ -108,7 +119,9 @@ def seed(c, secrets_dir: str | None) -> dict:
             employees.append((eid, f"Demo Guard {eid[-3:]}", f"+00 00000 {len(employees):05d}", "Guard", lid))
     for eid, name, phone, role, lid in employees:
         c.execute(
-            text("INSERT INTO demo_employees (id,name,phone,role,location_id,active,company_id) VALUES (:id,:n,:p,:r,:l,1,:co)"),
+            text(
+                "INSERT INTO demo_employees (id,name,phone,role,location_id,active,company_id) VALUES (:id,:n,:p,:r,:l,1,:co)"
+            ),
             {"id": eid, "n": name, "p": phone, "r": role, "l": lid, "co": COMPANY_ID},
         )
     months = completed_months(local_today())
@@ -120,7 +133,9 @@ def seed(c, secrets_dir: str | None) -> dict:
                 if ((index * 13 + day.day * 7 + day.month * 3) % 100) >= 90 or day.weekday() == 6:
                     continue  # fictional absences and Sundays off
                 c.execute(
-                    text("INSERT INTO demo_attendance VALUES (:id,:e,:l,:d,'completed',:cin,:cout,'fictional demo company history')"),
+                    text(
+                        "INSERT INTO demo_attendance VALUES (:id,:e,:l,:d,'completed',:cin,:cout,'fictional demo company history')"
+                    ),
                     {
                         "id": f"att-{eid}-{day.isoformat()}",
                         "e": eid,
@@ -132,7 +147,13 @@ def seed(c, secrets_dir: str | None) -> dict:
                 )
                 rows += 1
             day += timedelta(days=1)
-    return {"locations": len(LOCATIONS), "employees": len(employees), "attendance_rows": rows, "months": [f"{a:%Y-%m}" for a, _ in months], "passwords_written_for": written}
+    return {
+        "locations": len(LOCATIONS),
+        "employees": len(employees),
+        "attendance_rows": rows,
+        "months": [f"{a:%Y-%m}" for a, _ in months],
+        "passwords_written_for": written,
+    }
 
 
 def main() -> None:
