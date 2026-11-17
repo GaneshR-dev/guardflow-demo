@@ -21,6 +21,13 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · React Attendance screen · Claude Code · feat/react-attendance
+- Request: Move Attendance to React. The collaborator chose one screen with an action on each row, in place of the 3 old screens.
+- Changed: `frontend/src/screens/Attendance.tsx` and `screens/attendance/` (filter grid, guard row, actions hook, edit-times and add-guard sheets). `lib/hours.ts` (hours worked, the record that check-out closes, one row for each guard). Types in `types/api.ts`. `routes.tsx`: `/attendance`, and the old `/attendance/add` and `/attendance/checkout` open the matching filter.
+- Changed: `components/ConfirmDialog.tsx` blocks a fast double tap (a test found two check-ins from one double tap). A new question (second shift) ignores taps for 400 ms.
+- Tests: `npm test` → 103 passed. `tests/test_next_attendance.py` (new, Playwright) → passed. Lint, format, typecheck, build → passed. Browser at 390 px with the local API: check-in, check-out, second-shift dialog, search, admin and supervisor.
+- Open items: Server messages still use "Employee" and "location" (for example "Employee not found"). Change them in a backend PR with the old app tests. Figma not changed (plan limit).
+
 ## 2026-11-17 · Grey for "Checked out" · Claude Code · feat/react-signin
 - Request: Show "Checked out" in grey.
 - Changed: `frontend/src/screens/Home.tsx`: the "Checked out" tile number is grey (`text-muted-foreground`, 5.9:1). `lib/format.ts`: `STATUS_TONE` gives "completed" the tone "grey". `docs/GLOSSARY.md`: one colour for each status (green = Checked in, grey = Checked out, amber = Not checked in). `docs/UI-GUIDE.md`: Home tiles.

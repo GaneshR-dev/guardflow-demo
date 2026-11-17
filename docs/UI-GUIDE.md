@@ -176,6 +176,19 @@ Home answers one question: "Are my sites covered today?"
 - One site only: no list, one "Mark attendance" button.
 - "Updated <time>" and a Refresh button. A failed refresh keeps the data and shows a banner.
 
+### Attendance screen (`screens/Attendance.tsx`)
+
+One screen replaces the 3 old screens (list, check-in, check-outs). Each row has its own action.
+
+- Site: a button that opens `LocationSheet` (active sites only). The site, the filter and the search are in the URL (`?location=`, `?status=`, `?q=`).
+- Filters: 4 buttons in a 2 × 2 grid with the counts (All, Not checked in, Checked in, Checked out). The counts show only here.
+- Row: initials, name (wraps, never cut), guard ID and the status in its colour. Actions: "Check in" (not checked in, and checked out for one more shift), "Check out" (checked in), and for admins an edit button. Each button label names the guard ("Check in Anil Sharma").
+- "Open from earlier days": check-ins that were not closed, with "Check out".
+- Search: filters this site and also finds guards at other sites ("ad hoc"). Disabled guards show a note and no button.
+- Dialogs: "Confirm check-in", "Second shift today", "Confirm check-out" (with hours worked). Admin sheets: "Edit times" and "Add a guard".
+- `/attendance/add` and `/attendance/checkout` open the matching filter.
+- `ConfirmDialog` blocks a fast double tap. A new question in the same dialog ignores taps for 400 ms.
+
 ### Panel and text colour
 
 - Each screen is a 430 px panel on `bg-app` (`#f7faff`), the same as the old `.app`.
