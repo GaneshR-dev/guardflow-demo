@@ -7,7 +7,9 @@ from datetime import date, datetime, timedelta
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 from demo_app import app, local_today
+from demo_db import engine
 from fastapi.testclient import TestClient
+from shift_helpers import temporary_shifts
 
 client = TestClient(app)
 
@@ -171,7 +173,7 @@ def test_admin_time_edit_converts_ist_to_utc_and_is_admin_only():
             "location_id": "loc-hsr",
             "day": today,
             "check_in": "09:15",
-            "check_out": "18:45",
+            "check_out": "17:45",
             "reason": "test correction",
         },
     )
@@ -180,7 +182,7 @@ def test_admin_time_edit_converts_ist_to_utc_and_is_admin_only():
     assert body["status"] == "completed"
     # 09:15 IST is 03:45 UTC; stored timestamps stay UTC ISO.
     assert datetime.fromisoformat(body["check_in"]).strftime("%H:%M") == "03:45"
-    assert datetime.fromisoformat(body["check_out"]).strftime("%H:%M") == "13:15"
+    assert datetime.fromisoformat(body["check_out"]).strftime("%H:%M") == "12:15"
     refreshed = client.get("/api/attendance?location_id=loc-hsr&day=" + today, headers=headers).json()
     row = next(r for r in refreshed["rows"] if r["employee_id"] == target["employee_id"])
     assert row["status"] == "completed"
@@ -299,63 +301,67 @@ def test_sqlite_migration_preserves_existing_data(tmp_path, monkeypatch):
 
 def test_admin_time_edit_supports_next_day_checkout():
     """Overnight security shifts: an admin correction can set a next-day checkout date."""
-    headers = auth()
-    today = local_today().isoformat()
-    attendance = client.get("/api/attendance?location_id=loc-hsr", headers=headers).json()
-    target = next(row for row in attendance["rows"] if row["status"] == "checked_in")
-    next_day = (date.fromisoformat(today) + timedelta(days=1)).isoformat()
-    edited = client.patch(
-        "/api/attendance/times",
-        headers=headers,
-        json={
-            "employee_id": target["employee_id"],
-            "location_id": "loc-hsr",
-            "day": today,
-            "check_in": "22:00",
-            "check_out": "06:00",
-            "check_out_day": next_day,
-            "reason": "test correction",
-        },
-    )
-    assert edited.status_code == 200
-    body = edited.json()
-    assert body["status"] == "completed" and body["check_out_day"] == next_day
-    check_in = datetime.fromisoformat(body["check_in"])
-    check_out = datetime.fromisoformat(body["check_out"])
-    # 22:00 IST is 16:30 UTC on the record day; 06:00 IST next day is 00:30 UTC next day: 8 hours.
-    assert check_in.strftime("%H:%M") == "16:30"
-    assert check_out.strftime("%H:%M") == "00:30"
-    assert (check_out - check_in).total_seconds() == 8 * 3600
-    # A checkout date before the check-in date is rejected outright.
-    before_day = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
-    backwards = client.patch(
-        "/api/attendance/times",
-        headers=headers,
-        json={
-            "employee_id": target["employee_id"],
-            "location_id": "loc-hsr",
-            "day": today,
-            "check_in": "22:00",
-            "check_out": "06:00",
-            "check_out_day": before_day,
-            "reason": "test correction",
-        },
-    )
-    assert backwards.status_code == 400
-    # Without an explicit checkout date the same-day rule still applies.
-    same_day_overnight = client.patch(
-        "/api/attendance/times",
-        headers=headers,
-        json={
-            "employee_id": target["employee_id"],
-            "location_id": "loc-hsr",
-            "day": today,
-            "check_in": "22:00",
-            "check_out": "06:00",
-            "reason": "test correction",
-        },
-    )
-    assert same_day_overnight.status_code == 400
+    # HSR Layout has a day shift (09:00-18:00). Use an overnight shift for this test, then restore it.
+    with temporary_shifts(engine, "loc-hsr", [("22:00", "06:00")]):
+        headers = auth()
+        today = local_today().isoformat()
+        attendance = client.get("/api/attendance?location_id=loc-hsr", headers=headers).json()
+        target = next(row for row in attendance["rows"] if row["status"] == "checked_in")
+        next_day = (date.fromisoformat(today) + timedelta(days=1)).isoformat()
+        edited = client.patch(
+            "/api/attendance/times",
+            headers=headers,
+            json={
+                "employee_id": target["employee_id"],
+                "location_id": "loc-hsr",
+                "day": today,
+                "check_in": "22:00",
+                "check_out": "06:00",
+                "check_out_day": next_day,
+                "reason": "test correction",
+            },
+        )
+        assert edited.status_code == 200
+        body = edited.json()
+        assert body["status"] == "completed" and body["check_out_day"] == next_day
+        check_in = datetime.fromisoformat(body["check_in"])
+        check_out = datetime.fromisoformat(body["check_out"])
+        # 22:00 IST is 16:30 UTC on the record day; 06:00 IST next day is 00:30 UTC next day: 8 hours.
+        assert check_in.strftime("%H:%M") == "16:30"
+        assert check_out.strftime("%H:%M") == "00:30"
+        assert (check_out - check_in).total_seconds() == 8 * 3600
+        # A checkout date before the check-in date is rejected outright.
+        before_day = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+        backwards = client.patch(
+            "/api/attendance/times",
+            headers=headers,
+            json={
+                "employee_id": target["employee_id"],
+                "location_id": "loc-hsr",
+                "day": today,
+                "check_in": "22:00",
+                "check_out": "06:00",
+                "check_out_day": before_day,
+                "reason": "test correction",
+            },
+        )
+        assert backwards.status_code == 400
+        # Without a checkout date, the server works it out: a check-out that is not later than
+        # the check-in on the clock is on the next day (the React app does not send the date).
+        same_day_overnight = client.patch(
+            "/api/attendance/times",
+            headers=headers,
+            json={
+                "employee_id": target["employee_id"],
+                "location_id": "loc-hsr",
+                "day": today,
+                "check_in": "22:00",
+                "check_out": "06:00",
+                "reason": "test correction",
+            },
+        )
+        assert same_day_overnight.status_code == 200
+        assert same_day_overnight.json()["check_out_day"] == next_day
 
 
 def test_supervisor_cannot_see_or_use_unassigned_employees():

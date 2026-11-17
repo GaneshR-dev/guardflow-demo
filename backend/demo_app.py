@@ -1127,6 +1127,61 @@ def check_out(body: CheckBody, user=Depends(current_user)):
         return result
 
 
+def _clock(hhmm: str) -> dt_time:
+    hour, minute = (int(part) for part in hhmm.split(":"))
+    return dt_time(hour, minute)
+
+
+def fmt_clock(value: datetime) -> str:
+    """'6:00 pm' for messages, the same format as the app."""
+    return f"{value.hour % 12 or 12}:{value.minute:02d} {'am' if value.hour < 12 else 'pm'}"
+
+
+def shift_window(shifts: list[dict], day: date, check_in_hhmm: str) -> tuple[datetime, datetime] | None:
+    """Return the IST start and end of the shift that a check-in belongs to, or None if the site has no shift.
+
+    The shift is the one whose start (on the day before, the day, or the day after) is nearest to the
+    check-in; a tie goes to the earlier start. This covers an early check-in (8:50 for a 9:00 shift) and
+    an overnight shift (22:00-06:00, with a check-in at 01:00). End = start + duration; a shift whose
+    end is not after its start runs past midnight.
+    """
+    if not shifts:
+        return None
+    check_in = datetime.combine(day, _clock(check_in_hhmm), tzinfo=LOCAL_TZ)
+    best: tuple[tuple[timedelta, datetime], datetime, datetime] | None = None
+    for shift in shifts:
+        start_time, end_time = _clock(shift["shift_start"]), _clock(shift["shift_end"])
+        duration = datetime.combine(day, end_time) - datetime.combine(day, start_time)
+        if duration <= timedelta(0):
+            duration += timedelta(days=1)
+        for offset in (-1, 0, 1):
+            start = datetime.combine(day + timedelta(days=offset), start_time, tzinfo=LOCAL_TZ)
+            key = (abs(start - check_in), start)
+            if best is None or key < best[0]:
+                best = (key, start, start + duration)
+    assert best is not None
+    return best[1], best[2]
+
+
+def location_shift_rows(c, location_id: str) -> list[dict]:
+    """The shift windows of one site. Falls back to the legacy single pair on the site row."""
+    rows = [
+        dict(r)
+        for r in c.execute(
+            text("SELECT shift_start,shift_end FROM demo_location_shifts WHERE location_id=:id ORDER BY position"),
+            {"id": location_id},
+        ).mappings()
+    ]
+    if rows:
+        return rows
+    legacy = (
+        c.execute(text("SELECT shift_start,shift_end FROM demo_locations WHERE id=:id"), {"id": location_id})
+        .mappings()
+        .first()
+    )
+    return [dict(legacy)] if legacy and legacy["shift_start"] and legacy["shift_end"] else []
+
+
 def ist_stamp(day_text: str, hhmm: str) -> str:
     """Convert an IST wall-clock day + HH:MM into the stored UTC ISO timestamp."""
     hour, minute = (int(part) for part in hhmm.split(":"))
@@ -1143,7 +1198,11 @@ def edit_attendance_times(body: AttendanceTimeBody, user=Depends(current_user)):
         parsed_day = date.fromisoformat(body.day)
     except ValueError:
         raise HTTPException(400, "Invalid day") from None
-    out_day_text = body.check_out_day or body.day
+    # The React app does not send the check-out date: a check-out that is not later than the
+    # check-in on the clock is on the next day (a shift is shorter than 24 hours).
+    out_day_text = body.check_out_day or (
+        (parsed_day + timedelta(days=1)).isoformat() if body.check_out and body.check_out <= body.check_in else body.day
+    )
     try:
         out_day = date.fromisoformat(out_day_text)
     except ValueError:
@@ -1167,6 +1226,15 @@ def edit_attendance_times(body: AttendanceTimeBody, user=Depends(current_user)):
         ).first():
             raise HTTPException(404, "Employee not found")
         require_location_access(c, user, body.location_id)
+        # An edit cannot go past the end of the site's shift (the owner's rule). Sites with no shift
+        # have no limit.
+        window = shift_window(location_shift_rows(c, body.location_id), parsed_day, body.check_in)
+        if window:
+            shift_end = window[1]
+            if datetime.fromisoformat(check_in) >= shift_end:
+                raise HTTPException(400, f"Check-in is after the shift end ({fmt_clock(shift_end)}). Check the time.")
+            if check_out and datetime.fromisoformat(check_out) > shift_end:
+                raise HTTPException(400, f"Check-out must be at or before the shift end ({fmt_clock(shift_end)}).")
         params = {"employee": body.employee_id, "day": parsed_day.isoformat(), "location": body.location_id}
         sql = "SELECT * FROM demo_attendance WHERE employee_id=:employee AND day=:day AND location_id=:location"
         if body.record_id:
