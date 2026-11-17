@@ -23,7 +23,7 @@ from datetime import time as dt_time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import bindparam, text
@@ -1567,8 +1567,29 @@ def audit_log(limit: int = Query(100, ge=1, le=500), user=Depends(current_user))
                 {"limit": limit, "company": user["company_id"]},
             ).mappings()
         ]
+        # Resolve current names within this company, including disabled records.
+        # Keep the immutable audit details and the CSV export unchanged.
+        employees = dict(
+            c.execute(
+                text("SELECT id,name FROM demo_employees WHERE company_id=:company"),
+                {"company": user["company_id"]},
+            ).all()
+        )
+        locations = dict(
+            c.execute(
+                text("SELECT id,name FROM demo_locations WHERE company_id=:company"),
+                {"company": user["company_id"]},
+            ).all()
+        )
     for row in rows:
-        row["details"] = json.loads(row["details"])
+        details = json.loads(row["details"])
+        row["details"] = details
+        row["labels"] = {
+            "employee_name": employees.get(details.get("employee_id")),
+            "location_name": locations.get(details.get("location_id")),
+            "from_name": locations.get(details.get("from")),
+            "to_name": locations.get(details.get("to")),
+        }
     return {"rows": rows}
 
 
@@ -2287,6 +2308,12 @@ def _asset_version(*paths: Path) -> str:
 
 
 ASSET_VERSION = _asset_version(ROOT / "attendance-app.js", ROOT / "attendance-app.css")
+
+
+@app.get("/")
+def landing():
+    """Use the same app entry for a bare-domain visit."""
+    return RedirectResponse("/app", status_code=307)
 
 
 @app.get("/app")
