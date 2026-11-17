@@ -21,6 +21,13 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · React Home screen with a clearer purpose · Claude Code · feat/react-signin
+- Request: Build the newer Home design in React. Remove the double location control. Add improvements that use the data we have today.
+- Changed: `frontend/src/screens/Home.tsx`: four big summary tiles (the collaborator chose them over one summary sentence; labels 13 px, not 10 px), no location picker, locations grouped by need (`lib/coverage.ts`: needs attention, upcoming from the shift times, everybody came, disabled folded). A card opens Attendance for that location. One location shows a "Mark attendance" button. "Updated" time and Refresh. Loading, empty (admin and supervisor), error and failed-refresh states.
+- Changed: `layout/AppShell.tsx`: the 430 px `#f7faff` panel of the old app. `index.css`: `text-muted-foreground` is now `#56657b` for 4.5:1 contrast. `components/ProgressBar.tsx`. `tests/next_app.py`: shared helper for the /next browser tests.
+- Tests: `npm test` → 58 passed. `tests/test_next_home.py` (new) and `tests/test_next_signin.py` → 9 passed. Ruff → passed. Browser at 390 px with the local API: groups, links, contrast 5.1:1 or more.
+- Open items: Attendance is not in React yet, so a card opens the "not here yet" screen. Figma not changed (plan limit): add Home with the sign-in screen. The dashboard counts only today's records, so a guard on an overnight shift from yesterday counts as "not in".
+
 ## 2026-11-17 · React sign-in screen with a better design · Claude Code · feat/react-signin
 - Request: Add the sign-in screen to Figma, make the design better and move the screen to React.
 - Changed: `frontend/src/screens/Login.tsx`: the real sign-in. Theme fields (no yellow autofill), focus ring, show/hide password, "Signing in…" state, one request only, wrong password clears and focuses the password, 5xx shows a plain message, help sheet for "Forgot password?", tap-to-fill demo accounts, footer in the page flow. shadcn `input`, `label`.

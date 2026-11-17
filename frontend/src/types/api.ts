@@ -39,3 +39,22 @@ export interface Health {
   status: string;
   demo_mode?: boolean;
 }
+
+export interface TodayCounts {
+  checked_in: number;
+  completed: number;
+  not_in: number;
+}
+
+export interface DashboardLocation extends Location {
+  today: TodayCounts;
+}
+
+export interface Dashboard {
+  day: string;
+  employees: number;
+  checked_in: number;
+  completed: number;
+  not_checked_in: number;
+  locations: DashboardLocation[];
+}

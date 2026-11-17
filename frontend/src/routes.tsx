@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Navigate, Outlet, Route, Routes } from 'react-router';
 import { uiRole, useSession } from '@/auth/session';
 import { AppShell } from '@/layout/AppShell';
+import { Home } from '@/screens/Home';
 import { Login } from '@/screens/Login';
 import { NotMovedYet } from '@/screens/NotMovedYet';
 import { Settings } from '@/screens/Settings';
@@ -28,7 +29,7 @@ export function AppRoutes() {
         <Route path="/owner" element={<NotMovedYet title="Your companies" oldScreen="dashboard" noNav />} />
         <Route element={<RequireCompany />}>
           <Route element={<AppShell />}>
-            <Route path="/home" element={<NotMovedYet title="Attendance overview" oldScreen="dashboard" />} />
+            <Route path="/home" element={<Home />} />
             <Route path="/attendance" element={<NotMovedYet title="Mark attendance" oldScreen="attendance" />} />
             <Route path="/attendance/add" element={<NotMovedYet title="Employee check-in" oldScreen="add" />} />
             <Route
