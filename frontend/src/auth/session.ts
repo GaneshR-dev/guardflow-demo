@@ -72,6 +72,11 @@ export function startSession(token: string, user: User) {
   set({ token, user, companyId: '', companyName: '', endedMessage: '' });
 }
 
+// Update the signed-in user, for example after a name change in My profile.
+export function updateUser(changes: Partial<User>) {
+  if (current.user) set({ ...current, user: { ...current.user, ...changes } });
+}
+
 export function selectCompany(companyId: string, companyName = '') {
   set({ ...current, companyId, companyName });
 }

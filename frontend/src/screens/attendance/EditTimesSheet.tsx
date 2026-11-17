@@ -11,6 +11,7 @@ import { fmtShift, fmtShortDay, locationShifts, shiftLabel, toHHMM } from '@/lib
 import { addDay, checkoutNextDay, shiftFor, shiftProblem } from '@/lib/shift';
 import { toast } from '@/lib/toast';
 import type { AttendanceRecord, Location } from '@/types/api';
+import { useSingleSubmit } from '@/lib/useSingleSubmit';
 
 interface Props {
   record: AttendanceRecord | null;
@@ -72,6 +73,7 @@ function EditTimesForm({ record, site, day, onClose, onSaved }: Props & { record
     setValues((v) => ({ ...v, check_out: checkOut }));
   };
 
+  const once = useSingleSubmit();
   const save = useMutation({
     mutationFn: () =>
       api('/api/attendance/times', {
@@ -97,7 +99,7 @@ function EditTimesForm({ record, site, day, onClose, onSaved }: Props & { record
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!save.isPending && !problem) save.mutate();
+    if (!problem) once(() => save.mutateAsync());
   };
   const error = save.error && friendlyError(isApiError(save.error) ? save.error.status : 0, save.error.message);
 

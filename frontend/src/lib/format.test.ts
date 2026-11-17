@@ -11,6 +11,7 @@ import {
   plural,
   shiftLabel,
   shortLoc,
+  istDay,
   toHHMM,
 } from './format';
 
@@ -72,5 +73,10 @@ describe('format', () => {
   test('short day and month', () => {
     expect(fmtShortDay('2026-11-17')).toBe('Tue 17 Nov');
     expect(fmtShortMonth('2026-11')).toBe('Nov 2026');
+  });
+
+  test('istDay uses the IST date of a UTC time', () => {
+    // 19:00 UTC on 16 Nov is 00:30 IST on 17 Nov.
+    expect(istDay('2026-11-16T19:00:00Z')).toBe('2026-11-17');
   });
 });
