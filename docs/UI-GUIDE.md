@@ -155,7 +155,7 @@ The screens move to React one at a time. Use this table to find the React form o
 | `.primary`, `.secondary`, `.link` | shadcn `Button` (`default`, `outline`, `link`) |
 | `.card` | `rounded-2xl border bg-card shadow-card` |
 
-Routes: `/login`, `/owner`, `/home`, `/attendance`, `/attendance/add`, `/attendance/checkout`, `/employees`, `/locations`, `/locations/:id`, `/reports`, `/settings`. A screen that is not moved yet shows `NotMovedYet`, with a link to the old screen.
+Routes: `/login`, `/owner`, `/home`, `/attendance`, `/attendance/add`, `/attendance/checkout`, `/employees` (Guards), `/locations`, `/locations/:id`, `/reports`, `/settings`. A screen that is not moved yet shows `NotMovedYet`, with a link to the old screen.
 
 ### Hover and press states
 
@@ -226,7 +226,7 @@ One screen replaces the 3 old screens (list, check-in, check-outs). Each row has
 - "Add a guard" (admin): an icon at the top right of the page (`Page` `action` prop). When a search finds nobody, one line ("Can't find a guard?") and an "Add a guard" link show. No box.
 - "Open from earlier days": check-ins that were not closed, with "Check out".
 - Search: filters this site and also finds guards at other sites ("ad hoc"). Disabled guards show a note and no button.
-- Dialogs: "Confirm check-in", "Second shift today", "Confirm check-out" (with hours worked). Admin sheets: "Edit times" and "Add a guard".
+- Dialogs: "Confirm check-in", "Second shift today", "Confirm check-out" (with hours worked). Admin sheets: "Edit times" and "Add a guard" (`GuardSheet` with a fixed site).
 - `/attendance/add` and `/attendance/checkout` open the matching filter.
 - Data: the app loads each site one time (`['attendance', siteId]`). The filters and the search work on the phone (`screens/attendance/filters.ts`, the same search rule as the server), with no new request. The data is fresh for 30 seconds. After that, the app loads it again when the user comes back to it. Each action (check-in, check-out, edit, add) loads it again. Only the search for guards at other sites calls the server.
 - `ConfirmDialog` blocks a fast double tap. A new question in the same dialog ignores taps for 400 ms.
@@ -240,6 +240,21 @@ One screen replaces the 3 old screens (list, check-in, check-outs). Each row has
 - User access: user cards. Admins open a supervisor: sites (`SiteChecklist`), a new password (sheet), disable or enable (confirm dialog). "Add a supervisor" is an icon at the top right.
 - Activity log: titles in the glossary words, IST dates. The export icon downloads the CSV with `apiFile()`.
 - Forms use `useSingleSubmit()` (`lib/useSingleSubmit.ts`): a fast double tap sends one request.
+
+### Guards screen (`screens/Guards.tsx`, `screens/guards/`)
+
+There is no Figma frame for this screen. It uses the patterns of User access, Attendance and Reports.
+
+- Opens from Settings at `/employees`. `Page` `back` goes to Settings.
+- Title row (admin): an import icon (a `label` with a hidden CSV file input) and "Add a guard".
+- A site button (`LocationSheet` with "All sites"; admins also get "No site yet", value `none`). The site is in the URL (`?site=`). An unknown site shows all sites.
+- `StickySearchBar` under the site button: name or guard ID, the same rule as Attendance.
+- Cards: initials, name, `ID · site`. When the list shows one site, the cards do not repeat the site name. An admin taps an active card to edit the guard (`tap-card`, chevron). A supervisor only reads.
+- Disabled guards (the guard or the site is disabled) are in a folded section at the end, as the disabled sites on Home. A search opens it. "Enable" is one tap. A guard at a disabled site shows "Enable the site first." and no button.
+- `GuardSheet` (`components/GuardSheet.tsx`): add or edit a guard (name, phone, site). On Attendance the site is fixed and there is no site field. On Guards the site in the filter is the default site. Save is disabled until a value changes. "Disable guard" opens a `ConfirmDialog`.
+- Import: columns `id,name,phone,role,location_id`. An empty `location_id` gets the site in the filter. `lib/csv.ts` reads the file. Possible duplicates show in an amber note.
+- Data: `['employees']` (Settings already loads it) and `['locations']`. The filter and the search work on the phone. Each change loads the guards, sites, Home and Attendance again.
+- Server rules: `PATCH /api/employees/{id}` blocks a disabled guard, a disabled site and a move during an open check-in (409). A move writes `employee.transfer`; a name or phone change writes `employee.update`.
 
 ### Reports screen (`screens/Reports.tsx`, `screens/reports/`)
 
