@@ -21,6 +21,16 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · Clear report counts, audit names and root entry · Instinct · fix/review-count-names-landing
+- Request: Fix the three approved UX review findings. Keep the attendance flow unchanged.
+- Changed: Day reports separate unique guards from entries. Status figures count entries.
+- Changed: The activity log resolves current employee and location names within the company, including disabled records. Missing names use IDs.
+- Changed: Audit details and CSV output stay unchanged. The root URL redirects to /app.
+- Tests: Full pytest suite with embedded PostgreSQL: 195 passed, 2 skipped. Five new API and phone browser tests pass.
+- Tests: Ruff lint, Ruff format and Prettier checks pass. Phone previews use fictional data.
+- Design: Used docs/UI-GUIDE.md and existing components. Figma was not read.
+- Open items: Preview approved. Run CI before merge, then verify the live release.
+
 ## 2026-11-17 · Direct check-in buttons like check-out · Instinct · feat/direct-checkin-buttons
 - Request: Make check-in as short as check-out. Replace the Select step with a Check in button on each row. Show the time like check-out. Keep the confirmation popup, but remove the are-you-sure wording.
 - Changed: Each waiting or ad-hoc employee row now has a Check in button. The confirmation popup is titled Confirm check-in and shows the employee, the IST check-in time, and the location. The Select step and the Check-in recorded screen are removed. A toast confirms the check-in. The list refreshes in place.

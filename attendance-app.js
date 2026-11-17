@@ -795,7 +795,7 @@ function dayReport(r) {
   }
   const count = (s) => rows.filter((x) => s === 'all' || x.status === s).length;
   const stats = [
-    ['all', 'All'],
+    ['all', 'All entries'],
     ['checked_in', 'Checked in'],
     ['completed', 'Checked out'],
     ['not_in', 'Not checked in'],
@@ -808,15 +808,19 @@ function dayReport(r) {
   const shown = rows.filter((x) => r.status === 'all' || x.status === r.status);
   const hours = rows.map((x) => x.hours).filter(Boolean);
   const avg = hours.length ? (hours.reduce((a, b) => a + b, 0) / hours.length).toFixed(1) : '';
+  // A guard can have several sequential shifts. Rows are entries, not people.
+  const guardCount = new Set(rows.map((x) => x.employee_id)).size;
   const title =
-    r.status === 'all' ? plural(rows.length, 'guard') : `${shown.length} ${STATUS_LABEL[r.status].toLowerCase()}`;
+    r.status === 'all'
+      ? `${plural(guardCount, 'guard')} · ${plural(rows.length, 'entry', 'entries')}`
+      : `${plural(shown.length, 'entry', 'entries')} · ${STATUS_LABEL[r.status].toLowerCase()}`;
   const side =
     r.status !== 'all'
       ? '<button class="link" data-rstatus="all">Show all</button>'
       : avg
         ? `<span>Avg shift ${avg} h</span>`
         : '';
-  return `<div class="rpStats" role="group" aria-label="Filter by status">${stats}</div><p class="rpHint">Tap a figure to filter the list</p><div class="rpListHead"><strong>${esc(title)}</strong>${side}</div><div class="rpList">${shown.map(guardRow).join('') || '<p class="rpNone">Nobody in this group.</p>'}</div>`;
+  return `<div class="rpStats" role="group" aria-label="Filter attendance entries by status">${stats}</div><p class="rpHint">Figures count entries, not unique guards. Tap to filter.</p><div class="rpListHead"><strong>${esc(title)}</strong>${side}</div><div class="rpList">${shown.map(guardRow).join('') || '<p class="rpNone">Nobody in this group.</p>'}</div>`;
 }
 function monthSummary(t) {
   const p = progress(t.completed, t.records);
@@ -957,17 +961,18 @@ const auditTitle = (a) => AUDIT_TITLES[a.action] || a.action;
 const fmtAuditTime = (v) => (v ? fmtDate(new Date(v)) + ' · ' + fmtTime(v) : '');
 function auditDetail(a) {
   const d = a.details || {};
-  if (a.action === 'attendance.times.edit')
-    return `${d.employee_id || ''} · ${d.day || ''} · Reason: ${d.reason || 'not given'}`;
+  const labels = a.labels || {};
+  const employee = labels.employee_name || d.employee_id || '';
+  const location = labels.location_name || d.location_id || '';
+  if (a.action === 'attendance.times.edit') return `${employee} · ${d.day || ''} · Reason: ${d.reason || 'not given'}`;
   if (a.action === 'attendance.checkout' && d.late_checkout)
-    return `${d.employee_id || ''} · closed the record from ${d.record_day || 'an earlier day'}`;
-  if (a.action === 'attendance.checkin' || a.action === 'attendance.checkout')
-    return `${d.employee_id || ''} · ${d.location_id || ''}`;
+    return `${employee} · ${location} · closed the record from ${d.record_day || 'an earlier day'}`;
+  if (a.action === 'attendance.checkin' || a.action === 'attendance.checkout') return `${employee} · ${location}`;
   if (a.action === 'employee.transfer')
-    return `${d.employee_id || ''} · ${d.from || 'no location'} to ${d.to || 'no location'}`;
+    return `${employee} · ${labels.from_name || d.from || 'no location'} to ${labels.to_name || d.to || 'no location'}`;
   if (a.action === 'employee.import' || a.action === 'settings.location.import')
     return `${d.created || 0} added · ${d.updated || 0} updated`;
-  return d.employee_id || d.location_id || d.id || d.name || '';
+  return employee || location || d.name || d.id || '';
 }
 function siteName(d, id) {
   const loc = (d.locations || []).find((l) => l.id === id);
