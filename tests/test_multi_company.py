@@ -40,7 +40,9 @@ def make_company(owner, name):
 
 
 def make_admin(owner, company_id, uid, pw="admin-pass-123"):
-    r = client.post(f"/api/owner/companies/{company_id}/admins", headers=owner, json={"id": uid, "name": uid, "password": pw})
+    r = client.post(
+        f"/api/owner/companies/{company_id}/admins", headers=owner, json={"id": uid, "name": uid, "password": pw}
+    )
     assert r.status_code == 200, r.text
     return bearer(uid, pw)
 
@@ -79,19 +81,36 @@ def test_multiple_admins_per_company_and_isolation():
     a2 = make_admin(owner, a, "alpha.two")
     b1 = make_admin(owner, b, "beta.one")
     # Duplicate login ID is refused across companies.
-    dup = client.post(f"/api/owner/companies/{b}/admins", headers=owner, json={"id": "alpha.one", "name": "Dup", "password": "dup-pass-1234"})
+    dup = client.post(
+        f"/api/owner/companies/{b}/admins",
+        headers=owner,
+        json={"id": "alpha.one", "name": "Dup", "password": "dup-pass-1234"},
+    )
     assert dup.status_code == 409
     # Alpha admin creates a branch and an employee; both admins of Alpha see them.
     loc = client.post(
         "/api/settings/locations",
         headers=a1,
-        json={"id": "loc-alpha-1", "name": "Alpha Gate", "area": "North", "assigned_count": 1, "shift_start": "08:00", "shift_end": "16:00"},
+        json={
+            "id": "loc-alpha-1",
+            "name": "Alpha Gate",
+            "area": "North",
+            "assigned_count": 1,
+            "shift_start": "08:00",
+            "shift_end": "16:00",
+        },
     )
     assert loc.status_code in (200, 201), loc.text
     emp = client.post(
         "/api/employees",
         headers=a1,
-        json={"id": "ALPHA-E1", "name": "Alpha Guard", "phone": "9111111111", "role": "Guard", "location_id": "loc-alpha-1"},
+        json={
+            "id": "ALPHA-E1",
+            "name": "Alpha Guard",
+            "phone": "9111111111",
+            "role": "Guard",
+            "location_id": "loc-alpha-1",
+        },
     )
     assert emp.status_code in (200, 201), emp.text
     assert any(x["id"] == "loc-alpha-1" for x in client.get("/api/locations", headers=a2).json())
@@ -120,7 +139,13 @@ def test_multiple_admins_per_company_and_isolation():
     r = client.post(
         "/api/settings/access",
         headers=a1,
-        json={"id": "alpha.sup", "name": "Alpha Sup", "password": "alpha-sup-123", "role": "supervisor", "location_ids": ["loc-hsr"]},
+        json={
+            "id": "alpha.sup",
+            "name": "Alpha Sup",
+            "password": "alpha-sup-123",
+            "role": "supervisor",
+            "location_ids": ["loc-hsr"],
+        },
     )
     assert r.status_code in (400, 403, 404, 422)
 
@@ -133,12 +158,25 @@ def test_supervisor_keeps_assigned_location_limit_inside_company():
         assert client.post(
             "/api/settings/locations",
             headers=adm,
-            json={"id": lid, "name": lid, "area": "Zone", "assigned_count": 1, "shift_start": "08:00", "shift_end": "16:00"},
+            json={
+                "id": lid,
+                "name": lid,
+                "area": "Zone",
+                "assigned_count": 1,
+                "shift_start": "08:00",
+                "shift_end": "16:00",
+            },
         ).status_code in (200, 201)
     r = client.post(
         "/api/settings/access",
         headers=adm,
-        json={"id": "gamma.sup", "name": "Gamma Sup", "password": "gamma-sup-123", "role": "supervisor", "location_ids": ["loc-g1"]},
+        json={
+            "id": "gamma.sup",
+            "name": "Gamma Sup",
+            "password": "gamma-sup-123",
+            "role": "supervisor",
+            "location_ids": ["loc-g1"],
+        },
     )
     assert r.status_code in (200, 201), r.text
     sup = bearer("gamma.sup", "gamma-sup-123")
@@ -153,7 +191,14 @@ def test_owner_needs_company_header_and_acts_inside_selected_company():
     client.post(
         "/api/settings/locations",
         headers=adm,
-        json={"id": "loc-delta", "name": "Delta Gate", "area": "Zone", "assigned_count": 1, "shift_start": "08:00", "shift_end": "16:00"},
+        json={
+            "id": "loc-delta",
+            "name": "Delta Gate",
+            "area": "Zone",
+            "assigned_count": 1,
+            "shift_start": "08:00",
+            "shift_end": "16:00",
+        },
     )
     assert client.get("/api/locations", headers=owner).status_code == 400
     sel = client.get("/api/locations", headers={**owner, "X-Company-Id": c})
@@ -163,7 +208,14 @@ def test_owner_needs_company_header_and_acts_inside_selected_company():
     client.post(
         "/api/settings/locations",
         headers={**owner, "X-Company-Id": c},
-        json={"id": "loc-delta-2", "name": "Delta Two", "area": "Zone", "assigned_count": 1, "shift_start": "08:00", "shift_end": "16:00"},
+        json={
+            "id": "loc-delta-2",
+            "name": "Delta Two",
+            "area": "Zone",
+            "assigned_count": 1,
+            "shift_start": "08:00",
+            "shift_end": "16:00",
+        },
     )
     log = client.get("/api/audit", headers={**owner, "X-Company-Id": c}).text
     assert "loc-delta-2" in log
@@ -223,12 +275,24 @@ def test_company_admin_cannot_become_owner_or_touch_other_roles():
     r = client.post(
         "/api/settings/access",
         headers=adm,
-        json={"id": "eta.owner", "name": "Eta Owner", "password": "eta-owner-pass-1", "role": "owner", "location_ids": []},
+        json={
+            "id": "eta.owner",
+            "name": "Eta Owner",
+            "password": "eta-owner-pass-1",
+            "role": "owner",
+            "location_ids": [],
+        },
     )
     assert r.status_code in (403, 422)
     # Owner routes stay closed to supervisors and to anyone without a session.
     assert client.get("/api/owner/companies").status_code in (401, 403)
-    assert client.post("/api/owner/setup", json={"token": "x" * 12, "id": "evil.owner", "name": "Evil", "password": "evil-owner-pass-1"}).status_code == 403
+    assert (
+        client.post(
+            "/api/owner/setup",
+            json={"token": "x" * 12, "id": "evil.owner", "name": "Evil", "password": "evil-owner-pass-1"},
+        ).status_code
+        == 403
+    )
 
 
 def test_admin_resets_supervisor_password_in_own_company_only():
@@ -237,15 +301,59 @@ def test_admin_resets_supervisor_password_in_own_company_only():
     b = make_company(owner, "Reset Beta")
     adm_a = make_admin(owner, a, "reset.admin.a")
     adm_b = make_admin(owner, b, "reset.admin.b")
-    assert client.post("/api/settings/access", headers=adm_a, json={"id": "reset.sup.a", "name": "Sup A", "password": "old-pass-1234", "role": "supervisor", "location_ids": []}).status_code == 200
-    assert client.post("/api/settings/access", headers=adm_b, json={"id": "reset.sup.b", "name": "Sup B", "password": "old-pass-5678", "role": "supervisor", "location_ids": []}).status_code == 200
+    assert (
+        client.post(
+            "/api/settings/access",
+            headers=adm_a,
+            json={
+                "id": "reset.sup.a",
+                "name": "Sup A",
+                "password": "old-pass-1234",
+                "role": "supervisor",
+                "location_ids": [],
+            },
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/api/settings/access",
+            headers=adm_b,
+            json={
+                "id": "reset.sup.b",
+                "name": "Sup B",
+                "password": "old-pass-5678",
+                "role": "supervisor",
+                "location_ids": [],
+            },
+        ).status_code
+        == 200
+    )
     sup_session = bearer("reset.sup.a", "old-pass-1234")
     other_session = bearer("reset.sup.b", "old-pass-5678")
     # Other company's admin cannot reset; an admin cannot reset an admin; too short is refused.
-    assert client.post("/api/settings/access/reset.sup.a/password", headers=adm_b, json={"password": "hijack-pass-1"}).status_code == 404
-    assert client.post("/api/settings/access/reset.admin.a/password", headers=adm_a, json={"password": "new-admin-pass1"}).status_code == 400
-    assert client.post("/api/settings/access/reset.sup.a/password", headers=adm_a, json={"password": "short"}).status_code == 422
-    assert client.post("/api/settings/access/reset.sup.a/password", headers=sup_session, json={"password": "nope-nope-123"}).status_code == 403
+    assert (
+        client.post(
+            "/api/settings/access/reset.sup.a/password", headers=adm_b, json={"password": "hijack-pass-1"}
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            "/api/settings/access/reset.admin.a/password", headers=adm_a, json={"password": "new-admin-pass1"}
+        ).status_code
+        == 400
+    )
+    assert (
+        client.post("/api/settings/access/reset.sup.a/password", headers=adm_a, json={"password": "short"}).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/settings/access/reset.sup.a/password", headers=sup_session, json={"password": "nope-nope-123"}
+        ).status_code
+        == 403
+    )
     assert login("reset.sup.a", "old-pass-1234").status_code == 200
     # The real reset: old password and existing session stop working, others are untouched.
     r = client.post("/api/settings/access/reset.sup.a/password", headers=adm_a, json={"password": "fresh-pass-9876"})
@@ -262,9 +370,24 @@ def test_owner_edits_company_details_without_touching_company_data():
     owner = ensure_owner()
     cid = make_company(owner, "Details Co")
     adm = make_admin(owner, cid, "details.admin")
-    assert client.post("/api/settings/locations", headers=adm, json={"id": "loc-det-1", "name": "Det Site", "area": "Zone", "assigned_count": 1, "shift_start": "08:00", "shift_end": "16:00"}).status_code in (200, 201)
+    assert client.post(
+        "/api/settings/locations",
+        headers=adm,
+        json={
+            "id": "loc-det-1",
+            "name": "Det Site",
+            "area": "Zone",
+            "assigned_count": 1,
+            "shift_start": "08:00",
+            "shift_end": "16:00",
+        },
+    ).status_code in (200, 201)
     before = client.get("/api/locations", headers=adm).json()
-    r = client.patch(f"/api/owner/companies/{cid}", headers=owner, json={"name": "Details Co Ltd", "address": " 1 Main Road ", "contact_person": "", "contact_phone": "12345"})
+    r = client.patch(
+        f"/api/owner/companies/{cid}",
+        headers=owner,
+        json={"name": "Details Co Ltd", "address": " 1 Main Road ", "contact_person": "", "contact_phone": "12345"},
+    )
     assert r.status_code == 200
     row = next(x for x in client.get("/api/owner/companies", headers=owner).json()["companies"] if x["id"] == cid)
     assert row["name"] == "Details Co Ltd" and row["address"] == "1 Main Road"
