@@ -7,6 +7,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { ErrorBanner } from './ErrorBanner';
 
@@ -43,6 +44,26 @@ export function ConfirmDialog({
   error,
   onConfirm,
 }: Props) {
+  // A fast double tap comes before React disables the button. This flag blocks the second tap.
+  // It resets when the action ends, when the dialog shows a new question (title), or when an
+  // error shows, so the user can try again.
+  const fired = useRef(false);
+  useEffect(() => {
+    if (!pending) fired.current = false;
+  }, [pending, open, title, error]);
+  // A new question (for example "Second shift today") ignores taps for 400 ms, so the second tap
+  // of a double tap cannot confirm it by accident.
+  const lockedUntil = useRef(0);
+  const firstTitle = useRef(title);
+  useEffect(() => {
+    if (title !== firstTitle.current) lockedUntil.current = performance.now() + 400;
+    firstTitle.current = title;
+  }, [title]);
+  const confirm = () => {
+    if (fired.current || pending || performance.now() < lockedUntil.current) return;
+    fired.current = true;
+    onConfirm();
+  };
   return (
     <AlertDialog open={open} onOpenChange={(o) => !pending && onOpenChange(o)}>
       <AlertDialogContent className="max-w-[340px] rounded-2xl p-5 sm:max-w-[340px]">
@@ -73,7 +94,7 @@ export function ConfirmDialog({
             variant={danger ? 'destructive' : 'default'}
             disabled={pending}
             aria-busy={pending || undefined}
-            onClick={onConfirm}
+            onClick={confirm}
           >
             {okLabel}
           </Button>
