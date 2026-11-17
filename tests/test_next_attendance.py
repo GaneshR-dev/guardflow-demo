@@ -143,8 +143,9 @@ def test_search_and_filters_stay_at_the_top_of_a_long_list():
     many = dict(ATTENDANCE)
     many["rows"] = [row(f"EMP{2000 + i}", f"Guard {i:02d}", "not_in") for i in range(60)]
     many["summary"] = {"checked_in": 0, "completed": 0, "not_in": 60}
+    calls = []
     with playwright.sync_playwright() as p:
-        browser, page = open_attendance(p, [], attendance=many)
+        browser, page = open_attendance(p, calls, attendance=many)
         page.mouse.wheel(0, 3000)
         page.wait_for_timeout(300)
         search = page.get_by_role("searchbox").bounding_box()
@@ -156,4 +157,7 @@ def test_search_and_filters_stay_at_the_top_of_a_long_list():
             assert box["height"] >= 44 and box["x"] + box["width"] <= 390
         compact.get_by_role("button", name="0 Checked in").click()
         page.wait_for_url("**status=checked_in**")
+        # The app loads the site one time. A filter works on the phone, with no new request.
+        page.wait_for_timeout(300)
+        assert [c for c in calls if c[1] == "/api/attendance"] == [("GET", "/api/attendance", None)]
         browser.close()

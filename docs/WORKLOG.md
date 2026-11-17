@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · Attendance loads each site one time · Claude Code · feat/react-attendance
+- Request: The filters and the search called the API again, but the screen already had all the data. Stop the extra requests.
+- Changed: `screens/Attendance.tsx`: one query for each site (`['attendance', siteId]`, fresh for 30 s, loads again when the user comes back to the app). The status filter and the search work on the phone (`screens/attendance/filters.ts`: `filterRows()`, `matchesSearch()`, the same rule as the server search). The list filters at once on each key; the URL and the other-sites search wait 300 ms. `docs/UI-GUIDE.md`: data rule.
+- Tests: `filters.test.ts` (new). `Attendance.test.tsx`: filters and search send no new request. `tests/test_next_attendance.py`: one attendance request after a filter tap. `npm test` → 127 passed. Browser with the local API: 4 filter taps and a search sent no attendance request.
+- Open items: none.
+
 ## 2026-11-17 · Same section positions on each page · Claude Code · feat/react-attendance
 - Request: Split each page into the same sections, and start each section at the same position on every page. Use the position of the "Mark attendance" title.
 - Cause: the title row of Attendance had a 44 px icon, so it was 44 px high; the Home title row was 34 px. So the Attendance title was 5 px lower, and the sections under it 11 px lower.

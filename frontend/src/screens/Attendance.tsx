@@ -21,7 +21,7 @@ import { EditButton, GuardCard, GuardList, RowButton } from './attendance/Attend
 import { CompactFilters } from './attendance/CompactFilters';
 import { EditTimesSheet } from './attendance/EditTimesSheet';
 import { statusOf } from './attendance/status';
-import type { StatusFilter } from './attendance/filters';
+import { filterRows, matchesSearch, type StatusFilter } from './attendance/filters';
 import { StatusTiles } from './attendance/StatusTiles';
 import { useAttendanceActions } from './attendance/useAttendanceActions';
 
@@ -105,16 +105,19 @@ export function Attendance() {
   const wanted = params.get('location');
   const site = wanted ? active.find((l) => l.id === wanted) || null : active[0] || null;
 
+  // Load each site one time. The filters and the search work on the phone, with no new request.
+  // The data is fresh for 30 seconds; after that, coming back to the app loads it again (other
+  // supervisors can mark attendance at the same time). Each action loads it again too.
   const list = useQuery({
-    queryKey: ['attendance', site?.id, status, q],
+    queryKey: ['attendance', site?.id],
     enabled: !!site,
-    queryFn: () => {
-      const p = new URLSearchParams({ location_id: site!.id, day: todayISO() });
-      if (q) p.set('q', q);
-      if (status !== 'all') p.set('status', status);
-      return api<AttendanceAnswer>('/api/attendance?' + p);
-    },
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+    queryFn: () =>
+      api<AttendanceAnswer>('/api/attendance?' + new URLSearchParams({ location_id: site!.id, day: todayISO() })),
   });
+  // The list filters at once on each key. The URL and the search at other sites wait 300 ms.
+  const find = text.trim();
   const others = useQuery({ queryKey: ['lookup', q], enabled: !!site && q.length >= 2, queryFn: () => lookup(q) });
 
   const { askCheckin, askCheckout, dialog } = useAttendanceActions(site, setBlocked);
@@ -194,14 +197,13 @@ export function Attendance() {
     );
   else {
     const data = list.data;
-    const rows = data ? oneRowEach(data.rows) : [];
+    const siteRows = data ? oneRowEach(data.rows) : [];
+    const rows = filterRows(siteRows, status, find);
     const stale = (data?.stale_open || []).filter(
-      (r) =>
-        (status === 'all' || status === 'checked_in') &&
-        (!q || (r.name + ' ' + r.employee_id).toLowerCase().includes(q.toLowerCase())),
+      (r) => (status === 'all' || status === 'checked_in') && matchesSearch(r, find),
     );
     const matches = (others.data || []).filter(
-      (m) => m.location_id !== site.id && !rows.some((r) => r.employee_id === m.id),
+      (m) => m.location_id !== site.id && !siteRows.some((r) => r.employee_id === m.id),
     );
     const editFor = (r: AttendanceRecord) =>
       admin && r.status !== 'not_in' ? <EditButton name={r.name} onClick={() => setEditing(r)} /> : undefined;
@@ -320,8 +322,8 @@ export function Attendance() {
                     />
                   ))}
                 </GuardList>
-              ) : q ? (
-                <EmptyState icon={<Search />} title={`No guards match "${q}"`} text="Check the name or guard ID.">
+              ) : find ? (
+                <EmptyState icon={<Search />} title={`No guards match "${find}"`} text="Check the name or guard ID.">
                   {/* Simple text and a link, not a box (the collaborator's choice). */}
                   <p className="text-[13px] text-muted-foreground">
                     Can't find a guard?{' '}

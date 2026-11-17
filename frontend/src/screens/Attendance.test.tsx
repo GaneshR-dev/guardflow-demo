@@ -123,12 +123,20 @@ describe('Attendance', () => {
     expect(lastUrl('GET /api/attendance')).toContain('location_id=loc-hsr');
   });
 
-  test('a filter changes the URL and the request; the site sheet changes the site', async () => {
+  test('a filter works on the phone with no new request; the site sheet loads the new site', async () => {
     show();
     await screen.findByText('Anil Sharma');
+    const loads = calls('GET /api/attendance').length;
     await userEvent.click(screen.getByRole('button', { name: '1 Not checked in' }));
     await waitFor(() => expect(screen.getByTestId('url')).toHaveTextContent('status=not_in'));
-    await waitFor(() => expect(lastUrl('GET /api/attendance')).toContain('status=not_in'));
+    expect(
+      within(list())
+        .getAllByRole('listitem')
+        .map((c) => within(c).getByRole('strong').textContent),
+    ).toEqual(['Anil Sharma']);
+    expect(calls('GET /api/attendance')).toHaveLength(loads);
+    // The request never has a filter or a search: the app loads the whole site.
+    expect(lastUrl('GET /api/attendance')).not.toMatch(/status=|q=/);
     await userEvent.click(screen.getByRole('button', { name: 'Change site, now HSR Layout' }));
     const sheet = await screen.findByRole('dialog', { name: 'Choose site' });
     // Disabled sites are not offered for attendance.
@@ -241,8 +249,10 @@ describe('Attendance', () => {
     const { unmount } = show('/attendance?location=loc-hsr&status=checked_in');
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not load the attendance');
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
-    await screen.findByText('Anil Sharma');
-    expect(lastUrl('GET /api/attendance')).toContain('status=checked_in');
+    // The filter stays: only the checked-in guard shows.
+    await screen.findByText('Meena P');
+    expect(screen.queryByText('Anil Sharma')).not.toBeInTheDocument();
+    expect(screen.getByTestId('url')).toHaveTextContent('status=checked_in');
     unmount();
     reply('GET /api/attendance', { status: 403, body: { detail: 'No access' } });
     show();
@@ -276,7 +286,10 @@ describe('Attendance', () => {
     expect(within(others).getByText('Disabled. An admin can enable this guard.')).toBeInTheDocument();
     expect(within(others).queryByRole('button', { name: 'Check in Meena S' })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('url')).toHaveTextContent('q=meena'));
-    await waitFor(() => expect(lastUrl('GET /api/attendance')).toContain('q=meena'));
+    // The list filters on the phone with no new request.
+    expect(within(list()).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(list()).getByText('Meena P')).toBeInTheDocument();
+    expect(calls('GET /api/attendance')).toHaveLength(1);
   });
 
   test('admin can edit times and add a guard; a 400 stays in the edit sheet', async () => {

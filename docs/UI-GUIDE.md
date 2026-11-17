@@ -206,6 +206,7 @@ One screen replaces the 3 old screens (list, check-in, check-outs). Each row has
 - Search: filters this site and also finds guards at other sites ("ad hoc"). Disabled guards show a note and no button.
 - Dialogs: "Confirm check-in", "Second shift today", "Confirm check-out" (with hours worked). Admin sheets: "Edit times" and "Add a guard".
 - `/attendance/add` and `/attendance/checkout` open the matching filter.
+- Data: the app loads each site one time (`['attendance', siteId]`). The filters and the search work on the phone (`screens/attendance/filters.ts`, the same search rule as the server), with no new request. The data is fresh for 30 seconds. After that, the app loads it again when the user comes back to it. Each action (check-in, check-out, edit, add) loads it again. Only the search for guards at other sites calls the server.
 - `ConfirmDialog` blocks a fast double tap. A new question in the same dialog ignores taps for 400 ms.
 
 ### Edit times sheet (`screens/attendance/EditTimesSheet.tsx`)
@@ -230,6 +231,7 @@ Fill each value that the app can work out. Ask the user only for what the app ca
 - `text-muted-foreground` is `#56657b` (5.6:1 on `bg-app`). The old `--muted-text` (`#68778d`) is below 4.5:1 on light backgrounds. Use it only on white.
 
 Data rules:
+- Do not ask the server again for data that the screen already has. Filter and search it on the phone when the data is small (one site).
 - Read data with `useQuery` and `api()`. Show `LoadingRows` while `isPending`, and `ScreenError` on `isError` with `onRetry={refetch}`.
 - Change data with `useMutation`. Disable the submit button while `isPending`. Call `toast()` in `onSuccess`.
 - The query cache is cleared when the session or the company changes.

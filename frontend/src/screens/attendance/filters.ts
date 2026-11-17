@@ -1,5 +1,5 @@
 import type { Tone } from '@/lib/tone';
-import type { AttendanceStatus } from '@/types/api';
+import type { AttendanceRecord, AttendanceStatus } from '@/types/api';
 
 export type StatusFilter = AttendanceStatus | 'all';
 export type Counts = { checked_in: number; completed: number; not_in: number };
@@ -15,3 +15,15 @@ export function filterItems(counts: Counts | undefined) {
   ];
   return items;
 }
+
+// The same rule as the server search (add_name_search): the text is in the name or the guard ID,
+// with no case difference.
+export const matchesSearch = (r: { name: string; employee_id: string }, find: string) =>
+  !find ||
+  r.name.toLowerCase().includes(find.toLowerCase()) ||
+  r.employee_id.toLowerCase().includes(find.toLowerCase());
+
+// Filter the site's rows on the phone. The app loads each site one time and does not ask the server
+// again for a filter or a search.
+export const filterRows = (rows: AttendanceRecord[], status: StatusFilter, find: string) =>
+  rows.filter((r) => (status === 'all' || r.status === status) && matchesSearch(r, find));
