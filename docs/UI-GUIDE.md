@@ -223,7 +223,7 @@ One screen replaces the 3 old screens (list, check-in, check-outs). Each row has
 
 ### Reports screen (`screens/Reports.tsx`, `screens/reports/`)
 
-- Title row: "Reports" and an "Excel" button (not on History). `ExcelButton` has the same height (44 px), corners and white background as the date and site buttons.
+- Title row: "Reports" and an "Excel" button (not on History). `ExcelButton` has the same corners and white background as the date and site buttons. It is 40 px high (the collaborator chose this height; the other buttons are 44 px).
 - Context row: the Day · Month · History tabs. A grey track (`bg-line`); the selected tab is a white pill with bold text. Each button is 44 px high; the pill inside it is smaller.
 - Filters: a date or month button (`PeriodButton`: the native picker input covers the whole button) and a site button (`LocationSheet`; Month has "All sites").
 - The tab, date, month, site and Day status filter are in the URL. A site detail is `/reports/sites/:id?month=`.

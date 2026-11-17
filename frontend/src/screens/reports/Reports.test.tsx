@@ -240,8 +240,8 @@ describe('History and Excel', () => {
     reply('GET /api/reports/export.xlsx', { status: 500, body: { detail: 'x' } });
     show();
     const excel = await screen.findByRole('button', { name: 'Excel' });
-    // The same height and white background as the date and site buttons.
-    expect(excel).toHaveClass('h-11', 'bg-card');
+    // White, as the date and site buttons. 40 px high: the collaborator chose this height.
+    expect(excel).toHaveClass('h-10', 'bg-card');
     await waitFor(() => expect(excel).toBeEnabled());
     await userEvent.click(excel);
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not download the Excel file.');

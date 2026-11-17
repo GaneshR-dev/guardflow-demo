@@ -25,7 +25,7 @@ Template:
 - Request: New tab design (white pill on a grey track); the Excel button with the same height and white background as the other buttons; "x / y" with a colour in History; search and a sticky bar on the Day tab.
 - Changed: `screens/Reports.tsx`, `screens/reports/` (`ExcelButton.tsx` new, `DayReport.tsx`, `HistoryReport.tsx`, `SiteDetail.tsx`). New shared parts: `components/StickySearchBar.tsx`, `lib/useScrolledPast.ts`. `screens/Attendance.tsx` uses them (no visual change).
 - Tests: `Reports.test.tsx` (10 tests). `tests/test_next_reports.py`: button heights and backgrounds, tab heights, the sticky search with 60 guards.
-- Open items: an export for a range of months is a GitHub issue (not done now).
+- Open items: an export for a range of months is a GitHub issue (not done now). The collaborator set the Excel button to 40 px high (commit "chore: cosmetic fix"); the tests accept 40 px for this button only.
 
 ## 2026-11-17 · React Reports screen · Claude Code · feat/react-reports
 - Request: Move the Reports screen to React.

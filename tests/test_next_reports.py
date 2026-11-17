@@ -71,14 +71,15 @@ def open_reports(p, answers=ANSWERS):
 def test_reports_buttons_match_and_search_sticks():
     with playwright.sync_playwright() as p:
         browser, page = open_reports(p, {**ANSWERS, "/api/reports/monthly": LONG_DAY})
-        # The Excel, date and site buttons have the same height and a white background.
+        # The Excel, date and site buttons have a white background. The date and site buttons are
+        # 44 px high. The Excel button is 40 px high: the collaborator chose this height.
         boxes = [
-            page.get_by_role("button", name="Excel"),
-            page.locator("label:has(input[type=date])"),
-            page.get_by_role("button", name="Change site, now HSR Layout"),
+            (page.get_by_role("button", name="Excel"), 40),
+            (page.locator("label:has(input[type=date])"), 44),
+            (page.get_by_role("button", name="Change site, now HSR Layout"), 44),
         ]
-        for item in boxes:
-            assert item.bounding_box()["height"] == 44
+        for item, height in boxes:
+            assert item.bounding_box()["height"] == height
             assert item.evaluate("e => getComputedStyle(e).backgroundColor") == "rgb(255, 255, 255)"
         for tab in page.get_by_role("group", name="Report type").get_by_role("button").all():
             assert tab.bounding_box()["height"] == 44
@@ -121,7 +122,8 @@ def test_reports_day_at_phone_width(tmp_path):
         assert page.evaluate("document.documentElement.scrollWidth") <= 390
         for item in page.locator("main button, main a, main label").all():
             box = item.bounding_box()
-            if box:
+            # The Excel button is 40 px high: the collaborator chose this height.
+            if box and item.inner_text() != "Excel":
                 assert box["height"] >= 44, item.inner_text()
         # The date button has the native date input over it, so a tap opens the phone's picker.
         date_input = page.locator("input[type=date]")
