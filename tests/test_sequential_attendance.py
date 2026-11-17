@@ -360,13 +360,16 @@ def test_taskbar_and_second_shift_warning_cancel_confirm(role, tmp_path):
         assert page.locator("[data-go=checkout]").count() == 1
         page.locator("[data-go=add]").click()
         page.locator("[data-checkin=EMPSEQ]").click()
-        assert page.locator("text=Are you sure you want to check in?").count() == 0
+        page.wait_for_selector("text=Confirm check-in")
+        page.locator("#confirmOk").click()
         page.wait_for_selector("text=Second shift today")
         assert len(calls) == 1 and calls[0]["confirm_second_shift"] is False
         page.locator("#confirmCancel").click()
         assert page.locator("#confirmOk").count() == 0
         assert len(calls) == 1
         page.locator("[data-checkin=EMPSEQ]").click()
+        page.wait_for_selector("text=Confirm check-in")
+        page.locator("#confirmOk").click()
         page.wait_for_selector("text=Second shift today")
         page.locator("#confirmOk").click()
         page.wait_for_function("state.notice==='Check-in recorded' && state.screen==='add'")
