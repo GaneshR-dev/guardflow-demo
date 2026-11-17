@@ -15,6 +15,8 @@ Use this guide before you change a screen. Use the existing tokens, classes and 
 
 The tokens are in `:root` in `attendance-app.css`. Use `var(--name)`.
 
+The React app (`frontend/`) has the same values in `frontend/src/index.css`. Use them as Tailwind classes, for example `bg-blue`, `text-navy`, `text-muted-foreground`, `border-line`, `bg-green-soft text-green-text`. The shadcn/ui variables use the same tokens: `primary` is `--blue`, `destructive` is `--red`, `border` is `--line`.
+
 | Token | Value | Use |
 |---|---|---|
 | `--blue` | `#2367ea` | Primary action, links, active state, progress bar |
@@ -124,3 +126,40 @@ Before you finish a screen change, make sure that:
 - All dynamic values go through `esc()`.
 - The colours come from the tables above.
 - Each touch target is 44 px or more.
+
+## React app (`frontend/`)
+
+The screens move to React one at a time. Use this table to find the React form of an old helper.
+
+| Old (`attendance-app.js`) | React (`frontend/src/`) |
+|---|---|
+| `api()`, `httpError()` | `lib/api.ts`: `api<T>(path, options)`. It throws `ApiError` with `status` and `network`. A 401 ends the session. |
+| `friendlyError()` | `lib/api.ts`: `friendlyError(status, message)` |
+| session state, `endSession()`, `uiRole()` | `auth/session.ts`: `useSession()`, `startSession()`, `selectCompany()`, `endSession()`, `uiRole()`. Same localStorage keys as the old app. |
+| `logout()` | `auth/signOut.ts`: `signOut()` |
+| `showScreenError()`, `screenErrorView()`, `reportError()` | `components/ScreenError.tsx`: `<ScreenError error={…} atLocation onRetry onChooseLocation onReset loadedAt />` |
+| `emptyState()` | `components/EmptyState.tsx` (`tone="error"` for errors) |
+| `skeletonRows()`, `.rpSkel` | `components/LoadingRows.tsx`: `<LoadingRows label="Loading the report…" />` |
+| `message()` error banner | `components/ErrorBanner.tsx` |
+| `toast()` | `lib/toast.ts`: `toast(text)` |
+| `confirmModal()` | `components/ConfirmDialog.tsx` (`pending` blocks a second submit, `error` shows the server message) |
+| `locationSheet()` | `components/LocationSheet.tsx` |
+| `header()`, `nav()` | `layout/Header.tsx`, `layout/BottomNav.tsx`. Use `<Page title="…">` from `layout/AppShell.tsx` for each screen. |
+| `fmtDate()`, `fmtTime()`, `plural()`, `initials()`, `shortLoc()`, … | `lib/format.ts` (same names) |
+| `go()`, hash history | React Router. Routes are in `routes.tsx`. |
+| `seq` in `loadReport()` | TanStack Query keys. Put each filter in the key. |
+| `esc()` | Not necessary. React escapes values. |
+| `.primary`, `.secondary`, `.link` | shadcn `Button` (`default`, `outline`, `link`) |
+| `.card` | `rounded-2xl border bg-card shadow-card` |
+
+Routes: `/login`, `/owner`, `/home`, `/attendance`, `/attendance/add`, `/attendance/checkout`, `/employees`, `/locations`, `/locations/:id`, `/reports`, `/settings`. A screen that is not moved yet shows `NotMovedYet`, with a link to the old screen.
+
+Data rules:
+- Read data with `useQuery` and `api()`. Show `LoadingRows` while `isPending`, and `ScreenError` on `isError` with `onRetry={refetch}`.
+- Change data with `useMutation`. Disable the submit button while `isPending`. Call `toast()` in `onSuccess`.
+- The query cache is cleared when the session or the company changes.
+
+Style rules:
+- Radius: buttons and inputs `rounded-lg` (12 px), cards `rounded-2xl` (16 px), sheet top `rounded-t-3xl` (24 px).
+- Touch targets: give buttons `h-11` (44 px) or more.
+- Add a shadcn component with `npx shadcn@latest add <name>` in `frontend/`.

@@ -21,6 +21,22 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · React migration Phase 1: shared core · Claude Code · feat/react-setup
+- Request: Start Phase 1 of the React migration. Move the shared helpers that each screen uses.
+- Changed: `frontend/src/lib/api.ts` (`api()`, `ApiError`, `friendlyError()`), `auth/session.ts` (session store with the old localStorage keys, 401 ends the session), `auth/signOut.ts`, `lib/format.ts`, `lib/toast.ts`, `lib/queryClient.ts` (no retry on 4xx, cache cleared on a session change), `types/api.ts`.
+- Changed: Components `EmptyState`, `ScreenError` (403, 404, 400/422, no network, 5xx), `LoadingRows`, `ErrorBanner`, `ConfirmDialog`, `LocationSheet`. Layout `Header`, `BottomNav`, `Page`. `routes.tsx` with all routes. Screens not moved yet show `NotMovedYet` with a link to the old screen. Settings has Sign out.
+- Changed: The Vite dev server also sends `/app` to FastAPI, so the old and new app share the session. `docs/UI-GUIDE.md`: helper map and data rules.
+- Tests: `npm test` → 30 passed. Lint, format, typecheck, build → passed. `pytest -q tests/` → 142 passed, 16 skipped. Ruff → passed. Browser at 390 px: sign-in redirect, nav (65 × 71 px targets, active tab), sign-out.
+- Open items: Bottom nav labels are 11 px (the old app uses 10 px). Sign-in moves in Phase 2. Figma not read (no screen moved yet).
+
+## 2026-11-17 · React migration Phase 0: setup · Claude Code · feat/react-setup
+- Request: Move the frontend to React + TypeScript with a UI library. The collaborator chose shadcn/ui + Tailwind, TanStack Query and React Router, one screen in each pull request.
+- Changed: New `frontend/` (Vite, React 19, TypeScript, Tailwind 4, shadcn/ui, TanStack Query, React Router, Vitest, oxlint, Prettier). The Guardian colour tokens are in `frontend/src/index.css` and mapped to the shadcn variables. A placeholder page links to the current app.
+- Changed: `backend/demo_app.py`: `/next` serves `frontend/dist`. Client routes get `index.html`. `/app` does not change. `tests/test_next_frontend.py` (new).
+- Changed: `.github/workflows/ci.yml`: new `frontend` job. `AGENTS.md`, `docs/UI-GUIDE.md`, `README.md`: React rules, helper map and run commands.
+- Tests: `pytest -q tests/` → 142 passed, 16 skipped (Playwright not installed). Ruff → passed. `npm run lint`, `format:check`, `typecheck`, `test`, `build` → passed. Checked `/next` at 375 px in the browser.
+- Open items: Vite 8 needs Node 22.12 or later. The deployment does not build `frontend/` yet, so `/next` shows 404 there. Next: Phase 1 (shared core). Figma not read (no screen changed).
+
 ## 2026-11-17 · Clear report counts, audit names and root entry · Instinct · fix/review-count-names-landing
 - Request: Fix the three approved UX review findings. Keep the attendance flow unchanged.
 - Changed: Day reports separate unique guards from entries. Status figures count entries.

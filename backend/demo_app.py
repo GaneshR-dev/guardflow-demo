@@ -2332,3 +2332,26 @@ def frontend_css():
 @app.get("/attendance-app.js")
 def frontend_js():
     return FileResponse(ROOT / "attendance-app.js", media_type="text/javascript")
+
+
+# The React app in frontend/ builds into frontend/dist. FastAPI serves it at /next while the
+# screens move from the old app. Vite gives the files in assets/ hashed names, so they can be
+# cached for a long time. Other paths are client routes, so they get index.html (no-cache).
+NEXT_DIST = ROOT / "frontend" / "dist"
+
+
+@app.get("/next", include_in_schema=False)
+@app.get("/next/{path:path}", include_in_schema=False)
+def next_frontend(path: str = ""):
+    dist = NEXT_DIST.resolve()
+    index = dist / "index.html"
+    if not index.is_file():
+        raise HTTPException(404, "The new app is not built yet")
+    if path:
+        target = (dist / path).resolve()
+        if target.is_relative_to(dist) and target.is_file():
+            cache = "public, max-age=31536000, immutable" if path.startswith("assets/") else "no-cache"
+            return FileResponse(target, headers={"Cache-Control": cache})
+        if path.startswith("assets/"):
+            raise HTTPException(404, "File not found")
+    return FileResponse(index, media_type="text/html", headers={"Cache-Control": "no-cache"})

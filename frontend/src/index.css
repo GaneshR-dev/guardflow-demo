@@ -1,0 +1,119 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+/*
+ * Guardian colour tokens. They are the same values as :root in attendance-app.css.
+ * See docs/UI-GUIDE.md. Do not add new colours without a reason.
+ */
+:root {
+  --blue: #2367ea;
+  --blue2: #1d5ee8;
+  --navy: #10284c;
+  --text: #172238;
+  --muted-text: #68778d;
+  --line: #dfe7f2;
+  --soft: #eef4fb;
+  --green: #17a36b;
+  --green-soft: #dff7eb;
+  --green-text: #0b6b42;
+  --amber: #a86200;
+  --amber-soft: #fff0d8;
+  --amber-text: #7d4900;
+  --blue-tint: #e5eefc;
+  --blue-text: #1c4fb8;
+  --red: #c73d4d;
+  --red-soft: #fdecee;
+  --red-text: #b3263a;
+  --page: #e9edf3;
+  --shadow: 0 16px 40px rgba(20, 45, 90, 0.1);
+
+  /* shadcn/ui variables, mapped to the Guardian tokens. */
+  --background: var(--page);
+  --foreground: var(--text);
+  --card: #fff;
+  --card-foreground: var(--text);
+  --popover: #fff;
+  --popover-foreground: var(--text);
+  --primary: var(--blue);
+  --primary-foreground: #fff;
+  --secondary: #fff;
+  --secondary-foreground: var(--blue);
+  --muted: var(--soft);
+  --muted-foreground: var(--muted-text);
+  --accent: var(--soft);
+  --accent-foreground: var(--navy);
+  --destructive: var(--red);
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--blue);
+  /* 12 px for buttons and inputs. Cards use rounded-2xl (16 px). Sheets use rounded-t-3xl (24 px). */
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-heading: var(--font-sans);
+
+  --color-blue: var(--blue);
+  --color-blue2: var(--blue2);
+  --color-navy: var(--navy);
+  --color-text: var(--text);
+  --color-line: var(--line);
+  --color-soft: var(--soft);
+  --color-green: var(--green);
+  --color-green-soft: var(--green-soft);
+  --color-green-text: var(--green-text);
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-amber-text: var(--amber-text);
+  --color-blue-tint: var(--blue-tint);
+  --color-blue-text: var(--blue-text);
+  --color-red: var(--red);
+  --color-red-soft: var(--red-soft);
+  --color-red-text: var(--red-text);
+  --color-page: var(--page);
+  --shadow-card: var(--shadow);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+}

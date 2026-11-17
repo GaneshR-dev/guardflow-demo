@@ -14,6 +14,7 @@ Mobile-first guard attendance app ("Guardian", formerly "GuardFlow") with a Fast
 
 - `attendance-app.html` - current frontend shell (mobile-first), served at `/app`.
 - `attendance-app.css` / `attendance-app.js` - frontend styles and logic, extracted from the shell and served alongside it.
+- `frontend/` - new React + TypeScript frontend (Vite, Tailwind, shadcn/ui). It is built to `frontend/dist` and served at `/next`. The screens move here one at a time.
 - `backend/demo_app.py` - current API (FastAPI + SQLAlchemy; SQLite locally, PostgreSQL via `DATABASE_URL`).
 - `tests/` - API and frontend regression tests.
 
@@ -36,6 +37,20 @@ python3 -m uvicorn backend.demo_app:app --host 127.0.0.1 --port 8000
 
 Open `http://127.0.0.1:8000/app` and sign in with one of the demo accounts shown on the sign-in screen. A local SQLite database with fictional sample history is created automatically on first run.
 
+### New React frontend
+
+Requires Node 22.12 or later (`frontend/.nvmrc`). Start the API first (see above), then:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173/next/`. The dev server sends `/api` requests to the API on port 8000.
+
+To let FastAPI serve the new app at `http://127.0.0.1:8000/next`, run `npm run build` in `frontend/`.
+
 ## Test
 
 From the repository root:
@@ -44,6 +59,12 @@ From the repository root:
 python3 -m pip install -r requirements-dev.txt
 python3 -m pytest -q tests/
 python3 -m ruff check . && python3 -m ruff format --check .
+```
+
+For the React frontend:
+
+```bash
+cd frontend && npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
 ```
 
 Browser tests use Playwright. They skip when Playwright is not installed (see `requirements-dev.txt`). GitHub Actions runs the tests and Ruff for each pull request (`.github/workflows/ci.yml`).

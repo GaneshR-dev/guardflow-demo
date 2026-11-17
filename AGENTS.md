@@ -27,12 +27,23 @@ Guardian is a mobile-first attendance app for security guards.
 
 | Part | Files | Technology |
 |---|---|---|
-| Frontend | `attendance-app.html`, `attendance-app.js`, `attendance-app.css` | Vanilla JavaScript, HTML and CSS. No framework. No build step. |
+| Frontend (current) | `attendance-app.html`, `attendance-app.js`, `attendance-app.css` | Vanilla JavaScript, HTML and CSS. Served at `/app`. |
+| Frontend (new) | `frontend/` | React, TypeScript, Vite, Tailwind CSS, shadcn/ui, TanStack Query, React Router. Built to `frontend/dist`, served at `/next`. |
 | Backend | `backend/demo_app.py` and `backend/demo_*.py` | Python 3.10+, FastAPI, SQLAlchemy |
 | Database | — | SQLite on a local computer and in tests. PostgreSQL in deployment (`DATABASE_URL`). |
 | Tests | `tests/` | pytest, FastAPI `TestClient`. Optional Playwright browser tests. |
 
 Run and test commands are in `README.md`.
+
+### Migration to React
+
+We move the frontend to React one screen at a time. Each screen moves in its own pull request.
+
+- Do not add new features to the old app. Fix only bugs there.
+- When you move a screen, keep its behaviour, its UX rules and its tests.
+- The rules in §4 name the old helpers (`api()`, `toast()`, …). In `frontend/`, use the React helper with the same job. `docs/UI-GUIDE.md` lists them.
+- React escapes values for you. Do not use `dangerouslySetInnerHTML`.
+- Use Node 22.12 or later (`frontend/.nvmrc`).
 
 ## 3. Before you start a task
 
@@ -105,7 +116,9 @@ Each screen and each action must handle loading, success and all failures. Do no
 - Use only the colour tokens in `:root` of `attendance-app.css` and the colours in `docs/UI-GUIDE.md`. Do not add new colours without a reason.
 - Before you add a component, look for one in `docs/UI-GUIDE.md`. Use the existing CSS classes and template functions.
 - If a new screen needs its own classes, give them a short prefix. For example, the Reports screen uses `rp` (`.rpList`, `.rpSheet`).
-- Do not add frameworks, build steps or libraries from a CDN.
+- Do not load libraries from a CDN. Install them with npm in `frontend/`.
+- In `frontend/`, use shadcn/ui components first (`npx shadcn@latest add <name>`). Style them with the Tailwind tokens in `frontend/src/index.css`.
+- Do not add a second UI library, CSS framework or state library without a reason.
 
 ### Figma
 
@@ -127,13 +140,18 @@ Each screen and each action must handle loading, success and all failures. Do no
   python -m ruff check .
   python -m ruff format --check .
   ```
+- When you change `frontend/`, also run:
+  ```bash
+  cd frontend && npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
+  ```
 - GitHub Actions runs the same checks for each pull request (`.github/workflows/ci.yml`). Do not merge when CI fails.
 - Tell the collaborator the real result. If a test fails or does not run, say so.
 - Browser tests (Playwright) are optional. They skip when Playwright is not installed.
 
 ## 7. Code rules
 
-- Python: obey `ruff.toml`. JavaScript and CSS: obey `.prettierrc.json`.
+- Python: obey `ruff.toml`. JavaScript, TypeScript and CSS: obey `.prettierrc.json`.
+- `frontend/`: obey `.oxlintrc.json` and the strict TypeScript settings. Do not use `any` without a reason.
 - Use only parameterized SQL.
 - Do role and location checks on the server. Use `scoped_sql()`, `scope_params()` and `require_location_access()` in `backend/demo_app.py`.
 - Do not put real employee or client data in the repository. Demo data is fictional.
