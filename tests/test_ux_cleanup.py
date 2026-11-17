@@ -67,11 +67,9 @@ def test_role_controls_and_location_context(role):
         page.evaluate("go('checkout')")
         page.wait_for_selector("#outSearch")
         assert "ABC" in page.inner_text("body")
-        page.evaluate(
-            "state.lastCheck = {name:'Arun',employee_id:'EMP1001',check_in:'2026-11-14T02:30:00Z'};go('confirmed')"
-        )
-        page.wait_for_selector(".confirmCard")
-        assert "ABC" in page.locator(".confirmCard").inner_text()
+        page.evaluate("go('add')")
+        page.wait_for_selector("#addSearch")
+        assert "ABC" in page.inner_text("body")
         browser.close()
 
 

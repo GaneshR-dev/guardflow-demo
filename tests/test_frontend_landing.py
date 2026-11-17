@@ -101,8 +101,7 @@ def test_login_session_restore_and_location_navigation(role, tmp_path):
         # Zero employees: chooser opens for chosen branch but cannot mark a record.
         page.locator("[data-go=add]").click()
         page.wait_for_selector("#addSearch")
-        assert page.locator("[data-select]").count() == 0
-        assert page.locator("#doCheckin").count() == 0
+        assert page.locator("[data-checkin]").count() == 0
         assert page.locator("#toggleNew").count() == (1 if role == "admin" else 0)
         assert checkin_calls == []
         assert page.evaluate("state.location.id") == "loc-second"

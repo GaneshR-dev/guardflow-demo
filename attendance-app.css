@@ -514,49 +514,6 @@ button {
   color: var(--muted);
   margin: 0 0 10px;
 }
-.selected {
-  background: var(--greenSoft);
-  border: 1px solid #bde7d2;
-  color: #0f6d49;
-  padding: 13px;
-  border-radius: 10px;
-  font-size: 12px;
-  margin: 15px 0;
-}
-.successIcon {
-  width: 86px;
-  height: 86px;
-  border-radius: 50%;
-  background: var(--greenSoft);
-  color: var(--green);
-  display: grid;
-  place-items: center;
-  font-size: 48px;
-  margin: 44px auto 22px;
-}
-.confirm {
-  text-align: center;
-}
-.confirm h1 {
-  font-size: 22px;
-}
-.confirmCard {
-  margin: 25px 0;
-  padding: 24px 18px;
-  text-align: center;
-}
-.timeLabel {
-  font-size: 10px;
-  letter-spacing: 0.7px;
-  color: var(--muted);
-  font-weight: 800;
-  margin-top: 20px;
-}
-.bigTime {
-  font-size: 25px;
-  font-weight: 800;
-  margin: 5px 0 2px;
-}
 .grid2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1981,5 +1938,16 @@ button {
   font-size: 14px;
 }
 
-.top{flex-wrap:wrap}
-.ownerBar{flex-basis:100%;margin:8px 0 0;font-size:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+.top {
+  flex-wrap: wrap;
+}
+.ownerBar {
+  flex-basis: 100%;
+  margin: 8px 0 0;
+  font-size: 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}

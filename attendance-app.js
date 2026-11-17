@@ -114,8 +114,6 @@ function freshSessionState() {
     accessUserId: '',
     overviewLocation: '',
     showLocationForm: false,
-    selected: null,
-    lastCheck: null,
     query: '',
     locationQuery: '',
     addQuery: '',
@@ -273,7 +271,7 @@ function nav() {
         `<button class="navItem ${
           (key === 'home' && ['home', 'dashboard'].includes(state.screen)) ||
           state.screen === key ||
-          (key === 'attendance' && ['add', 'checkout', 'confirmed'].includes(state.screen)) ||
+          (key === 'attendance' && ['add', 'checkout'].includes(state.screen)) ||
           (key === 'locations' && state.screen === 'locationDetail')
             ? 'active'
             : ''
@@ -298,7 +296,6 @@ const SCREEN_TITLES = {
   attendance: 'Mark attendance',
   add: 'Employee check-in',
   checkout: 'Manage check-outs',
-  confirmed: 'Check-in recorded',
   dashboard: 'Attendance overview',
   home: 'Attendance overview',
   employees: 'Employees',
@@ -306,7 +303,7 @@ const SCREEN_TITLES = {
   settings: 'Settings',
   menu: 'Menu',
 };
-const LOCATION_SCREENS = ['attendance', 'add', 'checkout', 'confirmed'];
+const LOCATION_SCREENS = ['attendance', 'add', 'checkout'];
 // Server errors (5xx) can carry internal text; show a plain message instead.
 const friendlyError = (status, message) =>
   status >= 500 ? 'The server had a problem. Try again in a moment.' : message;
@@ -511,21 +508,22 @@ function lookupCandidateRow(kind, emp) {
     state.attendance.find((a) => a.employee_id === emp.id && a.status === 'checked_in') ||
     state.attendance.find((a) => a.employee_id === emp.id);
   if (today && today.status === 'checked_in') return note('Already checked in here');
-  return `<div class="person"><span class="initials">${esc(initials(emp.name))}</span><span><strong>${esc(emp.name)}${emp.location_id !== state.location.id ? ' <span class="badge blue">ad-hoc</span>' : ''}</strong><small>${meta}</small></span><button class="selectBtn" data-pick-checkin="${esc(emp.id)}">Select</button></div>`;
+  return `<div class="person"><span class="initials">${esc(initials(emp.name))}</span><span><strong>${esc(emp.name)}${emp.location_id !== state.location.id ? ' <span class="badge blue">ad-hoc</span>' : ''}</strong><small>${meta}</small></span><button class="outlineBtn" data-checkin="${esc(emp.id)}">Check in</button></div>`;
 }
+// Check-in mirrors Manage check-outs: every waiting employee gets a direct Check in
+// button on their row, no select step. Tapping it opens the same style of
+// confirmation dialog check-out uses, showing the IST check-in time.
 function add() {
-  const available = state.attendance.filter(
+  const waiting = state.attendance.filter(
     (r) =>
       r.status !== 'checked_in' &&
       !state.attendance.some((a) => a.employee_id === r.employee_id && a.status === 'checked_in') &&
-      state.attendance.find((a) => a.employee_id === r.employee_id) === r &&
-      (!state.addQuery || (r.name + ' ' + r.employee_id).toLowerCase().includes(state.addQuery.toLowerCase())),
+      state.attendance.find((a) => a.employee_id === r.employee_id) === r,
   );
-  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Type a name or EMP ID, or choose an employee below.</p>${attendanceLocationPicker()}<input class="search" id="addSearch" placeholder="Search name or EMP ID, e.g. EMP1024" value="${esc(state.addQuery)}" autocomplete="off">${lookupResultsView('checkin')}<h2 class="sectionTitle">Ready for check-in</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}${r.adhoc ? ' · ad-hoc' : ''}</small></span><button class="selectBtn" data-select="${esc(r.employee_id)}">Select</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${uiRole() === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}${state.selected ? `<div class="selected"><b>Selected employee: ${esc(state.selected.name)}</b><br>${esc(state.selected.employee_id)} · ${esc(state.location.name)}${state.selected.adhoc ? ' · ad-hoc shift' : ''}</div><button class="primary" id="doCheckin" ${state.checkingIn ? 'disabled' : ''}>Mark Check-in · ${nowTime()}</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
-}
-function confirmed() {
-  const r = state.lastCheck;
-  return `<div class="page">${header()}<h1>Check-in recorded</h1><p class="sub">Attendance has been successfully updated.</p><div class="card confirmCard"><div class="successIcon">✓</div><h2>${esc(r?.name || 'Employee')}</h2><p class="muted small">${esc(r?.employee_id || '')} · ${esc(state.location?.name || '')}</p><span class="badge green">CHECKED IN</span><div class="timeLabel">CHECK-IN TIME (IST)</div><div class="bigTime">${fmtTime(r?.check_in)}</div><div class="muted small">${fmtDate(istNow())}</div></div><button class="primary" data-go="add">+ Add another employee</button><p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
+  const available = waiting.filter(
+    (r) => !state.addQuery || (r.name + ' ' + r.employee_id).toLowerCase().includes(state.addQuery.toLowerCase()),
+  );
+  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Start a waiting employee's shift. Times in IST.</p>${attendanceLocationPicker()}<div class="hero"><small>READY FOR CHECK-IN</small><strong>${waiting.length}</strong> <span>${waiting.length === 1 ? 'employee' : 'employees'}</span></div><input class="search" id="addSearch" placeholder="Search name or EMP ID, e.g. EMP1024" value="${esc(state.addQuery)}" autocomplete="off">${lookupResultsView('checkin')}<h2 class="sectionTitle">Ready for check-in</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}${r.adhoc ? ' · ad-hoc' : ''}</small></span><button class="outlineBtn" data-checkin="${esc(r.employee_id)}">Check in</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${uiRole() === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
 }
 function checkout() {
   const staleAll = state.staleOpen || [];
@@ -1055,8 +1053,7 @@ function settings() {
     ],
     ['access', 'User access', 'View roles and location scope'],
   ];
-  if (uiRole() === 'admin')
-    items.push(['activity', 'Activity log', 'Each change and correction, with reasons']);
+  if (uiRole() === 'admin') items.push(['activity', 'Activity log', 'Each change and correction, with reasons']);
   if (state.settingsView && panel) {
     const title =
       state.settingsView === 'accessUser'
@@ -1088,7 +1085,6 @@ async function render() {
     } else if (state.screen === 'locationDetail') html = locationDetail();
     else if (state.screen === 'attendance') html = attendance();
     else if (state.screen === 'add') html = add();
-    else if (state.screen === 'confirmed') html = confirmed();
     else if (state.screen === 'checkout') html = checkout();
     else if (state.screen === 'dashboard' || state.screen === 'home') html = await dashboard();
     else if (state.screen === 'menu') html = menu();
@@ -1170,7 +1166,6 @@ function bind() {
     (b) =>
       (b.onclick = async () => {
         state.location = state.locations.find((l) => l.id === b.dataset.useLoc);
-        state.selected = null;
         state.detail = null;
         go('attendance');
       }),
@@ -1253,7 +1248,6 @@ function bind() {
   if (al)
     al.onchange = async (e) => {
       state.location = state.locations.find((l) => l.id === e.target.value);
-      state.selected = null;
       state.lookupResults = null;
       state.addQuery = '';
       state.outQuery = '';
@@ -1309,7 +1303,6 @@ function bind() {
   if (ads)
     ads.oninput = (e) => {
       state.addQuery = e.target.value;
-      state.selected = null; // a new search drops the previous pick
       render();
       scheduleEmployeeSearch('checkin');
     };
@@ -1320,27 +1313,7 @@ function bind() {
       render();
       scheduleEmployeeSearch('checkout');
     };
-  document.querySelectorAll('[data-pick-checkin]').forEach(
-    (b) =>
-      (b.onclick = () => {
-        const m = (state.lookupResults || []).find((x) => x.id === b.dataset.pickCheckin);
-        if (!m) return;
-        state.selected = { employee_id: m.id, name: m.name, adhoc: m.location_id !== state.location.id };
-        state.error = null;
-        render();
-        document.querySelector('.selected')?.scrollIntoView({ block: 'center', behavior: 'instant' });
-      }),
-  );
-  document.querySelectorAll('[data-select]').forEach(
-    (b) =>
-      (b.onclick = () => {
-        state.selected = state.attendance.find((r) => r.employee_id === b.dataset.select);
-        render();
-        document.querySelector('.selected')?.scrollIntoView({ block: 'center', behavior: 'instant' });
-      }),
-  );
-  const dc = document.getElementById('doCheckin');
-  if (dc) dc.onclick = () => doCheckin();
+  document.querySelectorAll('[data-checkin]').forEach((b) => (b.onclick = () => askCheckin(b.dataset.checkin)));
   document.querySelectorAll('[data-checkout]').forEach((b) => (b.onclick = () => askCheckout(b.dataset.checkout)));
   const tn = document.getElementById('toggleNew');
   if (tn)
@@ -1466,7 +1439,6 @@ const appScreens = [
   'locationDetail',
   'attendance',
   'add',
-  'confirmed',
   'checkout',
   'dashboard',
   'menu',
@@ -1653,36 +1625,58 @@ async function runEmployeeSearch(kind) {
   }
   render();
 }
-async function doCheckin(confirmedSecondShift = false) {
-  if (state.checkingIn || !state.selected) return;
-  state.checkingIn = true;
+// Check-in asks first, like check-out: the dialog shows the IST check-in time and
+// the location the shift starts at, so ad-hoc starts stay explicit.
+function askCheckin(id) {
+  const row = state.attendance.find((r) => r.employee_id === id);
+  const match = (state.lookupResults || []).find((x) => x.id === id);
+  const emp = row
+    ? { employee_id: row.employee_id, name: row.name, adhoc: !!row.adhoc }
+    : match
+      ? { employee_id: match.id, name: match.name, adhoc: match.location_id !== state.location.id }
+      : null;
+  if (!emp) return;
+  state.confirm = {
+    title: 'Confirm check-in',
+    lines: [
+      { label: 'Employee', value: emp.name + ' (' + emp.employee_id + ')' },
+      { label: 'Check-in time', value: nowTime() + ' IST' },
+      { label: 'Location', value: state.location.name + (emp.adhoc ? ' · ad-hoc shift' : '') },
+    ],
+    okLabel: 'Yes, check in',
+    onOk: () => doCheckin(emp),
+  };
   render();
+}
+async function doCheckin(emp, confirmedSecondShift = false) {
+  if (state.checkingIn) return;
+  state.checkingIn = true;
   try {
-    state.lastCheck = await api('/api/attendance/checkin', {
+    const result = await api('/api/attendance/checkin', {
       method: 'POST',
       body: JSON.stringify({
-        employee_id: state.selected.employee_id,
+        employee_id: emp.employee_id,
         location_id: state.location.id,
         confirm_second_shift: confirmedSecondShift,
       }),
     });
-    if (state.lastCheck.requires_confirmation) {
+    if (result.requires_confirmation) {
       state.confirm = {
         title: 'Second shift today',
         lines: [
-          { label: 'Employee', value: state.selected.name },
-          { label: 'Previous shifts checked out today', value: String(state.lastCheck.prior_shifts) },
+          { label: 'Employee', value: emp.name },
+          { label: 'Previous shifts checked out today', value: String(result.prior_shifts) },
           { label: 'New location', value: state.location.name },
         ],
         okLabel: 'Check in',
-        onOk: () => doCheckin(true),
+        onOk: () => doCheckin(emp, true),
       };
       return;
     }
-    state.selected = null;
     state.dashboard = null;
     await loadAttendance();
-    go('confirmed');
+    state.screen = 'add';
+    toast('Check-in recorded');
   } catch (e) {
     if (e.status === 403 || e.status === 404) return showScreenError(e, 'attendance');
     state.error = e.message;
@@ -2422,7 +2416,8 @@ async function ownerConsole() {
   if (!state.ownerData) {
     const companies = (await api('/api/owner/companies')).companies;
     const admins = {};
-    for (const c of companies) admins[c.id] = (await api('/api/owner/companies/' + encodeURIComponent(c.id) + '/admins')).admins;
+    for (const c of companies)
+      admins[c.id] = (await api('/api/owner/companies/' + encodeURIComponent(c.id) + '/admins')).admins;
     state.ownerData = { companies, admins };
   }
   const { companies, admins } = state.ownerData;
@@ -2546,19 +2541,29 @@ function bindOwner() {
   document.querySelectorAll('[data-owner-admin]').forEach((b) => {
     b.onclick = () =>
       ownerAction(() =>
-        api('/api/owner/admins/' + encodeURIComponent(b.dataset.ownerAdmin) + (b.dataset.active === '1' ? '/enable' : '/disable'), {
-          method: 'POST',
-          body: '{}',
-        }),
+        api(
+          '/api/owner/admins/' +
+            encodeURIComponent(b.dataset.ownerAdmin) +
+            (b.dataset.active === '1' ? '/enable' : '/disable'),
+          {
+            method: 'POST',
+            body: '{}',
+          },
+        ),
       );
   });
   document.querySelectorAll('[data-owner-toggle]').forEach((b) => {
     b.onclick = () =>
       ownerAction(() =>
-        api('/api/owner/companies/' + encodeURIComponent(b.dataset.ownerToggle) + (b.dataset.active === '1' ? '/enable' : '/disable'), {
-          method: 'POST',
-          body: '{}',
-        }),
+        api(
+          '/api/owner/companies/' +
+            encodeURIComponent(b.dataset.ownerToggle) +
+            (b.dataset.active === '1' ? '/enable' : '/disable'),
+          {
+            method: 'POST',
+            body: '{}',
+          },
+        ),
       );
   });
   document.querySelectorAll('[data-owner-open]').forEach((b) => (b.onclick = () => openCompany(b.dataset.ownerOpen)));
