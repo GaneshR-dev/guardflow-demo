@@ -26,7 +26,7 @@ def auth(username="admin.demo"):
 def employee():
     with engine.begin() as c:
         c.execute(
-            text("INSERT INTO demo_employees VALUES ('SEQTEST','Sequential Guard','9990005511','Guard','loc-hsr',1)")
+            text("INSERT INTO demo_employees (id,name,phone,role,location_id,active,company_id) VALUES ('SEQTEST','Sequential Guard','9990005511','Guard','loc-hsr',1,'company-1')")
         )
     yield "SEQTEST"
     with engine.begin() as c:
@@ -194,7 +194,7 @@ r=client.post('/api/login',json={'username':'admin.demo','password':'demo123'})
 headers={'Authorization':'Bearer '+r.json()['token']}
 with engine.begin() as c:
     c.execute(text("ALTER TABLE demo_attendance ADD CONSTRAINT legacy_employee_day UNIQUE(employee_id,day)"))
-    c.execute(text("INSERT INTO demo_employees VALUES ('NIGHTKEEP','Night Keeper','9990008855','Guard','loc-hsr',1)"))
+    c.execute(text("INSERT INTO demo_employees (id,name,phone,role,location_id,active,company_id) VALUES ('NIGHTKEEP','Night Keeper','9990008855','Guard','loc-hsr',1,'company-1')"))
     c.execute(text("INSERT INTO demo_attendance VALUES ('nightkeep','NIGHTKEEP','loc-hsr','2026-11-16','checked_in','2026-11-16T13:13:00+00:00',NULL,'live demo')"))
     before=c.execute(text('SELECT * FROM demo_attendance ORDER BY id')).all()
 # A later migration failure must roll back the removed constraint and all data.
@@ -209,7 +209,7 @@ with engine.connect() as c:
 migrate_db();migrate_db()
 with engine.begin() as c:
     assert c.execute(text('SELECT * FROM demo_attendance ORDER BY id')).all()==before
-    c.execute(text("INSERT INTO demo_employees VALUES ('RACETEST','Race Guard','9990008856','Guard','loc-hsr',1)"))
+    c.execute(text("INSERT INTO demo_employees (id,name,phone,role,location_id,active,company_id) VALUES ('RACETEST','Race Guard','9990008856','Guard','loc-hsr',1,'company-1')"))
 results=[]
 ready=[threading.Event(),threading.Event()]
 def checkin(index,loc):
