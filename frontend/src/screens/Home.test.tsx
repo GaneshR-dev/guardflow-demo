@@ -80,6 +80,12 @@ describe('Home', () => {
       .getAllByText(/^\d+$/)
       .map((n) => `${n.textContent} ${n.nextElementSibling?.textContent}`);
     expect(tiles).toEqual(['54 Guards', '16 Checked in', '3 Checked out', '35 Not checked in']);
+    // Status colours from docs/GLOSSARY.md.
+    const colour = (n: string) => within(summary).getByText(n).className;
+    expect(colour('54')).not.toMatch(/text-(green|amber)-text|text-muted-foreground/);
+    expect(colour('16')).toContain('text-green-text');
+    expect(colour('3')).toContain('text-muted-foreground');
+    expect(colour('35')).toContain('text-amber-text');
     expect(screen.getByText(/Today · Tue 17 Nov · Updated 10:30 am/)).toBeInTheDocument();
   });
 

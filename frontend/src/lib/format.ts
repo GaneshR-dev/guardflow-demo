@@ -86,8 +86,9 @@ export const STATUS_LABEL: Record<AttendanceStatus, string> = {
   completed: 'Checked out',
   not_in: 'Not checked in',
 };
-export const STATUS_TONE: Record<AttendanceStatus, 'green' | 'blue' | 'amber'> = {
+// Status colours (docs/GLOSSARY.md): green = Checked in, grey = Checked out, amber = Not checked in.
+export const STATUS_TONE: Record<AttendanceStatus, 'green' | 'grey' | 'amber'> = {
   checked_in: 'green',
-  completed: 'blue',
+  completed: 'grey',
   not_in: 'amber',
 };

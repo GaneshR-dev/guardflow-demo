@@ -60,13 +60,15 @@ function LocationCard({ c }: { c: Coverage }) {
 }
 
 // One big number with its label. Each number shows one time only on the screen.
-function Tile({ value, label, tone }: { value: number; label: string; tone?: 'green' | 'amber' }) {
+// Status colours (docs/GLOSSARY.md): green = Checked in, grey = Checked out, amber = Not checked in.
+function Tile({ value, label, tone }: { value: number; label: string; tone?: 'green' | 'grey' | 'amber' }) {
   return (
     <div className="rounded-xl border bg-card px-3.5 py-3">
       <strong
         className={cn(
           'block text-[26px] leading-tight font-bold tabular-nums',
           tone === 'green' && 'text-green-text',
+          tone === 'grey' && 'text-muted-foreground',
           tone === 'amber' && 'text-amber-text',
         )}
       >
@@ -140,7 +142,7 @@ export function Home() {
         <section aria-label="Today's summary" className="grid grid-cols-2 gap-2.5">
           <Tile value={data.employees} label="Guards" />
           <Tile value={data.checked_in} label="Checked in" tone="green" />
-          <Tile value={data.completed} label="Checked out" />
+          <Tile value={data.completed} label="Checked out" tone="grey" />
           <Tile
             value={data.not_checked_in}
             label="Not checked in"

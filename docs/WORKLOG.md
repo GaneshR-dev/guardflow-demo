@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · Grey for "Checked out" · Claude Code · feat/react-signin
+- Request: Show "Checked out" in grey.
+- Changed: `frontend/src/screens/Home.tsx`: the "Checked out" tile number is grey (`text-muted-foreground`, 5.9:1). `lib/format.ts`: `STATUS_TONE` gives "completed" the tone "grey". `docs/GLOSSARY.md`: one colour for each status (green = Checked in, grey = Checked out, amber = Not checked in). `docs/UI-GUIDE.md`: Home tiles.
+- Tests: `npm test` → 75 passed (Home test checks the tile colours). Lint, format, typecheck, build → passed. Browser at 390 px: contrast 5.9:1 or more on each tile.
+- Open items: Use the same colours on Attendance and Reports when they move.
+
 ## 2026-11-17 · One word list for the app text · Claude Code · feat/react-signin
 - Request: Make the app words the same on each screen, as part of the migration. Keep a Markdown file that tells what each word means.
 - Decisions: "guard" (not employee or staff), "site" (not location or branch), statuses "Checked in", "Checked out", "Not checked in". React screens only. The old app does not change.
