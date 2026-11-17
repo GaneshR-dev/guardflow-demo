@@ -9,6 +9,11 @@ export default defineConfig({
   base: '/next/',
   plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': path.resolve(import.meta.dirname, './src') } },
-  server: { proxy: { '/api': 'http://127.0.0.1:8000' } },
+  // The old app is proxied too, so it shares the saved session (localStorage) with /next.
+  server: {
+    proxy: Object.fromEntries(
+      ['/api', '/app', '/attendance-app.css', '/attendance-app.js'].map((p) => [p, 'http://127.0.0.1:8000']),
+    ),
+  },
   test: { environment: 'jsdom', setupFiles: ['./src/test/setup.ts'] },
 });
