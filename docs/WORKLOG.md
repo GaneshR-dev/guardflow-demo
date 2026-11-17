@@ -21,6 +21,13 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · Direct check-in buttons like check-out · Instinct · feat/direct-checkin-buttons
+- Request: Make check-in as short as check-out. Replace the Select step with a Check in button on each row. Show the time like check-out.
+- Changed: Each waiting or ad-hoc employee row now has a Check in button. The confirmation dialog shows the employee, the IST check-in time, and the location. The Select step and the Check-in recorded screen are removed. A toast confirms the check-in. The list refreshes in place.
+- Changed: The second-shift warning still comes after the check-in confirmation. Ad-hoc check-ins still show the location. Roles, time edits, and saved records stay unchanged.
+- Tests: pytest -q tests/ → 184 passed, 5 skipped. Ruff check and format pass. Prettier check passes. Playwright tests cover the new flow.
+- Open items: Show the preview to Deepak. Merge and deploy after his approval.
+
 ## 2026-11-16 · Attendance overview and sequential shifts · Instinct · feat/attendance-navigation
 - Request: Use the overview as the admin home. Keep navigation in one taskbar. Prevent parallel shifts.
 - Changed: Admin sign-in opens Attendance overview. Attendance uses Checked out. One taskbar has Home, Attend, Emp, Loc, Reports, and Settings. Settings has sign-out. Each Settings entry opens a separate screen with a back button. There is no hamburger.
