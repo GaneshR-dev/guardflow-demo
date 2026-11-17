@@ -136,9 +136,13 @@ function freshSessionState() {
     checkingIn: false,
   };
 }
+// The owner has no company of their own. After picking a company the screens behave as that
+// company's admin (the server enforces it from the X-Company-Id header); before that, only the console.
+const uiRole = () => (state.user?.role === 'owner' ? (state.companyId ? 'admin' : 'owner') : state.user?.role);
 const state = {
   token: localStorage.getItem('gf_token') || '',
   user: JSON.parse(localStorage.getItem('gf_user') || 'null'),
+  companyId: localStorage.getItem('gf_company') || '',
   ...freshSessionState(),
 };
 // Drop all per-account data (keeps nothing but the login screen state).
@@ -180,6 +184,7 @@ async function api(path, opts = {}) {
       headers: {
         'Content-Type': 'application/json',
         ...(sentToken ? { Authorization: 'Bearer ' + sentToken } : {}),
+        ...(sentToken && state.companyId && !path.startsWith('/api/owner/') ? { 'X-Company-Id': state.companyId } : {}),
       },
     });
   } catch (netErr) {
@@ -224,9 +229,11 @@ function endSession() {
   ++attendanceGeneration;
   localStorage.removeItem('gf_token');
   localStorage.removeItem('gf_user');
+  localStorage.removeItem('gf_company');
   state.token = '';
   state.user = null;
   clearSessionState();
+  state.companyId = '';
   state.error = SESSION_ENDED;
   state.screen = 'login';
   history.replaceState({ gfScreen: 'login' }, '', '#login');
@@ -275,7 +282,11 @@ function nav() {
     .join('')}</div>`;
 }
 function header() {
-  return `<div class="top"><span class="brand">Guardian</span></div>`;
+  const owner =
+    state.user?.role === 'owner'
+      ? `<span class="ownerBar">${state.companyId ? 'Managing: <b>' + esc(state.companyName || 'selected company') + '</b>' : 'Owner'} <button class="link" id="ownerSwitch">${state.companyId ? 'Switch company' : ''}</button></span>`
+      : '';
+  return `<div class="top"><span class="brand">Guardian</span>${owner}</div>`;
 }
 
 function message() {
@@ -399,7 +410,7 @@ function locations() {
   );
   const empty = state.locationQuery ? 'No locations match.' : 'No locations yet.';
   const tools =
-    state.user?.role === 'admin'
+    uiRole() === 'admin'
       ? `${[
           ['add', 'Add location', 'Create a new branch'],
           ['import', 'Import locations', 'Upload a CSV location list'],
@@ -412,7 +423,7 @@ function locations() {
             '',
           )}<input type="file" id="importLocationFile" accept=".csv,text/csv" style="display:none">${state.showLocationForm ? `<div class="card addCard"><strong>Add location</strong><p>Create a branch supervisors can record attendance for.</p><form id="locationForm"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Area</label><input name="area" required></div>${shiftFields()}${locationSupervisorField()}<button class="secondary" ${!Array.isArray(state.settings?.access) ? 'disabled' : ''}>Save location</button></form></div>` : ''}`
       : '';
-  return `<div class="page">${header()}<h1>Locations</h1><p class="sub">${state.user?.role === 'admin' ? 'Select, add or import the branch where you are recording attendance. Tap a branch for its shift and employees.' : 'View your assigned branches, their shifts and employees.'}</p>${tools}<input class="search" id="locSearch" placeholder="Search locations" value="${esc(state.locationQuery)}"><div id="locationList">${shown.map((l) => `<button class="locationCard ${state.location?.id === l.id ? 'active' : ''} ${l.active ? '' : 'disabledCard'}" data-loc="${esc(l.id)}"><span class="locIcon">${uiIcon('locations')}</span><span><strong>${esc(l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><span>${esc(l.area)} · ${empCountLabel(l)} · ${esc(shiftLabel(l))}</span></span><span class="chev">›</span></button>`).join('') || `<p class="muted small">${empty}</p>`}</div><button class="primary" id="continueLoc" ${state.location ? '' : 'disabled'}>Continue</button><p class="helper">You can switch locations later</p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Locations</h1><p class="sub">${uiRole() === 'admin' ? 'Select, add or import the branch where you are recording attendance. Tap a branch for its shift and employees.' : 'View your assigned branches, their shifts and employees.'}</p>${tools}<input class="search" id="locSearch" placeholder="Search locations" value="${esc(state.locationQuery)}"><div id="locationList">${shown.map((l) => `<button class="locationCard ${state.location?.id === l.id ? 'active' : ''} ${l.active ? '' : 'disabledCard'}" data-loc="${esc(l.id)}"><span class="locIcon">${uiIcon('locations')}</span><span><strong>${esc(l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><span>${esc(l.area)} · ${empCountLabel(l)} · ${esc(shiftLabel(l))}</span></span><span class="chev">›</span></button>`).join('') || `<p class="muted small">${empty}</p>`}</div><button class="primary" id="continueLoc" ${state.location ? '' : 'disabled'}>Continue</button><p class="helper">You can switch locations later</p></div>${nav()}${message()}`;
 }
 // Location detail: shift timing and assigned employees, visible to admins and supervisors.
 function locationDetail() {
@@ -420,7 +431,7 @@ function locationDetail() {
   if (!d)
     return `<div class="page">${header()}<h1>Location</h1><p class="muted small">No location selected.</p><button class="link" data-go="locations">Back to locations</button></div>${nav()}${message()}`;
   const l = d.location;
-  const isAdmin = state.user?.role === 'admin';
+  const isAdmin = uiRole() === 'admin';
   const emps = d.employees;
   const empButton = (e) =>
     !isAdmin || !l.active
@@ -458,8 +469,8 @@ function attendance() {
   const s = state.summary || {};
   const rows = state.attendance;
   if (!state.location)
-    return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(istNow())}</p><div class="card addCard"><strong>${state.user?.role === 'admin' ? 'No location set up yet' : 'No location access assigned'}</strong><p>${state.user?.role === 'admin' ? 'Attendance is recorded per branch. Add a location first, then mark check-ins here.' : 'Your admin needs to give you location access before you can view employees or mark attendance.'}</p>${state.user?.role === 'admin' ? '<button class="primary" data-go="locations">Go to Locations</button>' : ''}</div></div>${nav()}${message()}`;
-  const canEditTimes = state.user?.role === 'admin';
+    return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(istNow())}</p><div class="card addCard"><strong>${uiRole() === 'admin' ? 'No location set up yet' : 'No location access assigned'}</strong><p>${uiRole() === 'admin' ? 'Attendance is recorded per branch. Add a location first, then mark check-ins here.' : 'Your admin needs to give you location access before you can view employees or mark attendance.'}</p>${uiRole() === 'admin' ? '<button class="primary" data-go="locations">Go to Locations</button>' : ''}</div></div>${nav()}${message()}`;
+  const canEditTimes = uiRole() === 'admin';
   return `<div class="page">${header()}<h1>Mark attendance</h1><p class="sub">${fmtDate(istNow())} · Times in IST</p>${attendanceLocationPicker()}${editTimeForm()}<div class="stats"><div class="stat green"><strong>${s.checked_in || 0}</strong><span>Checked in</span></div><div class="stat amber"><strong>${s.not_in || 0}</strong><span>To check in</span></div><div class="stat blue"><strong>${s.completed || 0}</strong><span>Checked out</span></div></div><input class="search" aria-label="Search employee attendance" id="attSearch" placeholder="Search by name or employee ID" value="${esc(state.query)}"><div class="filters"><button class="chip ${state.filter === 'all' ? 'active' : ''}" data-filter="all">All</button><button class="chip green ${state.filter === 'checked_in' ? 'active' : ''}" data-filter="checked_in">Checked in</button><button class="chip amber ${state.filter === 'not_in' ? 'active' : ''}" data-filter="not_in">To check in</button><button class="chip ${state.filter === 'completed' ? 'active' : ''}" data-filter="completed">Checked out</button></div><div class="attendanceList">${rows.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}</small></span><span class="personTime">${r.check_in ? fmtTime(r.check_in) : '-'}<br><span class="badge ${r.status === 'checked_in' ? 'green' : r.status === 'completed' ? 'blue' : 'amber'}">${r.status === 'checked_in' ? 'Checked in' : r.status === 'completed' ? 'Checked out' : 'Not checked in'}</span></span>${canEditTimes && r.status !== 'not_in' ? `<button class="iconBtn" aria-label="Edit times for ${esc(r.name)}" title="Edit times" data-edittime="${esc(r.id || r.employee_id)}">${uiIcon('edit')}</button>` : ''}</div>`).join('') || '<p class="muted small">No employees match.</p>'}</div><button class="primary" data-go="add">Check in employee</button><button class="secondary" style="margin-top:10px" data-go="checkout">Manage check-outs</button></div>${nav()}${message()}`;
 }
 // Admin-only correction of an existing record's check-in/check-out times (IST).
@@ -510,7 +521,7 @@ function add() {
       state.attendance.find((a) => a.employee_id === r.employee_id) === r &&
       (!state.addQuery || (r.name + ' ' + r.employee_id).toLowerCase().includes(state.addQuery.toLowerCase())),
   );
-  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Type a name or EMP ID, or choose an employee below.</p>${attendanceLocationPicker()}<input class="search" id="addSearch" placeholder="Search name or EMP ID, e.g. EMP1024" value="${esc(state.addQuery)}" autocomplete="off">${lookupResultsView('checkin')}<h2 class="sectionTitle">Ready for check-in</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}${r.adhoc ? ' · ad-hoc' : ''}</small></span><button class="selectBtn" data-select="${esc(r.employee_id)}">Select</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${state.user?.role === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}${state.selected ? `<div class="selected"><b>Selected employee: ${esc(state.selected.name)}</b><br>${esc(state.selected.employee_id)} · ${esc(state.location.name)}${state.selected.adhoc ? ' · ad-hoc shift' : ''}</div><button class="primary" id="doCheckin" ${state.checkingIn ? 'disabled' : ''}>Mark Check-in · ${nowTime()}</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Type a name or EMP ID, or choose an employee below.</p>${attendanceLocationPicker()}<input class="search" id="addSearch" placeholder="Search name or EMP ID, e.g. EMP1024" value="${esc(state.addQuery)}" autocomplete="off">${lookupResultsView('checkin')}<h2 class="sectionTitle">Ready for check-in</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}${r.adhoc ? ' · ad-hoc' : ''}</small></span><button class="selectBtn" data-select="${esc(r.employee_id)}">Select</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${uiRole() === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}${state.selected ? `<div class="selected"><b>Selected employee: ${esc(state.selected.name)}</b><br>${esc(state.selected.employee_id)} · ${esc(state.location.name)}${state.selected.adhoc ? ' · ad-hoc shift' : ''}</div><button class="primary" id="doCheckin" ${state.checkingIn ? 'disabled' : ''}>Mark Check-in · ${nowTime()}</button>` : ''}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
 }
 function confirmed() {
   const r = state.lastCheck;
@@ -552,7 +563,7 @@ async function dashboard() {
   return `<div class="page">${header()}<h1>Attendance overview</h1><p class="sub">Today's summary · ${pick ? esc(short(pick)) : 'all assigned locations'}</p>${chips}<div class="grid2"><div class="dashStat"><strong>${t.employees}</strong><span>Employees</span></div><div class="dashStat"><strong style="color:var(--green)">${t.checked_in}</strong><span>Checked in</span></div><div class="dashStat"><strong>${t.completed}</strong><span>Checked out</span></div><div class="dashStat"><strong style="color:var(--amber)">${t.not_checked_in}</strong><span>Not checked in</span></div></div><h2 class="sectionTitle">${pick ? 'Location' : 'Location breakdown'}</h2>${(pick ? [pick] : locs).map(card).join('') || '<p class="muted small">No locations yet.</p>'}</div>${nav()}${message()}`;
 }
 function menu() {
-  return `<div class="page">${header()}<h1>Account</h1><p class="sub">${esc(state.user?.name || '')}</p><div class="person accountIdentity"><span class="initials">${esc(initials(state.user?.name || 'User'))}</span><span><strong>${esc(state.user?.name || '')}</strong><small>${esc(state.user?.id || '')} · ${esc(state.user?.role || '')}</small></span></div><button class="secondary" id="logout" style="margin-top:18px">Sign out</button></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Account</h1><p class="sub">${esc(state.user?.name || '')}</p><div class="person accountIdentity"><span class="initials">${esc(initials(state.user?.name || 'User'))}</span><span><strong>${esc(state.user?.name || '')}</strong><small>${esc(state.user?.id || '')} · ${esc(state.user?.role === 'owner' ? 'owner' : uiRole() || '')}</small></span></div><button class="secondary" id="logout" style="margin-top:18px">Sign out</button></div>${nav()}${message()}`;
 }
 
 function employees() {
@@ -562,7 +573,7 @@ function employees() {
   if (
     state.employeeLocation &&
     (state.employeeLocation === 'none'
-      ? state.user?.role !== 'admin'
+      ? uiRole() !== 'admin'
       : !state.locations.some((l) => l.id === state.employeeLocation))
   )
     state.employeeLocation = '';
@@ -585,7 +596,7 @@ function employees() {
         }</option>`,
     )
     .join('')}${
-    state.user?.role === 'admin'
+    uiRole() === 'admin'
       ? `<option value="none"${state.employeeLocation === 'none' ? ' selected' : ''}>No location yet</option>`
       : ''
   }</select>`;
@@ -598,7 +609,7 @@ function employees() {
   const empRow = (e) => {
     const enabled = e.active && locationActive(e.location_id);
     const action =
-      state.user?.role !== 'admin' || !locationActive(e.location_id)
+      uiRole() !== 'admin' || !locationActive(e.location_id)
         ? ''
         : e.active
           ? `<button class="outlineBtn dangerText" data-del-emp="${esc(e.id)}" data-name="${esc(e.name)}">Disable</button>`
@@ -606,11 +617,11 @@ function employees() {
     return `<div class="person ${enabled ? '' : 'disabledRow'}"><span class="initials">${esc(initials(e.name))}</span><span><strong>${esc(e.name)} ${enabled ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${esc(e.id)} · ${esc(e.role)} · ${esc(locationName(e.location_id))}</small></span>${action}</div>`;
   };
   const form =
-    state.user?.role === 'admin' && state.showEmployeeForm
+    uiRole() === 'admin' && state.showEmployeeForm
       ? `<div class="card addCard"><strong>Add employee</strong><p>Create an employee record. Location is optional and can be assigned later.</p><form id="employeeForm"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><div class="field"><label>Location (optional)</label><select name="location_id"><option value="" selected>Assign location later</option>${state.locations.map((l) => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('')}</select></div><button class="secondary">Save employee</button></form></div>`
       : '';
-  return `<div class="page">${header()}<h1>Employees</h1><p class="sub">${state.user?.role === 'admin' ? 'Browse and manage people assigned to your locations.' : 'View employees assigned to your locations. Admins manage employee records.'}</p>${[
-    ...(state.user?.role === 'admin'
+  return `<div class="page">${header()}<h1>Employees</h1><p class="sub">${uiRole() === 'admin' ? 'Browse and manage people assigned to your locations.' : 'View employees assigned to your locations. Admins manage employee records.'}</p>${[
+    ...(uiRole() === 'admin'
       ? [
           ['add', 'Add employee', 'Create a new employee record'],
           ['import', 'Import employees', 'Upload a CSV staff list'],
@@ -623,7 +634,7 @@ function employees() {
     )
     .join(
       '',
-    )}${state.user?.role === 'admin' ? '<input type="file" id="importFile" accept=".csv,text/csv" style="display:none">' : ''}${form}<input class="search" id="empSearch" placeholder="Search name, role or employee ID" value="${esc(state.employeeQuery)}">${locFilter}<div id="directoryList">${shown.map(empRow).join('') || '<p class="muted small">No employees match.</p>'}</div></div>${nav()}${message()}`;
+    )}${uiRole() === 'admin' ? '<input type="file" id="importFile" accept=".csv,text/csv" style="display:none">' : ''}${form}<input class="search" id="empSearch" placeholder="Search name, role or employee ID" value="${esc(state.employeeQuery)}">${locFilter}<div id="directoryList">${shown.map(empRow).join('') || '<p class="muted small">No employees match.</p>'}</div></div>${nav()}${message()}`;
 }
 // Reports screen: Day / Month / History tabs. Everything it shows comes from
 // state.report; loadReport() fetches the data for the open tab.
@@ -877,7 +888,7 @@ function historyReport(r) {
       return `<div class="rpMonth"><span class="rpWho"><span class="rpMonthTitle"><strong>${label}</strong>${m.month === current ? '<span class="badge amber">In progress</span>' : ''}</span>${p.bar}<small>${fmtCount(m.completed)} of ${fmtCount(m.total_records)} records completed</small></span><button class="rpIconBtn" data-export="${esc(m.month)}" aria-label="Download ${label} as Excel" ${m.total_records ? '' : 'disabled'}>${ICON.download}</button></div>`;
     })
     .join('');
-  return `<div class="rpListHead"><strong class="rpListTitle">Last 6 months</strong><span>${state.user?.role === 'admin' ? 'All locations' : 'Your locations'}</span></div><div class="rpList">${rows}</div><p class="rpHint center">Each download is one Excel file for the whole month.</p>`;
+  return `<div class="rpListHead"><strong class="rpListTitle">Last 6 months</strong><span>${uiRole() === 'admin' ? 'All locations' : 'Your locations'}</span></div><div class="rpList">${rows}</div><p class="rpHint center">Each download is one Excel file for the whole month.</p>`;
 }
 function locationSheet(r) {
   const isDay = r.tab === 'day';
@@ -892,7 +903,7 @@ function locationSheet(r) {
       return `<button role="radio" aria-checked="${on}" class="rpOption ${on ? 'active' : ''}" data-rloc="${esc(l.id)}"><span><strong>${esc(l.id ? shortLoc(l.name) : l.name)}</strong><small>${esc(meta)}</small></span>${on ? ICON.check : ''}</button>`;
     })
     .join('');
-  return `<div class="rpScrim" data-rsheet-close></div><div class="rpSheet" role="dialog" aria-modal="true" aria-labelledby="rpSheetTitle"><span class="rpHandle" aria-hidden="true"></span><div class="rpSheetHead"><h2 id="rpSheetTitle">Choose location</h2><button class="rpClose" data-rsheet-close aria-label="Close">${ICON.close}</button></div>${state.user?.role !== 'admin' ? '<p>You see only the locations assigned to you.</p>' : ''}<div role="radiogroup" aria-label="Location">${options}</div></div>`;
+  return `<div class="rpScrim" data-rsheet-close></div><div class="rpSheet" role="dialog" aria-modal="true" aria-labelledby="rpSheetTitle"><span class="rpHandle" aria-hidden="true"></span><div class="rpSheetHead"><h2 id="rpSheetTitle">Choose location</h2><button class="rpClose" data-rsheet-close aria-label="Close">${ICON.close}</button></div>${uiRole() !== 'admin' ? '<p>You see only the locations assigned to you.</p>' : ''}<div role="radiogroup" aria-label="Location">${options}</div></div>`;
 }
 function reports() {
   const r = state.report || (state.report = reportDefaults());
@@ -965,7 +976,7 @@ function siteName(d, id) {
   return loc ? loc.name : id;
 }
 function accessRow(u, d) {
-  const isAdmin = state.user.role === 'admin';
+  const isAdmin = uiRole() === 'admin';
   const disabled = u.active === 0;
   const scope =
     u.role === 'admin'
@@ -1004,17 +1015,21 @@ function accessDetail(u, d) {
     : '<h2 class="sectionTitle">Locations</h2><p class="muted small">Admins can work at all locations.</p>';
   // Disable/enable sits apart from the everyday form, with its own confirmation dialog.
   const danger =
-    isSupervisor && state.user.role === 'admin'
+    isSupervisor && uiRole() === 'admin'
       ? `<div class="accessToggle">${
           disabled
             ? `<p class="muted small">Access is off. This user cannot sign in. History is kept.</p><button class="outlineBtn" data-en-access="${esc(u.id)}" data-name="${esc(u.name)}">Enable access</button>`
             : `<button class="outlineBtn dangerText" data-del-access="${esc(u.id)}" data-name="${esc(u.name)}">Disable access</button>`
         }</div>`
       : '';
-  return `<div class="card" style="padding:16px;margin:12px 0">${identity}${sites}${danger}</div>`;
+  const reset =
+    isSupervisor && uiRole() === 'admin'
+      ? `<form id="resetPwForm" data-user="${esc(u.id)}" data-name="${esc(u.name)}" style="margin-top:18px"><h2 class="sectionTitle">Reset password</h2><p class="muted small">Set a new password for ${esc(u.name)}. They are signed out everywhere and must use the new one. Tell them the new password yourself.</p><div class="field"><label>New password</label><input name="password" type="password" minlength="8" maxlength="100" autocomplete="new-password" placeholder="At least 8 characters" required></div><button class="secondary">Set new password</button></form>`
+      : '';
+  return `<div class="card" style="padding:16px;margin:12px 0">${identity}${sites}${reset}${danger}</div>`;
 }
 function accessListPanel(d) {
-  return `<div class="card" style="padding:16px;margin:12px 0">${d.access.map((u) => accessRow(u, d)).join('')}${state.user.role === 'admin' ? `<details class="addSupervisor"><summary>Add supervisor</summary><form id="accessForm" style="margin-top:14px"><div class="field"><label>User ID</label><input name="id" required></div><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Password</label><input name="password" type="password" minlength="8" maxlength="100" autocomplete="new-password" placeholder="At least 8 characters" required></div><div class="field"><label>Locations</label>${siteChecklist(d, new Set())}</div><button class="secondary">Create supervisor</button></form></details>` : '<p class="muted small">Only admins can create or change access.</p>'}</div>`;
+  return `<div class="card" style="padding:16px;margin:12px 0">${d.access.map((u) => accessRow(u, d)).join('')}${uiRole() === 'admin' ? `<details class="addSupervisor"><summary>Add supervisor</summary><form id="accessForm" style="margin-top:14px"><div class="field"><label>User ID</label><input name="id" required></div><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Password</label><input name="password" type="password" minlength="8" maxlength="100" autocomplete="new-password" placeholder="At least 8 characters" required></div><div class="field"><label>Locations</label>${siteChecklist(d, new Set())}</div><button class="secondary">Create supervisor</button></form></details>` : '<p class="muted small">Only admins can create or change access.</p>'}</div>`;
 }
 function settings() {
   const d = state.settings;
@@ -1023,14 +1038,14 @@ function settings() {
   if (d && state.settingsView === 'profile')
     panel = `<div class="card" style="padding:16px;margin:12px 0"><form id="profileForm"><div class="field"><label>Name</label><input name="name" value="${esc(d.profile.name)}" required></div><div class="field"><label>User ID</label><input value="${esc(d.profile.id)}" disabled></div><button class="secondary">Save profile</button></form></div>`;
   if (d && state.settingsView === 'locations')
-    panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">Locations</h2>${d.locations.map((l) => `<div class="person ${l.active ? '' : 'disabledRow'}"><span><strong>${esc(l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${esc(l.area)} · ${empCountLabel(l)} · ${esc(shiftLabel(l))}</small></span></div>`).join('') || '<p class="muted small">No locations yet. Add the first branch below.</p>'}${state.user.role === 'admin' ? `<form id="locationForm" style="margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Area</label><input name="area" required></div>${shiftFields()}${locationSupervisorField()}<button class="secondary" ${!Array.isArray(state.settings?.access) ? 'disabled' : ''}>Add location</button></form>` : '<p class="muted small">Supervisors can view assigned locations. Admins manage branches.</p>'}</div>`;
+    panel = `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">Locations</h2>${d.locations.map((l) => `<div class="person ${l.active ? '' : 'disabledRow'}"><span><strong>${esc(l.name)} ${l.active ? '' : '<span class="badge grey">Disabled</span>'}</strong><small>${esc(l.area)} · ${empCountLabel(l)} · ${esc(shiftLabel(l))}</small></span></div>`).join('') || '<p class="muted small">No locations yet. Add the first branch below.</p>'}${uiRole() === 'admin' ? `<form id="locationForm" style="margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Area</label><input name="area" required></div>${shiftFields()}${locationSupervisorField()}<button class="secondary" ${!Array.isArray(state.settings?.access) ? 'disabled' : ''}>Add location</button></form>` : '<p class="muted small">Supervisors can view assigned locations. Admins manage branches.</p>'}</div>`;
   if (d && state.settingsView === 'accessUser') {
-    const au = state.user?.role === 'admin' ? d.access.find((u) => u.id === state.accessUserId) : null;
+    const au = uiRole() === 'admin' ? d.access.find((u) => u.id === state.accessUserId) : null;
     if (au) panel = accessDetail(au, d);
     else state.settingsView = 'access';
   }
   if (d && state.settingsView === 'access') panel = accessListPanel(d);
-  if (d && state.settingsView === 'activity' && state.user?.role === 'admin')
+  if (d && state.settingsView === 'activity' && uiRole() === 'admin')
     panel = `<div class="card" style="padding:16px;margin:12px 0"><p class="muted small">Each recorded change, newest first. Time corrections always carry a reason.</p><p style="text-align:right;margin:0 0 8px"><button class="link" id="exportAudit">Export full log (CSV)</button></p>${(state.audit || []).map((a) => `<div class="person"><span><strong>${esc(auditTitle(a))}</strong><small>${esc(auditDetail(a))}</small><small>${esc(a.user_id)} · ${esc(fmtAuditTime(a.at))}</small></span></div>`).join('') || '<p class="muted small">No activity recorded yet.</p>'}</div>`;
   const items = [
     [
@@ -1040,7 +1055,7 @@ function settings() {
     ],
     ['access', 'User access', 'View roles and location scope'],
   ];
-  if (state.user?.role === 'admin')
+  if (uiRole() === 'admin')
     items.push(['activity', 'Activity log', 'Each change and correction, with reasons']);
   if (state.settingsView && panel) {
     const title =
@@ -1063,10 +1078,11 @@ function settings() {
 async function render() {
   let html = '';
   try {
-    if (!state.token) html = login();
+    if (!state.token) html = location.hash === '#owner-setup' ? ownerSetupView() : login();
+    else if (state.user?.role === 'owner' && !state.companyId) html = await ownerConsole();
     else if (state.screenError?.screen === state.screen) html = screenErrorView();
     else if (state.screen === 'locations') {
-      if (state.showLocationForm && state.user?.role === 'admin' && !state.settings)
+      if (state.showLocationForm && uiRole() === 'admin' && !state.settings)
         state.settings = await api('/api/settings');
       html = locations();
     } else if (state.screen === 'locationDetail') html = locationDetail();
@@ -1137,6 +1153,7 @@ async function render() {
 }
 // Wire up clicks/inputs on the freshly rendered markup. One branch per screen.
 function bind() {
+  bindOwner();
   document.querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => go(b.dataset.nav)));
   document.querySelectorAll('[data-go]').forEach((b) => (b.onclick = () => go(b.dataset.go)));
   document.querySelectorAll('[data-filter]').forEach(
@@ -1378,6 +1395,24 @@ function bind() {
           ? 'No supervisor will receive access.'
           : supervisorChoice.selectedOptions[0].textContent;
     };
+  const rpf = document.getElementById('resetPwForm');
+  if (rpf)
+    rpf.onsubmit = (e) => {
+      e.preventDefault();
+      const password = new FormData(rpf).get('password');
+      const { user, name } = rpf.dataset;
+      state.confirm = {
+        title: 'Set a new password for ' + (name || user) + '?',
+        lines: [
+          { label: 'Account', value: user },
+          { label: 'Effect', value: 'They are signed out everywhere and must sign in with the new password.' },
+        ],
+        okLabel: 'Set new password',
+        danger: true,
+        onOk: () => resetSupervisorPassword(user, name, password),
+      };
+      render();
+    };
   const ef = document.getElementById('employeeForm');
   if (ef) ef.onsubmit = createEmployee;
   document.querySelectorAll('[data-open-access]').forEach(
@@ -1525,6 +1560,14 @@ async function doLogin(e) {
     state.user = r.user;
     localStorage.setItem('gf_token', r.token);
     localStorage.setItem('gf_user', JSON.stringify(r.user));
+    if (r.user.role === 'owner') {
+      state.companyId = '';
+      localStorage.removeItem('gf_company');
+      state.screen = 'dashboard';
+      startHistory(state.screen);
+      render();
+      return;
+    }
     await bootstrap();
     state.notice = '';
     if (state.location) await loadAttendance();
@@ -1546,7 +1589,7 @@ async function bootstrap() {
   // Attendance runs only on active locations; disabled ones stay visible elsewhere, greyed out.
   const usable = state.locations.filter((l) => l.active);
   state.location = usable.some((l) => l.id === state.location?.id) ? state.location : usable[0] || null;
-  state.showLocationForm = !state.locations.length && state.user?.role === 'admin';
+  state.showLocationForm = !state.locations.length && uiRole() === 'admin';
   state.dashboard = null;
   state.report = null;
 }
@@ -1906,7 +1949,7 @@ document.addEventListener('keydown', (e) => {
 async function openSettings(kind) {
   try {
     state.settings = await api('/api/settings');
-    if (kind === 'activity' && state.user?.role === 'admin') state.audit = (await api('/api/audit')).rows;
+    if (kind === 'activity' && uiRole() === 'admin') state.audit = (await api('/api/audit')).rows;
     go('settings', { settingsView: kind });
   } catch (e) {
     state.settingsView = kind;
@@ -2218,6 +2261,18 @@ function askDisableAccess(id, name) {
   };
   render();
 }
+async function resetSupervisorPassword(id, name, password) {
+  try {
+    await api('/api/settings/access/' + encodeURIComponent(id) + '/password', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    });
+    toast('Password changed for ' + (name || id) + '. They have been signed out.');
+  } catch (err) {
+    state.error = err.message;
+    render();
+  }
+}
 async function setAccessActive(id, active) {
   try {
     const r = await api('/api/settings/access/' + encodeURIComponent(id) + (active ? '/enable' : ''), {
@@ -2351,6 +2406,7 @@ async function logout() {
   } catch (netErr) {}
   localStorage.removeItem('gf_token');
   localStorage.removeItem('gf_user');
+  localStorage.removeItem('gf_company');
   state.token = '';
   state.user = null;
   // Every per-account object is dropped, so a different role signing in on this tab
@@ -2360,10 +2416,168 @@ async function logout() {
   history.replaceState({ gfScreen: 'login' }, '', '#login');
   render();
 }
+
+// Owner console: plain screens for companies and their admins. Only the owner reaches these.
+async function ownerConsole() {
+  if (!state.ownerData) {
+    const companies = (await api('/api/owner/companies')).companies;
+    const admins = {};
+    for (const c of companies) admins[c.id] = (await api('/api/owner/companies/' + encodeURIComponent(c.id) + '/admins')).admins;
+    state.ownerData = { companies, admins };
+  }
+  const { companies, admins } = state.ownerData;
+  const card = (c) => {
+    const list = admins[c.id] || [];
+    const rows =
+      list
+        .map(
+          (a) =>
+            `<div class="person ${a.active ? '' : 'disabledRow'}"><span><strong>${esc(a.name)} ${a.active ? '' : '<span class="badge grey">Switched off</span>'}</strong><small>Login ID: ${esc(a.id)}</small></span><button class="selectBtn" data-owner-admin="${esc(a.id)}" data-active="${a.active ? 0 : 1}">${a.active ? 'Switch off' : 'Switch on'}</button></div>`,
+        )
+        .join('') || '<p class="muted small">No company admin yet. Add one below.</p>';
+    return `<div class="card" style="padding:16px;margin:12px 0"><h2 class="sectionTitle" style="margin-top:0">${esc(c.name)} ${c.active ? '' : '<span class="badge grey">Paused</span>'}</h2><p class="muted small">${c.locations} locations · ${c.admins} admins · ${c.supervisors} supervisors</p>${rows}<details class="addSupervisor"><summary>Company details</summary><form data-owner-company-edit="${esc(c.id)}" style="margin-top:14px"><div class="field"><label>Company name</label><input name="name" required minlength="2" value="${esc(c.name)}"></div><div class="field"><label>Address (optional)</label><input name="address" maxlength="200" value="${esc(c.address || '')}"></div><div class="field"><label>Contact person (optional)</label><input name="contact_person" maxlength="100" value="${esc(c.contact_person || '')}"></div><div class="field"><label>Contact phone (optional)</label><input name="contact_phone" maxlength="30" value="${esc(c.contact_phone || '')}"></div><button class="secondary">Save details</button></form></details><details class="addSupervisor"><summary>Add a company admin</summary><form data-owner-admin-form="${esc(c.id)}" style="margin-top:14px"><div class="field"><label>Login ID</label><input name="id" required></div><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Password</label><input name="password" type="password" minlength="8" maxlength="100" autocomplete="new-password" placeholder="At least 8 characters" required></div><button class="secondary">Create admin</button></form></details><div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">${c.active ? `<button class="primary" data-owner-open="${esc(c.id)}">Open this company</button>` : ''}<button class="secondary" data-owner-toggle="${esc(c.id)}" data-active="${c.active ? 0 : 1}">${c.active ? 'Pause company' : 'Resume company'}</button></div></div>`;
+  };
+  return `<div class="page noNav">${header()}<h1>Your companies</h1><p class="sub">Pick a company to manage it. Nothing from other companies is shown while you work in one.</p>${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}${companies.map(card).join('') || '<p class="muted small">No companies yet.</p>'}<div class="card addCard"><strong>Add a new company</strong><form id="ownerCompanyForm" style="margin-top:12px"><div class="field"><label>Company name</label><input name="name" required minlength="2"></div><button class="secondary">Add company</button></form></div><button class="secondary" id="logout" style="margin-top:18px">Sign out</button></div>${message()}`;
+}
+async function ownerAction(fn) {
+  state.error = '';
+  try {
+    await fn();
+    state.ownerData = null;
+  } catch (err) {
+    state.error = err.message;
+  }
+  render();
+}
+async function openCompany(id) {
+  const c = state.ownerData.companies.find((x) => x.id === id);
+  state.companyId = id;
+  state.companyName = c ? c.name : '';
+  localStorage.setItem('gf_company', id);
+  clearOwnerScreens();
+  try {
+    await bootstrap();
+    state.screen = 'dashboard';
+    startHistory(state.screen);
+  } catch (err) {
+    state.companyId = '';
+    localStorage.removeItem('gf_company');
+    state.error = err.message;
+  }
+  render();
+}
+function clearOwnerScreens() {
+  ++attendanceGeneration;
+  const keep = { token: state.token, user: state.user, companyId: state.companyId, companyName: state.companyName };
+  clearSessionState();
+  Object.assign(state, keep);
+}
+function switchCompany() {
+  state.companyId = '';
+  state.companyName = '';
+  localStorage.removeItem('gf_company');
+  clearOwnerScreens();
+  state.ownerData = null;
+  state.screen = 'dashboard';
+  render();
+}
+
+// One-time owner setup page (#owner-setup). The server only accepts it with the host's setup code,
+// and only while no owner exists. The password is typed or filled here, never sent in chat.
+function ownerSetupView() {
+  return `<div class="page noNav login"><div class="logo">G</div><h1>Owner setup</h1><p class="sub">One-time step. You need the setup code from the host.</p>${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}${state.notice ? `<div class="toast">${esc(state.notice)}</div>` : ''}<form id="ownerSetupForm"><div class="field"><label>Setup code</label><input name="token" type="password" autocomplete="off" required minlength="8"></div><div class="field"><label>Your login ID</label><input name="id" autocomplete="username" required minlength="3"></div><div class="field"><label>Your name</label><input name="name" required minlength="2"></div><div class="field"><label>New password</label><input name="password" type="password" autocomplete="new-password" required minlength="10" placeholder="At least 10 characters"></div><button class="primary">Create owner account</button></form><p style="text-align:center;margin-top:16px"><button class="link" id="ownerSetupBack">Back to sign in</button></p></div>`;
+}
+function bindOwnerSetup() {
+  const f = document.getElementById('ownerSetupForm');
+  if (f)
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      state.error = '';
+      try {
+        await api('/api/owner/setup', { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(f))) });
+        history.replaceState({ gfScreen: 'login' }, '', '#login');
+        state.notice = 'Owner account created. Sign in with your new login.';
+      } catch (err) {
+        state.error = err.status === 403 ? 'That setup code was not accepted.' : err.message;
+      }
+      render();
+    };
+  const b = document.getElementById('ownerSetupBack');
+  if (b)
+    b.onclick = () => {
+      history.replaceState({ gfScreen: 'login' }, '', '#login');
+      render();
+    };
+}
+function bindOwner() {
+  bindOwnerSetup();
+  const sw = document.getElementById('ownerSwitch');
+  if (sw) sw.onclick = switchCompany;
+  document.querySelectorAll('[data-owner-company-edit]').forEach((f) => {
+    f.onsubmit = (e) => {
+      e.preventDefault();
+      ownerAction(() =>
+        api('/api/owner/companies/' + encodeURIComponent(f.dataset.ownerCompanyEdit), {
+          method: 'PATCH',
+          body: JSON.stringify(Object.fromEntries(new FormData(f))),
+        }),
+      );
+    };
+  });
+  const cf = document.getElementById('ownerCompanyForm');
+  if (cf)
+    cf.onsubmit = (e) => {
+      e.preventDefault();
+      const body = Object.fromEntries(new FormData(cf));
+      ownerAction(() => api('/api/owner/companies', { method: 'POST', body: JSON.stringify(body) }));
+    };
+  document.querySelectorAll('[data-owner-admin-form]').forEach((f) => {
+    f.onsubmit = (e) => {
+      e.preventDefault();
+      const body = Object.fromEntries(new FormData(f));
+      ownerAction(() =>
+        api('/api/owner/companies/' + encodeURIComponent(f.dataset.ownerAdminForm) + '/admins', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      );
+    };
+  });
+  document.querySelectorAll('[data-owner-admin]').forEach((b) => {
+    b.onclick = () =>
+      ownerAction(() =>
+        api('/api/owner/admins/' + encodeURIComponent(b.dataset.ownerAdmin) + (b.dataset.active === '1' ? '/enable' : '/disable'), {
+          method: 'POST',
+          body: '{}',
+        }),
+      );
+  });
+  document.querySelectorAll('[data-owner-toggle]').forEach((b) => {
+    b.onclick = () =>
+      ownerAction(() =>
+        api('/api/owner/companies/' + encodeURIComponent(b.dataset.ownerToggle) + (b.dataset.active === '1' ? '/enable' : '/disable'), {
+          method: 'POST',
+          body: '{}',
+        }),
+      );
+  });
+  document.querySelectorAll('[data-owner-open]').forEach((b) => (b.onclick = () => openCompany(b.dataset.ownerOpen)));
+}
 (async () => {
   if (state.token) {
     try {
-      await bootstrap();
+      if (state.user?.role === 'owner') {
+        if (state.companyId) {
+          const list = (await api('/api/owner/companies')).companies;
+          const hit = list.find((c) => c.id === state.companyId && c.active);
+          if (hit) state.companyName = hit.name;
+          else {
+            state.companyId = '';
+            localStorage.removeItem('gf_company');
+          }
+        }
+      }
+      if (state.user?.role !== 'owner' || state.companyId) await bootstrap();
       const requested = location.hash.slice(1);
       state.screen = appScreens.includes(requested) ? requested : 'dashboard';
       if (state.screen === 'attendance' && state.location) await loadAttendance();
@@ -2374,6 +2588,6 @@ async function logout() {
       state.screen = 'login';
       history.replaceState({ gfScreen: 'login' }, '', '#login');
     }
-  } else history.replaceState({ gfScreen: 'login' }, '', '#login');
+  } else if (location.hash !== '#owner-setup') history.replaceState({ gfScreen: 'login' }, '', '#login');
   render();
 })();
