@@ -271,7 +271,7 @@ describe('Site screen', () => {
   test('disable asks first and shows a server error in the dialog', async () => {
     reply(
       'DELETE /api/settings/locations/loc-hsr',
-      { status: 409, body: { detail: 'Cannot disable this branch yet: 2 check-in(s) are still open.' } },
+      { status: 409, body: { detail: 'Cannot disable this site yet: 2 guards are still checked in.' } },
       { status: 200, body: { id: 'loc-hsr', status: 'disabled' } },
     );
     show('/locations/loc-hsr');
@@ -279,7 +279,7 @@ describe('Site screen', () => {
     const dialog = await screen.findByRole('alertdialog', { name: 'Disable HSR Layout?' });
     expect(dialog).toHaveTextContent('Supervisors keep seeing it. History is kept.');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Disable site' }));
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent('still open');
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('still checked in');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Disable site' }));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     expect(calls('DELETE /api/settings/locations/loc-hsr')).toHaveLength(2);

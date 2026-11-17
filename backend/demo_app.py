@@ -829,8 +829,8 @@ def disable_employee(employee_id: str, user=Depends(current_user)):
         if open_checkins:
             raise HTTPException(
                 409,
-                "Cannot disable this employee yet: they still have an open check-in. "
-                "Record their check-out first, then disable them. Their attendance history is kept either way.",
+                "Cannot disable this guard yet: the guard is still checked in. "
+                "Record the check-out first, then disable the guard. Attendance history is kept either way.",
             )
         c.execute(text("UPDATE demo_employees SET active=0 WHERE id=:id"), {"id": employee_id})
         if row["location_id"]:
@@ -1981,8 +1981,9 @@ def disable_location(location_id: str, user=Depends(current_user)):
         if open_checkins:
             raise HTTPException(
                 409,
-                f"Cannot disable this branch yet: {open_checkins} check-in(s) are still open. "
-                "Record the open check-outs first. Attendance history is kept either way.",
+                f"Cannot disable this site yet: {open_checkins} "
+                + ("guard is" if open_checkins == 1 else "guards are")
+                + " still checked in. Record the check-outs first. Attendance history is kept either way.",
             )
         c.execute(text("UPDATE demo_locations SET active=0 WHERE id=:id"), {"id": location_id})
         audit(c, user, "settings.location.disable", {"location_id": location_id, "name": row["name"]})
