@@ -6,7 +6,11 @@ import { Attendance } from '@/screens/Attendance';
 import { Home } from '@/screens/Home';
 import { Login } from '@/screens/Login';
 import { NotMovedYet } from '@/screens/NotMovedYet';
-import { Settings } from '@/screens/Settings';
+import { Access } from '@/screens/settings/Access';
+import { AccessUser } from '@/screens/settings/AccessUser';
+import { Activity } from '@/screens/settings/Activity';
+import { Profile } from '@/screens/settings/Profile';
+import { SettingsHome } from '@/screens/settings/SettingsHome';
 
 // No session: go to the sign-in screen.
 function RequireSession() {
@@ -38,7 +42,11 @@ export function AppRoutes() {
             <Route path="/locations" element={<NotMovedYet title="Sites" oldScreen="locations" />} />
             <Route path="/locations/:id" element={<NotMovedYet title="Site" oldScreen="locations" />} />
             <Route path="/reports" element={<NotMovedYet title="Reports" oldScreen="reports" />} />
-            <Route path="/settings" element={<Settings />} />
+            <Route path="/settings" element={<SettingsHome />} />
+            <Route path="/settings/profile" element={<Profile />} />
+            <Route path="/settings/access" element={<Access />} />
+            <Route path="/settings/access/:id" element={<AccessUser />} />
+            <Route path="/settings/activity" element={<Activity />} />
           </Route>
         </Route>
       </Route>
