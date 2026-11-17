@@ -638,10 +638,14 @@ def test_excel_export_date_times_timezone_blanks_scope_and_filters():
 
     with engine.begin() as c:
         c.execute(
-            text("INSERT INTO demo_employees VALUES ('EXCEL001','=Do not execute','9000000000','Guard','loc-hsr',1)")
+            text(
+                "INSERT INTO demo_employees (id,name,phone,role,location_id,active,company_id) VALUES ('EXCEL001','=Do not execute','9000000000','Guard','loc-hsr',1,'company-1')"
+            )
         )
         c.execute(
-            text("INSERT INTO demo_employees VALUES ('EXCEL002','Other site','9000000001','Guard','loc-mysuru',1)")
+            text(
+                "INSERT INTO demo_employees (id,name,phone,role,location_id,active,company_id) VALUES ('EXCEL002','Other site','9000000001','Guard','loc-mysuru',1,'company-1')"
+            )
         )
         values = [
             (

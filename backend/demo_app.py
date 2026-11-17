@@ -27,12 +27,13 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import bindparam, text
+from sqlalchemy.exc import IntegrityError
 
 # Sibling modules resolve whether uvicorn loads this file as `demo_app`
 # (cwd = backend/) or as `backend.demo_app` (cwd = repo root, as on ethiodeploy).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from demo_db import DB_URL, DEMO_MODE, LOCAL_TZ, ROOT, engine, init_db
+from demo_db import DB_URL, DEMO_MODE, LOCAL_TZ, ROOT, engine, init_db, run_company_backfill
 from demo_logging import event, setup_logging
 from demo_reports import attendance_workbook
 from demo_security import (
@@ -53,11 +54,12 @@ if DEMO_MODE:
     seed_demo()
 seed_access()
 retire_legacy_demo_account()
+run_company_backfill()
 
 API_DOCS_ENABLED = os.environ.get("API_DOCS", "true").lower() == "true"
 app = FastAPI(
     title="Guardian Attendance API",
-    version="0.4.0",
+    version="0.5.0",
     docs_url="/docs" if API_DOCS_ENABLED else None,
     redoc_url="/redoc" if API_DOCS_ENABLED else None,
     openapi_url="/openapi.json" if API_DOCS_ENABLED else None,
@@ -311,6 +313,12 @@ def login(body: LoginBody, request: Request):
             request.state.role = row["role"]
             event(logging.WARNING, "login.disabled", user_id=row["id"], role=row["role"])
             raise HTTPException(403, "This account has been disabled. Ask an admin to re-enable it.")
+        if row["role"] != "owner":
+            company_active = c.execute(
+                text("SELECT active FROM demo_companies WHERE id=:id"), {"id": row["company_id"]}
+            ).scalar()
+            if not company_active:
+                raise HTTPException(403, "This company account is paused. Contact the owner.")
         login_throttle_clear(key)
         c.execute(text("DELETE FROM demo_sessions WHERE expires<:now"), {"now": utcnow().isoformat()})
         token = secrets.token_urlsafe(32)
@@ -319,7 +327,10 @@ def login(body: LoginBody, request: Request):
             {"token": token_digest(token), "user": row["id"], "expires": (utcnow() + timedelta(hours=10)).isoformat()},
         )
         event(logging.INFO, "login.ok", user_id=row["id"], role=row["role"])
-        return {"token": token, "user": {"id": row["id"], "name": row["name"], "role": row["role"]}}
+        return {
+            "token": token,
+            "user": {"id": row["id"], "name": row["name"], "role": row["role"], "company_id": row["company_id"]},
+        }
 
 
 @app.post("/api/logout")
@@ -332,14 +343,18 @@ def logout(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
     return {"status": "signed out"}
 
 
-def current_user(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+def session_user(request: Request, credentials: HTTPAuthorizationCredentials | None):
+    """Resolve the signed-in account from the session token. No company rules here."""
     if not credentials:
         raise HTTPException(401, "Sign in required")
     with engine.connect() as c:
         row = (
             c.execute(
                 text(
-                    "SELECT u.id,u.name,u.role,s.expires,d.user_id AS disabled FROM demo_sessions s JOIN demo_users u ON u.id=s.user_id LEFT JOIN demo_disabled_users d ON d.user_id=u.id WHERE s.token=:token"
+                    "SELECT u.id,u.name,u.role,u.company_id,s.expires,d.user_id AS disabled,k.active AS company_active "
+                    "FROM demo_sessions s JOIN demo_users u ON u.id=s.user_id "
+                    "LEFT JOIN demo_disabled_users d ON d.user_id=u.id "
+                    "LEFT JOIN demo_companies k ON k.id=u.company_id WHERE s.token=:token"
                 ),
                 {"token": token_digest(credentials.credentials)},
             )
@@ -353,19 +368,62 @@ def current_user(request: Request, credentials: HTTPAuthorizationCredentials | N
     request.state.role = row["role"]
     if row["disabled"] is not None:
         raise HTTPException(403, "This account has been disabled. Ask an admin to re-enable it.")
+    if row["role"] != "owner" and not row["company_active"]:
+        # Fails closed: a user with no company, or a paused company, reads and writes nothing.
+        raise HTTPException(403, "This company account is paused. Contact the owner.")
     return dict(row)
 
 
-def audit(c, user, action: str, details: dict) -> None:
+def current_user(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    """The signed-in user for company routes. Every company route runs with one company.
+
+    An admin or supervisor always works inside their own company. The owner works inside the
+    one company named in the X-Company-Id header, with admin rights there and nowhere else.
+    """
+    row = session_user(request, credentials)
+    row["is_owner"] = False
+    if row["role"] == "owner":
+        company_id = request.headers.get("X-Company-Id", "").strip()
+        if not company_id:
+            raise HTTPException(400, "Select a company first")
+        with engine.connect() as c:
+            company = (
+                c.execute(text("SELECT id,name FROM demo_companies WHERE id=:id"), {"id": company_id})
+                .mappings()
+                .first()
+            )
+        if not company:
+            raise HTTPException(404, "Company not found")
+        row.update(role="admin", is_owner=True, company_id=company["id"])
+    return row
+
+
+def owner_user(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    """The signed-in owner for platform routes. Nobody else passes, whatever the request says."""
+    row = session_user(request, credentials)
+    if row["role"] != "owner":
+        raise HTTPException(403, "Owner required")
+    return row
+
+
+def audit(c, user, action: str, details: dict, company_id: str | None = None) -> None:
+    audit_id = secrets.token_hex(16)
+    scope = company_id or user.get("company_id") or "platform"
+    if user.get("is_owner"):
+        details = {**details, "by_owner": True}
     c.execute(
         text("INSERT INTO demo_audit VALUES (:id,:at,:user,:action,:details)"),
         {
-            "id": secrets.token_hex(16),
+            "id": audit_id,
             "at": utcnow().isoformat(),
             "user": user["id"],
             "action": action,
             "details": json.dumps(details),
         },
+    )
+    c.execute(
+        text("INSERT INTO demo_audit_scope (audit_id,company_id) VALUES (:id,:company)"),
+        {"id": audit_id, "company": scope},
     )
 
 
@@ -404,8 +462,9 @@ def location_rows(user):
                         text(
                             "SELECT l.*, "
                             + DISABLED_COUNT_SQL
-                            + " FROM demo_locations l ORDER BY l.active DESC, l.name"
-                        )
+                            + " FROM demo_locations l WHERE l.company_id=:company ORDER BY l.active DESC, l.name"
+                        ),
+                        {"company": user["company_id"]},
                     ).mappings()
                 ],
             )
@@ -417,9 +476,9 @@ def location_rows(user):
                     text(
                         "SELECT l.*, "
                         + DISABLED_COUNT_SQL
-                        + " FROM demo_locations l JOIN demo_user_locations a ON a.location_id=l.id WHERE a.user_id=:user ORDER BY l.active DESC, l.name"
+                        + " FROM demo_locations l JOIN demo_user_locations a ON a.location_id=l.id WHERE a.user_id=:user AND l.company_id=:company ORDER BY l.active DESC, l.name"
                     ),
-                    {"user": user["id"]},
+                    {"user": user["id"], "company": user["company_id"]},
                 ).mappings()
             ],
         )
@@ -454,13 +513,28 @@ def sync_legacy_shift_pair(c, location_id: str, rows: list[ShiftBody]) -> None:
 
 
 def scoped_sql(user: dict, column: str) -> str:
+    """Limit a location column to the user's company, then to the supervisor's assigned sites."""
     if user["role"] == "admin":
-        return "1=1"
-    return f"{column} IN (SELECT location_id FROM demo_user_locations WHERE user_id=:__scope_user)"
+        return f"{column} IN (SELECT id FROM demo_locations WHERE company_id=:__company)"
+    return (
+        f"{column} IN (SELECT g.location_id FROM demo_user_locations g "
+        "JOIN demo_locations gl ON gl.id=g.location_id "
+        "WHERE g.user_id=:__scope_user AND gl.company_id=:__company)"
+    )
 
 
 def scope_params(user: dict) -> dict:
-    return {} if user["role"] == "admin" else {"__scope_user": user["id"]}
+    if user["role"] == "admin":
+        return {"__company": user["company_id"]}
+    return {"__scope_user": user["id"], "__company": user["company_id"]}
+
+
+def employee_scope_sql(user: dict, prefix: str = "") -> str:
+    """Employees of the user's company. Supervisors also see only employees at assigned sites."""
+    base = f"{prefix}company_id=:__company"
+    if user["role"] == "admin":
+        return base
+    return base + " AND " + scoped_sql(user, f"{prefix}location_id")
 
 
 def row_lock() -> str:
@@ -470,7 +544,10 @@ def row_lock() -> str:
 
 def require_location_access(c, user: dict, location_id: str, lock: bool = False):
     row = (
-        c.execute(text("SELECT * FROM demo_locations WHERE id=:id" + (row_lock() if lock else "")), {"id": location_id})
+        c.execute(
+            text("SELECT * FROM demo_locations WHERE id=:id AND company_id=:company" + (row_lock() if lock else "")),
+            {"id": location_id, "company": user["company_id"]},
+        )
         .mappings()
         .first()
     )
@@ -559,9 +636,9 @@ def employee_lookup(employee_id: str, user=Depends(current_user)):
                 text(
                     "SELECT e.id,e.name,e.role,e.location_id,e.active,l.name location_name "
                     "FROM demo_employees e LEFT JOIN demo_locations l ON l.id=e.location_id "
-                    "WHERE e.id=:id"
+                    "WHERE e.id=:id AND e.company_id=:company"
                 ),
-                {"id": employee_id.strip()},
+                {"id": employee_id.strip(), "company": user["company_id"]},
             )
             .mappings()
             .first()
@@ -574,9 +651,9 @@ def employee_lookup(employee_id: str, user=Depends(current_user)):
                 text(
                     "SELECT e.id,e.name,e.role,e.location_id,e.active,l.name location_name "
                     "FROM demo_employees e LEFT JOIN demo_locations l ON l.id=e.location_id "
-                    "WHERE lower(e.name) LIKE :q ORDER BY e.active DESC, e.name LIMIT 8"
+                    "WHERE lower(e.name) LIKE :q AND e.company_id=:company ORDER BY e.active DESC, e.name LIMIT 8"
                 ),
-                {"q": f"%{employee_id.strip().lower()}%"},
+                {"q": f"%{employee_id.strip().lower()}%", "company": user["company_id"]},
             ).mappings()
         ]
     if len(matches) == 1:
@@ -590,7 +667,7 @@ def employee_lookup(employee_id: str, user=Depends(current_user)):
 def employees(location_id: str | None = None, q: str = "", user=Depends(current_user)):
     # Disabled employees stay visible (greyed out in the app) so both roles can see them
     # and their history. Unassigned employees stay in the directory so admins can place them.
-    sql = "SELECT * FROM demo_employees WHERE " + scoped_sql(user, "location_id")
+    sql = "SELECT * FROM demo_employees WHERE " + employee_scope_sql(user)
     params = scope_params(user)
     with engine.connect() as c:
         if location_id:
@@ -610,24 +687,35 @@ def reject_duplicate_import_ids(ids, kind):
         raise HTTPException(400, f"Duplicate {kind} IDs in import: " + ", ".join(duplicates))
 
 
-def insert_employee_row(c, employee_id, name, phone, role, location_id):
+def insert_employee_row(c, employee_id, name, phone, role, location_id, company_id):
     """Create an active employee and count them against their location, when assigned."""
     c.execute(
         text(
-            "INSERT INTO demo_employees (id,name,phone,role,location_id,active) VALUES (:id,:name,:phone,:role,:location,1)"
+            "INSERT INTO demo_employees (id,name,phone,role,location_id,active,company_id) "
+            "VALUES (:id,:name,:phone,:role,:location,1,:company)"
         ),
-        {"id": employee_id, "name": name, "phone": phone, "role": role, "location": location_id},
+        {
+            "id": employee_id,
+            "name": name,
+            "phone": phone,
+            "role": role,
+            "location": location_id,
+            "company": company_id,
+        },
     )
     if location_id:
         c.execute(text("UPDATE demo_locations SET assigned_count=assigned_count+1 WHERE id=:id"), {"id": location_id})
 
 
-def update_employee_row(c, employee_id, name, phone, role, location_id):
+def update_employee_row(c, employee_id, name, phone, role, location_id, company_id):
     """Update details and placement. The active flag never changes here: re-enabling a
     disabled employee goes through the guarded Enable flow, not a file import."""
     c.execute(
-        text("UPDATE demo_employees SET name=:name,phone=:phone,role=:role,location_id=:location WHERE id=:id"),
-        {"id": employee_id, "name": name, "phone": phone, "role": role, "location": location_id},
+        text(
+            "UPDATE demo_employees SET name=:name,phone=:phone,role=:role,location_id=:location "
+            "WHERE id=:id AND company_id=:company"
+        ),
+        {"id": employee_id, "name": name, "phone": phone, "role": role, "location": location_id, "company": company_id},
     )
 
 
@@ -635,14 +723,17 @@ def phone_digits(phone: str) -> str:
     return re.sub(r"\D", "", phone)
 
 
-def duplicate_active_phone(c, phone: str, exclude_id: str | None = None) -> str | None:
+def duplicate_active_phone(c, phone: str, company_id: str, exclude_id: str | None = None) -> str | None:
     """Shared phones are legitimate (family or office phones), so a repeat warns instead of
     blocking: two ACTIVE records with one phone are often a duplicate that can pay one person
     twice, and the warning sends the admin to check."""
     digits = phone_digits(phone)[-10:]
     if len(digits) < 7:
         return None
-    for row in c.execute(text("SELECT id,name,phone FROM demo_employees WHERE active=1")).mappings():
+    for row in c.execute(
+        text("SELECT id,name,phone FROM demo_employees WHERE active=1 AND company_id=:company"),
+        {"company": company_id},
+    ).mappings():
         if row["id"] != exclude_id and phone_digits(row["phone"])[-10:] == digits:
             return (
                 f"{row['name']} ({row['id']}) already has this phone number. Check that this is not a duplicate record."
@@ -683,9 +774,9 @@ def add_employee(body: EmployeeBody, user=Depends(current_user)):
     with engine.begin() as c:
         if body.location_id:
             require_active_location(c, user, body.location_id)
-        warning = duplicate_active_phone(c, body.phone)
+        warning = duplicate_active_phone(c, body.phone, user["company_id"])
         employee_id = new_employee_id(c)
-        insert_employee_row(c, employee_id, body.name, body.phone, body.role, body.location_id)
+        insert_employee_row(c, employee_id, body.name, body.phone, body.role, body.location_id, user["company_id"])
         audit(c, user, "employee.create", {"employee_id": employee_id, "location_id": body.location_id})
         return {
             "id": employee_id,
@@ -704,7 +795,10 @@ def disable_employee(employee_id: str, user=Depends(current_user)):
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
         row = (
-            c.execute(text("SELECT * FROM demo_employees WHERE id=:id AND active=1" + row_lock()), {"id": employee_id})
+            c.execute(
+                text("SELECT * FROM demo_employees WHERE id=:id AND active=1 AND company_id=:company" + row_lock()),
+                {"id": employee_id, "company": user["company_id"]},
+            )
             .mappings()
             .first()
         )
@@ -742,7 +836,10 @@ def enable_employee(employee_id: str, user=Depends(current_user)):
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
         row = (
-            c.execute(text("SELECT * FROM demo_employees WHERE id=:id AND active=0" + row_lock()), {"id": employee_id})
+            c.execute(
+                text("SELECT * FROM demo_employees WHERE id=:id AND active=0 AND company_id=:company" + row_lock()),
+                {"id": employee_id, "company": user["company_id"]},
+            )
             .mappings()
             .first()
         )
@@ -780,14 +877,17 @@ def import_employees(body: EmployeeImportBody, user=Depends(current_user)):
             existing = (
                 c.execute(text("SELECT * FROM demo_employees WHERE id=:id"), {"id": employee_id}).mappings().first()
             )
+            if existing and existing["company_id"] != user["company_id"]:
+                # Same message whether the ID is free or not for the caller's own data: no detail about other companies.
+                raise HTTPException(409, f"Employee ID {employee_id} cannot be used. Choose another ID.")
             if existing:
                 if existing["location_id"]:
                     require_location_access(c, user, existing["location_id"])
-                warning = duplicate_active_phone(c, row.phone, exclude_id=employee_id)
+                warning = duplicate_active_phone(c, row.phone, user["company_id"], exclude_id=employee_id)
                 if warning:
                     warnings.append(f"{employee_id}: {warning}")
                 old_location = existing["location_id"]
-                update_employee_row(c, employee_id, row.name, row.phone, row.role, row.location_id)
+                update_employee_row(c, employee_id, row.name, row.phone, row.role, row.location_id, user["company_id"])
                 if old_location != row.location_id:
                     audit(
                         c,
@@ -797,18 +897,20 @@ def import_employees(body: EmployeeImportBody, user=Depends(current_user)):
                     )
                 updated += 1
             else:
-                warning = duplicate_active_phone(c, row.phone)
+                warning = duplicate_active_phone(c, row.phone, user["company_id"])
                 if warning:
                     warnings.append(f"{employee_id}: {warning}")
-                insert_employee_row(c, employee_id, row.name, row.phone, row.role, row.location_id)
+                insert_employee_row(c, employee_id, row.name, row.phone, row.role, row.location_id, user["company_id"])
                 created += 1
         # assigned_count is a live headcount. Rebuild it from the real rows after each import,
         # so transfers and disables can never drift the numbers shown on the screens.
         c.execute(
             text(
                 "UPDATE demo_locations SET assigned_count="
-                "(SELECT COUNT(*) FROM demo_employees WHERE location_id=demo_locations.id AND active=1)"
-            )
+                "(SELECT COUNT(*) FROM demo_employees WHERE location_id=demo_locations.id AND active=1) "
+                "WHERE company_id=:company"
+            ),
+            {"company": user["company_id"]},
         )
         audit(c, user, "employee.import", {"created": created, "updated": updated})
     return {"created": created, "updated": updated, "warnings": warnings}
@@ -836,9 +938,9 @@ def attendance(
         AND a.id=(SELECT latest.id FROM demo_attendance latest WHERE latest.employee_id=e.id
           AND latest.day=:day AND latest.location_id=:location
           ORDER BY latest.check_in DESC,latest.id DESC LIMIT 1)
-      WHERE e.active=1 AND e.location_id=:location
+      WHERE e.active=1 AND e.location_id=:location AND e.company_id=:company
     """
-    params = {"location": location_id, "day": selected_day}
+    params = {"location": location_id, "day": selected_day, "company": user["company_id"]}
     sql = add_name_search(sql, params, "e.name", "e.id", q)
     if status:
         sql += " AND COALESCE(a.status,'not_in')=:status"
@@ -852,14 +954,14 @@ def attendance(
         adhoc_sql = """
           SELECT a.id,e.id employee_id,e.name,e.phone,e.role,e.location_id,
                  a.status,a.check_in,a.check_out,COALESCE(a.source,'not recorded') source
-          FROM demo_attendance a JOIN demo_employees e ON e.id=a.employee_id
+          FROM demo_attendance a JOIN demo_employees e ON e.id=a.employee_id AND e.company_id=:company
           WHERE a.day=:day AND a.location_id=:location
             AND a.id=(SELECT latest.id FROM demo_attendance latest WHERE latest.employee_id=e.id
               AND latest.day=:day AND latest.location_id=:location
               ORDER BY latest.check_in DESC,latest.id DESC LIMIT 1)
             AND (e.location_id IS NULL OR e.location_id<>:location)
         """
-        adhoc_params = {"location": location_id, "day": selected_day}
+        adhoc_params = {"location": location_id, "day": selected_day, "company": user["company_id"]}
         adhoc_sql = add_name_search(adhoc_sql, adhoc_params, "e.name", "e.id", q)
         if status:
             adhoc_sql += " AND a.status=:status"
@@ -890,7 +992,10 @@ def check_in(body: CheckBody, user=Depends(current_user)):
     stamp = utcnow().isoformat()
     with engine.begin() as c:
         emp = (
-            c.execute(text("SELECT * FROM demo_employees WHERE id=:id" + row_lock()), {"id": body.employee_id})
+            c.execute(
+                text("SELECT * FROM demo_employees WHERE id=:id AND company_id=:company" + row_lock()),
+                {"id": body.employee_id, "company": user["company_id"]},
+            )
             .mappings()
             .first()
         )
@@ -983,7 +1088,11 @@ def check_out(body: CheckBody, user=Depends(current_user)):
     today = local_today().isoformat()
     stamp = utcnow().isoformat()
     with engine.begin() as c:
-        c.execute(text("SELECT id FROM demo_employees WHERE id=:id" + row_lock()), {"id": body.employee_id}).first()
+        if not c.execute(
+            text("SELECT id FROM demo_employees WHERE id=:id AND company_id=:company" + row_lock()),
+            {"id": body.employee_id, "company": user["company_id"]},
+        ).first():
+            raise HTTPException(404, "Employee not found")
         require_location_access(c, user, body.location_id)
         # Close the newest open check-in at this location, even from an earlier day. Overnight
         # shifts and forgotten check-outs must not strand open records. A late close is marked
@@ -1050,7 +1159,11 @@ def edit_attendance_times(body: AttendanceTimeBody, user=Depends(current_user)):
         check_out and datetime.fromisoformat(check_out) - datetime.fromisoformat(check_in) > timedelta(hours=24)
     )
     with engine.begin() as c:
-        c.execute(text("SELECT id FROM demo_employees WHERE id=:id" + row_lock()), {"id": body.employee_id}).first()
+        if not c.execute(
+            text("SELECT id FROM demo_employees WHERE id=:id AND company_id=:company" + row_lock()),
+            {"id": body.employee_id, "company": user["company_id"]},
+        ).first():
+            raise HTTPException(404, "Employee not found")
         require_location_access(c, user, body.location_id)
         params = {"employee": body.employee_id, "day": parsed_day.isoformat(), "location": body.location_id}
         sql = "SELECT * FROM demo_attendance WHERE employee_id=:employee AND day=:day AND location_id=:location"
@@ -1111,13 +1224,19 @@ def edit_attendance_times(body: AttendanceTimeBody, user=Depends(current_user)):
 def dashboard(user=Depends(current_user)):
     today = local_today().isoformat()
     scope = scoped_sql(user, "location_id")
+    employee_scope = employee_scope_sql(user)
     params = {"day": today, **scope_params(user)}
     # Only employees of active branches count as expected today; disabled branches pause attendance.
     on_active_branch = "(location_id IS NULL OR location_id IN (SELECT id FROM demo_locations WHERE active=1))"
     with engine.connect() as c:
         total_employees = (
             c.execute(
-                text("SELECT COUNT(*) FROM demo_employees WHERE active=1 AND " + on_active_branch + " AND " + scope),
+                text(
+                    "SELECT COUNT(*) FROM demo_employees WHERE active=1 AND "
+                    + on_active_branch
+                    + " AND "
+                    + employee_scope
+                ),
                 params,
             ).scalar()
             or 0
@@ -1127,7 +1246,7 @@ def dashboard(user=Depends(current_user)):
                 "SELECT location_id,COUNT(*) count FROM demo_employees WHERE active=1 AND "
                 + on_active_branch
                 + " AND "
-                + scope
+                + employee_scope
                 + " GROUP BY location_id"
             ),
             params,
@@ -1187,7 +1306,9 @@ def unrecorded_today(c, user: dict, location_id: str = "") -> list[dict]:
     sql = (
         "SELECT e.id employee_id,e.name employee_name,e.location_id,l.name location_name "
         "FROM demo_employees e JOIN demo_locations l ON l.id=e.location_id "
-        "WHERE e.active=1 AND l.active=1 AND " + scoped_sql(user, "e.location_id") + " AND NOT EXISTS "
+        "WHERE e.active=1 AND l.active=1 AND e.company_id=:__company AND "
+        + scoped_sql(user, "e.location_id")
+        + " AND NOT EXISTS "
         "(SELECT 1 FROM demo_attendance a WHERE a.employee_id=e.id AND a.day=:day AND a.location_id=e.location_id)"
     )
     if location_id:
@@ -1438,8 +1559,12 @@ def audit_log(limit: int = Query(100, ge=1, le=500), user=Depends(current_user))
         rows = [
             dict(r)
             for r in c.execute(
-                text("SELECT at,user_id,action,details FROM demo_audit ORDER BY at DESC LIMIT :limit"),
-                {"limit": limit},
+                text(
+                    "SELECT a.at,a.user_id,a.action,a.details FROM demo_audit a "
+                    "JOIN demo_audit_scope s ON s.audit_id=a.id WHERE s.company_id=:company "
+                    "ORDER BY a.at DESC LIMIT :limit"
+                ),
+                {"limit": limit, "company": user["company_id"]},
             ).mappings()
         ]
     for row in rows:
@@ -1455,7 +1580,13 @@ def audit_export(user=Depends(current_user)):
     with engine.connect() as c:
         rows = [
             dict(r)
-            for r in c.execute(text("SELECT at,user_id,action,details FROM demo_audit ORDER BY at DESC")).mappings()
+            for r in c.execute(
+                text(
+                    "SELECT a.at,a.user_id,a.action,a.details FROM demo_audit a "
+                    "JOIN demo_audit_scope s ON s.audit_id=a.id WHERE s.company_id=:company ORDER BY a.at DESC"
+                ),
+                {"company": user["company_id"]},
+            ).mappings()
         ]
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=["at", "user_id", "action", "details"])
@@ -1468,6 +1599,16 @@ def audit_export(user=Depends(current_user)):
     )
 
 
+def company_summary(company_id: str) -> dict:
+    with engine.connect() as c:
+        row = (
+            c.execute(text("SELECT id,name,active FROM demo_companies WHERE id=:id"), {"id": company_id})
+            .mappings()
+            .first()
+        )
+    return dict(row) if row else {"id": company_id, "name": "", "active": 0}
+
+
 @app.get("/api/settings")
 def settings(user=Depends(current_user)):
     locations = location_rows(user)
@@ -1477,11 +1618,22 @@ def settings(user=Depends(current_user)):
                 dict(r)
                 for r in c.execute(
                     text(
-                        "SELECT u.id,u.name,u.role,CASE WHEN d.user_id IS NULL THEN 1 ELSE 0 END AS active FROM demo_users u LEFT JOIN demo_disabled_users d ON d.user_id=u.id ORDER BY u.role,u.id"
-                    )
+                        "SELECT u.id,u.name,u.role,CASE WHEN d.user_id IS NULL THEN 1 ELSE 0 END AS active FROM demo_users u LEFT JOIN demo_disabled_users d ON d.user_id=u.id WHERE u.company_id=:company ORDER BY u.role,u.id"
+                    ),
+                    {"company": user["company_id"]},
                 ).mappings()
             ]
-            grants = c.execute(text("SELECT user_id,location_id FROM demo_user_locations")).mappings().all()
+            grants = (
+                c.execute(
+                    text(
+                        "SELECT g.user_id,g.location_id FROM demo_user_locations g "
+                        "JOIN demo_locations l ON l.id=g.location_id WHERE l.company_id=:company"
+                    ),
+                    {"company": user["company_id"]},
+                )
+                .mappings()
+                .all()
+            )
             by_user = {}
             for grant in grants:
                 by_user.setdefault(grant["user_id"], []).append(grant["location_id"])
@@ -1496,7 +1648,14 @@ def settings(user=Depends(current_user)):
                 }
             ]
     return {
-        "profile": {"name": user["name"], "id": user["id"], "role": user["role"]},
+        "profile": {
+            "name": user["name"],
+            "id": user["id"],
+            "role": user["role"],
+            "is_owner": user["is_owner"],
+            "company_id": user["company_id"],
+        },
+        "company": company_summary(user["company_id"]),
         "locations": locations,
         "access": access,
         "data_notice": "Demo environment. Demo credentials are disabled unless DEMO_MODE=true.",
@@ -1520,7 +1679,8 @@ def create_location(body: LocationBody, user=Depends(current_user)):
             raise HTTPException(409, "Location ID already exists")
         if body.supervisor_id is not None:
             supervisor = c.execute(
-                text("SELECT role FROM demo_users WHERE id=:id"), {"id": body.supervisor_id}
+                text("SELECT role FROM demo_users WHERE id=:id AND company_id=:company"),
+                {"id": body.supervisor_id, "company": user["company_id"]},
             ).scalar()
             if supervisor != "supervisor":
                 raise HTTPException(400, "Choose an existing supervisor")
@@ -1534,9 +1694,10 @@ def create_location(body: LocationBody, user=Depends(current_user)):
         first = shift_rows[0] if shift_rows else None
         c.execute(
             text(
-                "INSERT INTO demo_locations (id,name,area,assigned_count,shift_start,shift_end,active) VALUES (:id,:name,:area,:count,:shift_start,:shift_end,1)"
+                "INSERT INTO demo_locations (id,name,area,assigned_count,shift_start,shift_end,active,company_id) VALUES (:id,:name,:area,:count,:shift_start,:shift_end,1,:company)"
             ),
             {
+                "company": user["company_id"],
                 "id": body.id,
                 "name": body.name,
                 "area": body.area,
@@ -1602,7 +1763,10 @@ def disable_location(location_id: str, user=Depends(current_user)):
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
         row = (
-            c.execute(text("SELECT * FROM demo_locations WHERE id=:id AND active=1" + row_lock()), {"id": location_id})
+            c.execute(
+                text("SELECT * FROM demo_locations WHERE id=:id AND active=1 AND company_id=:company" + row_lock()),
+                {"id": location_id, "company": user["company_id"]},
+            )
             .mappings()
             .first()
         )
@@ -1634,7 +1798,10 @@ def enable_location(location_id: str, user=Depends(current_user)):
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
         row = (
-            c.execute(text("SELECT * FROM demo_locations WHERE id=:id AND active=0" + row_lock()), {"id": location_id})
+            c.execute(
+                text("SELECT * FROM demo_locations WHERE id=:id AND active=0 AND company_id=:company" + row_lock()),
+                {"id": location_id, "company": user["company_id"]},
+            )
             .mappings()
             .first()
         )
@@ -1662,6 +1829,8 @@ def import_locations(body: LocationImportBody, user=Depends(current_user)):
             existing = (
                 c.execute(text("SELECT * FROM demo_locations WHERE id=:id"), {"id": location_id}).mappings().first()
             )
+            if existing and existing["company_id"] != user["company_id"]:
+                raise HTTPException(409, f"Location ID {location_id} cannot be used. Choose another ID.")
             if existing:
                 c.execute(
                     text("UPDATE demo_locations SET name=:name,area=:area,assigned_count=:count,active=1 WHERE id=:id"),
@@ -1671,9 +1840,15 @@ def import_locations(body: LocationImportBody, user=Depends(current_user)):
             else:
                 c.execute(
                     text(
-                        "INSERT INTO demo_locations (id,name,area,assigned_count,shift_start,shift_end,active) VALUES (:id,:name,:area,:count,NULL,NULL,1)"
+                        "INSERT INTO demo_locations (id,name,area,assigned_count,shift_start,shift_end,active,company_id) VALUES (:id,:name,:area,:count,NULL,NULL,1,:company)"
                     ),
-                    {"id": location_id, "name": row.name, "area": row.area, "count": row.assigned_count},
+                    {
+                        "id": location_id,
+                        "name": row.name,
+                        "area": row.area,
+                        "count": row.assigned_count,
+                        "company": user["company_id"],
+                    },
                 )
                 created += 1
         audit(c, user, "settings.location.import", {"created": created, "updated": updated})
@@ -1682,15 +1857,21 @@ def import_locations(body: LocationImportBody, user=Depends(current_user)):
 
 @app.post("/api/settings/access")
 def create_access(body: AccessBody, user=Depends(current_user)):
+    """Create a supervisor login. Only the owner creates admin logins, on the owner screens."""
     if user["role"] != "admin":
         raise HTTPException(403, "Admin required")
+    if body.role != "supervisor":
+        raise HTTPException(403, "Only the owner can create admin accounts")
     with engine.begin() as c:
         if c.execute(text("SELECT 1 FROM demo_users WHERE id=:id"), {"id": body.id}).first():
             raise HTTPException(409, "User ID already exists")
         for location_id in body.location_ids:
-            if not c.execute(text("SELECT 1 FROM demo_locations WHERE id=:id"), {"id": location_id}).first():
+            if not c.execute(
+                text("SELECT 1 FROM demo_locations WHERE id=:id AND company_id=:company"),
+                {"id": location_id, "company": user["company_id"]},
+            ).first():
                 raise HTTPException(404, f"Location not found: {location_id}")
-        insert_user(c, body.id, body.name, body.role, body.password)
+        insert_user(c, body.id, body.name, body.role, body.password, user["company_id"])
         if body.role == "supervisor":
             for location_id in body.location_ids:
                 c.execute(
@@ -1701,7 +1882,7 @@ def create_access(body: AccessBody, user=Depends(current_user)):
     return {"id": body.id, "name": body.name, "role": body.role, "location_ids": body.location_ids}
 
 
-def supervisor_row(c, user_id: str, active: int | None = None, lock: bool = False):
+def supervisor_row(c, user_id: str, company_id: str, active: int | None = None, lock: bool = False):
     """Load a user for access management. Supervisor-only by design: admin account
     management is out of scope for these endpoints.
 
@@ -1712,7 +1893,14 @@ def supervisor_row(c, user_id: str, active: int | None = None, lock: bool = Fals
     stale join result and duplicate-insert the marker.
     """
     lock_sql = " FOR UPDATE" if lock and engine.dialect.name != "sqlite" else ""
-    row = c.execute(text(f"SELECT u.* FROM demo_users u WHERE u.id=:id{lock_sql}"), {"id": user_id}).mappings().first()
+    row = (
+        c.execute(
+            text(f"SELECT u.* FROM demo_users u WHERE u.id=:id AND u.company_id=:company{lock_sql}"),
+            {"id": user_id, "company": company_id},
+        )
+        .mappings()
+        .first()
+    )
     if not row:
         raise HTTPException(404, "Supervisor not found")
     if row["role"] != "supervisor":
@@ -1766,10 +1954,13 @@ def update_access_locations(user_id: str, body: AccessLocationsBody, user=Depend
         # under READ COMMITTED could otherwise interleave into a union of both edits (or a
         # unique violation). The lock makes per-user replacements strictly serialized, so
         # the last committer's set is exactly what remains.
-        supervisor_row(c, user_id, lock=True)
+        supervisor_row(c, user_id, user["company_id"], lock=True)
         after = list(dict.fromkeys(body.location_ids))
         for location_id in after:
-            if not c.execute(text("SELECT 1 FROM demo_locations WHERE id=:id"), {"id": location_id}).first():
+            if not c.execute(
+                text("SELECT 1 FROM demo_locations WHERE id=:id AND company_id=:company"),
+                {"id": location_id, "company": user["company_id"]},
+            ).first():
                 raise HTTPException(404, f"Location not found: {location_id}")
         before = grant_site_ids(c, user_id)
         c.execute(text("DELETE FROM demo_user_locations WHERE user_id=:id"), {"id": user_id})
@@ -1794,7 +1985,7 @@ def disable_access(user_id: str, user=Depends(current_user)):
     if user_id == user["id"]:
         raise HTTPException(400, "You cannot disable your own account")
     with engine.begin() as c:
-        row = supervisor_row(c, user_id, active=1, lock=True)
+        row = supervisor_row(c, user_id, user["company_id"], active=1, lock=True)
         sites = grant_site_ids(c, user_id)
         c.execute(
             text("INSERT INTO demo_disabled_users VALUES (:id,:at,:by)"),
@@ -1806,6 +1997,35 @@ def disable_access(user_id: str, user=Depends(current_user)):
     return {"id": user_id, "status": "disabled", "unsupervised": unsupervised}
 
 
+class PasswordResetBody(BaseModel):
+    password: str = Field(min_length=8, max_length=100)
+
+
+@app.post("/api/settings/access/{user_id}/password")
+def reset_access_password(user_id: str, body: PasswordResetBody, user=Depends(current_user)):
+    """An admin sets a new password for a supervisor of their own company. Supervisors only:
+    admin accounts, other companies and the owner are refused. The supervisor's sessions end
+    in the same transaction. The password is never logged, audited or returned."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        row = supervisor_row(c, user_id, user["company_id"], lock=True)
+        salt = secrets.token_hex(16)
+        c.execute(
+            text("UPDATE demo_users SET salt=:salt, password=:password WHERE id=:id AND company_id=:company"),
+            {
+                "salt": salt,
+                "password": password_hash(body.password, salt),
+                "id": user_id,
+                "company": user["company_id"],
+            },
+        )
+        c.execute(text("DELETE FROM demo_sessions WHERE user_id=:id"), {"id": user_id})
+        audit(c, user, "settings.access.password_reset", {"id": user_id, "name": row["name"]})
+    login_throttle_clear(user_id.strip().lower())
+    return {"id": user_id, "status": "password_reset"}
+
+
 @app.post("/api/settings/access/{user_id}/enable")
 def enable_access(user_id: str, user=Depends(current_user)):
     """Re-enable a disabled supervisor. Site grants were kept, so coverage resumes exactly
@@ -1813,7 +2033,7 @@ def enable_access(user_id: str, user=Depends(current_user)):
     if user["role"] != "admin":
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
-        row = supervisor_row(c, user_id, active=0, lock=True)
+        row = supervisor_row(c, user_id, user["company_id"], active=0, lock=True)
         c.execute(text("DELETE FROM demo_disabled_users WHERE user_id=:id"), {"id": user_id})
         # Purge any session row that somehow outlived the disabled window, so no token
         # minted before or during it can revive on re-enable. Login already serializes
@@ -1821,6 +2041,237 @@ def enable_access(user_id: str, user=Depends(current_user)):
         # any future code path creates sessions.
         c.execute(text("DELETE FROM demo_sessions WHERE user_id=:id"), {"id": user_id})
         audit(c, user, "settings.access.enable", {"id": user_id, "name": row["name"]})
+    return {"id": user_id, "status": "active"}
+
+
+# ---------------------------------------------------------------------------
+# Owner (platform) routes. Only an account with the owner role passes owner_user.
+# The owner creates companies and company admins. These routes never return
+# attendance, employee or report data. To work inside one company, the owner
+# selects it with the X-Company-Id header on the normal company routes.
+# ---------------------------------------------------------------------------
+class OwnerSetupBody(BaseModel):
+    token: str = Field(min_length=8, max_length=200)
+    id: str = Field(min_length=3, max_length=80)
+    name: str = Field(min_length=2, max_length=80)
+    password: str = Field(min_length=10, max_length=100)
+
+
+class CompanyBody(BaseModel):
+    name: str = Field(min_length=2, max_length=100)
+    address: str | None = Field(default=None, max_length=200)
+    contact_person: str | None = Field(default=None, max_length=100)
+    contact_phone: str | None = Field(default=None, max_length=30)
+
+
+COMPANY_DETAIL_FIELDS = ("address", "contact_person", "contact_phone")
+
+
+def clean_detail(value: str | None) -> str | None:
+    value = (value or "").strip()
+    return value or None
+
+
+class CompanyAdminBody(BaseModel):
+    id: str = Field(min_length=3, max_length=80)
+    name: str = Field(min_length=2, max_length=80)
+    password: str = Field(min_length=8, max_length=100)
+
+
+def company_or_404(c, company_id: str):
+    row = c.execute(text("SELECT * FROM demo_companies WHERE id=:id"), {"id": company_id}).mappings().first()
+    if not row:
+        raise HTTPException(404, "Company not found")
+    return row
+
+
+@app.post("/api/owner/setup")
+def owner_setup(body: OwnerSetupBody):
+    """Create the first owner. Works once, and only when the host has set OWNER_SETUP_TOKEN.
+
+    The password is typed by the owner into this request. It is never sent in a chat.
+    """
+    expected = os.environ.get("OWNER_SETUP_TOKEN", "")
+    login_throttle_check("owner-setup")
+    if not expected or not hmac.compare_digest(body.token.encode(), expected.encode()):
+        login_throttle_record("owner-setup")
+        raise HTTPException(403, "Setup is not available")
+    with engine.begin() as c:
+        if c.execute(text("SELECT 1 FROM demo_users WHERE role='owner'")).first():
+            raise HTTPException(409, "An owner already exists")
+        if c.execute(text("SELECT 1 FROM demo_users WHERE id=:id"), {"id": body.id}).first():
+            raise HTTPException(409, "User ID already exists")
+        try:
+            with c.begin_nested():
+                insert_user(c, body.id, body.name, "owner", body.password, None)
+        except IntegrityError:
+            raise HTTPException(409, "An owner already exists") from None
+        audit(c, {"id": body.id}, "owner.setup", {"id": body.id}, company_id="platform")
+    login_throttle_clear("owner-setup")
+    return {"id": body.id, "role": "owner"}
+
+
+@app.get("/api/owner/companies")
+def owner_companies(owner=Depends(owner_user)):
+    with engine.connect() as c:
+        rows = [
+            dict(r)
+            for r in c.execute(
+                text(
+                    "SELECT id,name,active,created_at,address,contact_person,contact_phone FROM demo_companies ORDER BY name"
+                )
+            ).mappings()
+        ]
+        for row in rows:
+            counts = {"company": row["id"]}
+            row["admins"] = c.execute(
+                text("SELECT COUNT(*) FROM demo_users WHERE company_id=:company AND role='admin'"), counts
+            ).scalar()
+            row["supervisors"] = c.execute(
+                text("SELECT COUNT(*) FROM demo_users WHERE company_id=:company AND role='supervisor'"), counts
+            ).scalar()
+            row["locations"] = c.execute(
+                text("SELECT COUNT(*) FROM demo_locations WHERE company_id=:company"), counts
+            ).scalar()
+    return {"companies": rows}
+
+
+@app.post("/api/owner/companies")
+def owner_create_company(body: CompanyBody, owner=Depends(owner_user)):
+    slug = re.sub(r"[^a-z0-9]+", "-", body.name.lower()).strip("-") or "company"
+    with engine.begin() as c:
+        company_id = "co-" + slug[:30]
+        if c.execute(text("SELECT 1 FROM demo_companies WHERE id=:id"), {"id": company_id}).first():
+            company_id = f"{company_id}-{secrets.token_hex(3)}"
+        c.execute(
+            text(
+                "INSERT INTO demo_companies (id,name,active,created_at,created_by,address,contact_person,contact_phone) "
+                "VALUES (:id,:name,1,:at,:by,:address,:contact_person,:contact_phone)"
+            ),
+            {
+                "id": company_id,
+                "name": body.name.strip(),
+                "at": utcnow().isoformat(),
+                "by": owner["id"],
+                **{f: clean_detail(getattr(body, f)) for f in COMPANY_DETAIL_FIELDS},
+            },
+        )
+        audit(
+            c,
+            owner,
+            "owner.company.create",
+            {"company_id": company_id, "name": body.name.strip()},
+            company_id=company_id,
+        )
+    return {"id": company_id, "name": body.name.strip(), "active": 1}
+
+
+@app.patch("/api/owner/companies/{company_id}")
+def owner_update_company(company_id: str, body: CompanyBody, owner=Depends(owner_user)):
+    """Edit the company name and the optional details. Only company-level text changes here;
+    no attendance, employee or location data is touched."""
+    name = body.name.strip()
+    with engine.begin() as c:
+        row = company_or_404(c, company_id)
+        details = {f: clean_detail(getattr(body, f)) for f in COMPANY_DETAIL_FIELDS}
+        changed = [f for f in COMPANY_DETAIL_FIELDS if (row.get(f) if isinstance(row, dict) else row[f]) != details[f]]
+        c.execute(
+            text(
+                "UPDATE demo_companies SET name=:name, address=:address, contact_person=:contact_person, contact_phone=:contact_phone WHERE id=:id"
+            ),
+            {"name": name, "id": company_id, **details},
+        )
+        if row["name"] != name:
+            audit(c, owner, "owner.company.rename", {"before": row["name"], "after": name}, company_id=company_id)
+        if changed:
+            audit(c, owner, "owner.company.details", {"fields": ", ".join(changed)}, company_id=company_id)
+    return {"id": company_id, "name": name, **details}
+
+
+@app.post("/api/owner/companies/{company_id}/disable")
+def owner_disable_company(company_id: str, owner=Depends(owner_user)):
+    """Pause a company. Its people cannot sign in and open sessions end. All data stays."""
+    with engine.begin() as c:
+        company_or_404(c, company_id)
+        c.execute(text("UPDATE demo_companies SET active=0 WHERE id=:id"), {"id": company_id})
+        c.execute(
+            text("DELETE FROM demo_sessions WHERE user_id IN (SELECT id FROM demo_users WHERE company_id=:id)"),
+            {"id": company_id},
+        )
+        audit(c, owner, "owner.company.disable", {"company_id": company_id}, company_id=company_id)
+    return {"id": company_id, "status": "paused"}
+
+
+@app.post("/api/owner/companies/{company_id}/enable")
+def owner_enable_company(company_id: str, owner=Depends(owner_user)):
+    with engine.begin() as c:
+        company_or_404(c, company_id)
+        c.execute(text("UPDATE demo_companies SET active=1 WHERE id=:id"), {"id": company_id})
+        audit(c, owner, "owner.company.enable", {"company_id": company_id}, company_id=company_id)
+    return {"id": company_id, "status": "active"}
+
+
+@app.get("/api/owner/companies/{company_id}/admins")
+def owner_company_admins(company_id: str, owner=Depends(owner_user)):
+    with engine.connect() as c:
+        company_or_404(c, company_id)
+        rows = [
+            dict(r)
+            for r in c.execute(
+                text(
+                    "SELECT u.id,u.name,CASE WHEN d.user_id IS NULL THEN 1 ELSE 0 END AS active "
+                    "FROM demo_users u LEFT JOIN demo_disabled_users d ON d.user_id=u.id "
+                    "WHERE u.company_id=:company AND u.role='admin' ORDER BY u.id"
+                ),
+                {"company": company_id},
+            ).mappings()
+        ]
+    return {"admins": rows}
+
+
+@app.post("/api/owner/companies/{company_id}/admins")
+def owner_create_admin(company_id: str, body: CompanyAdminBody, owner=Depends(owner_user)):
+    """The only way to create an admin login. A company can have many admins."""
+    with engine.begin() as c:
+        company_or_404(c, company_id)
+        if c.execute(text("SELECT 1 FROM demo_users WHERE id=:id"), {"id": body.id}).first():
+            raise HTTPException(409, "User ID already exists")
+        insert_user(c, body.id, body.name, "admin", body.password, company_id)
+        audit(c, owner, "owner.admin.create", {"id": body.id, "company_id": company_id}, company_id=company_id)
+    return {"id": body.id, "name": body.name, "role": "admin", "company_id": company_id}
+
+
+def company_admin_row(c, user_id: str):
+    row = c.execute(text("SELECT * FROM demo_users WHERE id=:id AND role='admin'"), {"id": user_id}).mappings().first()
+    if not row:
+        raise HTTPException(404, "Admin not found")
+    return row
+
+
+@app.post("/api/owner/admins/{user_id}/disable")
+def owner_disable_admin(user_id: str, owner=Depends(owner_user)):
+    with engine.begin() as c:
+        row = company_admin_row(c, user_id)
+        if c.execute(text("SELECT 1 FROM demo_disabled_users WHERE user_id=:id"), {"id": user_id}).first():
+            raise HTTPException(409, "This admin is already disabled")
+        c.execute(
+            text("INSERT INTO demo_disabled_users VALUES (:id,:at,:by)"),
+            {"id": user_id, "at": utcnow().isoformat(), "by": owner["id"]},
+        )
+        c.execute(text("DELETE FROM demo_sessions WHERE user_id=:id"), {"id": user_id})
+        audit(c, owner, "owner.admin.disable", {"id": user_id}, company_id=row["company_id"])
+    return {"id": user_id, "status": "disabled"}
+
+
+@app.post("/api/owner/admins/{user_id}/enable")
+def owner_enable_admin(user_id: str, owner=Depends(owner_user)):
+    with engine.begin() as c:
+        row = company_admin_row(c, user_id)
+        if not c.execute(text("SELECT 1 FROM demo_disabled_users WHERE user_id=:id"), {"id": user_id}).first():
+            raise HTTPException(409, "This admin is already active")
+        c.execute(text("DELETE FROM demo_disabled_users WHERE user_id=:id"), {"id": user_id})
+        c.execute(text("DELETE FROM demo_sessions WHERE user_id=:id"), {"id": user_id})
+        audit(c, owner, "owner.admin.enable", {"id": user_id}, company_id=row["company_id"])
     return {"id": user_id, "status": "active"}
 
 

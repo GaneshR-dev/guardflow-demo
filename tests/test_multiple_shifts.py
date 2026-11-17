@@ -161,9 +161,19 @@ def test_boot_migration_copies_existing_pairs_once_and_preserves_rows():
             text("SELECT COUNT(*) FROM demo_location_shifts WHERE location_id='loc-pre-feature'")
         ).scalar()
         assert again == 1
-        # Business rows are untouched by the migration, byte-identical.
+        # Business rows are untouched by the migration, byte-identical. The only change is the
+        # new company_id value (last column) on rows that had none: it is filled, never rewritten.
         for table, before in snapshots.items():
-            assert c.execute(text(f"SELECT * FROM {table} ORDER BY 1")).all() == before, table
+            after = c.execute(text(f"SELECT * FROM {table} ORDER BY 1")).all()
+            if table in ("demo_users", "demo_locations", "demo_employees"):
+                assert [tuple(r)[:-1] for r in after] == [tuple(r)[:-1] for r in before], table
+                # Owners belong to no company; every other row was filled with the default company.
+                assert all(
+                    r[-1] == (b[-1] or (None if (table == "demo_users" and r[2] == "owner") else "company-1"))
+                    for r, b in zip(after, before, strict=True)
+                ), table
+            else:
+                assert after == before, table
 
 
 def test_shift_set_validation_rejects_bad_writes():
