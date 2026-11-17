@@ -133,3 +133,48 @@
     cursor: pointer;
   }
 }
+
+/* Hover states (docs/UI-GUIDE.md, "Hover and press states"). Hover shows only on a device with a
+   mouse, so a tap on a phone does not leave a hover look. A disabled or selected item keeps its look. */
+@utility tap-card {
+  transition-property: background-color, border-color;
+  transition-duration: 150ms;
+  @media (hover: hover) {
+    &:hover:not(
+        :disabled,
+        [aria-pressed='true'],
+        [aria-checked='true'],
+        [aria-current='page'],
+        :has(:checked),
+        :has(:disabled)
+      ) {
+      background-color: var(--soft);
+      border-color: color-mix(in srgb, var(--blue) 40%, var(--line));
+    }
+  }
+}
+
+@utility tap-icon {
+  transition-property: background-color, color;
+  transition-duration: 150ms;
+  @media (hover: hover) {
+    &:hover:not(:disabled, [aria-pressed='true'], [aria-current='page']) {
+      background-color: var(--soft);
+      color: var(--blue-text);
+    }
+  }
+}
+
+/* A segmented tab: the button holds a pill (its first child). */
+@utility tap-tab {
+  & > * {
+    transition-property: background-color, color;
+    transition-duration: 150ms;
+  }
+  @media (hover: hover) {
+    &:hover:not(:disabled, [aria-pressed='true']) > * {
+      background-color: rgb(255 255 255 / 0.6);
+      color: var(--text);
+    }
+  }
+}
