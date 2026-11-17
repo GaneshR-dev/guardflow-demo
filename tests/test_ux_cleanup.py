@@ -222,4 +222,4 @@ def test_report_labels_states_filters_and_reachable_actions(width, tmp_path):
         assert page.locator(".rpMonth").count() == 1
         page.screenshot(path=str(tmp_path / f"report-history-{width}.png"), full_page=True)
         assert page.evaluate("!state.screenError && document.documentElement.scrollWidth <= innerWidth")
-        browser.close(
+        browser.close()
