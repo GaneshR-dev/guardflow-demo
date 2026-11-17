@@ -8,13 +8,13 @@ import { ErrorBanner } from '@/components/ErrorBanner';
 import { LoadingRows } from '@/components/LoadingRows';
 import { LocationSheet } from '@/components/LocationSheet';
 import { ScreenError } from '@/components/ScreenError';
+import { StickySearchBar } from '@/components/StickySearchBar';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Page } from '@/layout/AppShell';
 import { api, ApiError, friendlyError, isApiError } from '@/lib/api';
 import { fmtShortDay, fmtTime, shortLoc, todayISO } from '@/lib/format';
 import { oneRowEach, openRecord } from '@/lib/hours';
-import { cn } from '@/lib/utils';
+import { useScrolledPast } from '@/lib/useScrolledPast';
 import type { AttendanceAnswer, AttendanceRecord, Location, LookupMatch } from '@/types/api';
 import { AddGuardSheet } from './attendance/AddGuardSheet';
 import { EditButton, GuardCard, GuardList, RowButton } from './attendance/AttendanceRow';
@@ -124,17 +124,7 @@ export function Attendance() {
   const setStatus = (v: StatusFilter) => setParam('status', v === 'all' ? '' : v);
 
   // Show the compact filters in the sticky bar when the big tiles are above the screen.
-  const tilesRef = useRef<HTMLDivElement>(null);
-  const [compact, setCompact] = useState(false);
-  const tilesShown = !!site && !blocked;
-  useEffect(() => {
-    const el = tilesRef.current;
-    // Old browsers and the test runner have no IntersectionObserver. Then the tiles are enough.
-    if (!el || typeof IntersectionObserver === 'undefined') return;
-    const io = new IntersectionObserver(([e]) => setCompact(!e.isIntersecting && e.boundingClientRect.top < 0));
-    io.observe(el);
-    return () => io.disconnect();
-  }, [tilesShown]);
+  const [tilesRef, compact] = useScrolledPast<HTMLDivElement>();
   const changeSite = (id: string) => {
     setBlocked(null);
     setSheetOpen(false);
@@ -232,29 +222,15 @@ export function Attendance() {
 
         {/* The search stays at the top while the list scrolls. When the big tiles scroll out of view,
             a one-line copy of the filters shows here too. */}
-        <div
-          className={cn(
-            'sticky top-0 z-10 -mx-[22px] mt-3 bg-app px-[22px] py-2 max-[379px]:-mx-4 max-[379px]:px-4',
-            compact && 'border-b shadow-[0_6px_12px_-10px_rgba(20,45,90,0.35)]',
-          )}
+        <StickySearchBar
+          value={text}
+          onChange={setText}
+          label="Search guards by name or guard ID"
+          placeholder="Search name or guard ID"
+          stuck={compact}
         >
-          <div className="relative">
-            <Search
-              className="pointer-events-none absolute top-1/2 left-3.5 size-[18px] -translate-y-1/2 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <Input
-              type="search"
-              aria-label="Search guards by name or guard ID"
-              placeholder="Search name or guard ID"
-              autoComplete="off"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              className="h-12 rounded-xl border-line bg-field pl-10 text-base"
-            />
-          </div>
           {compact && data && <CompactFilters value={status} counts={data.summary} onChange={setStatus} />}
-        </div>
+        </StickySearchBar>
 
         {list.error && data && (
           <ErrorBanner
