@@ -28,6 +28,7 @@ ANSWERS = {
     "/api/attendance": ATTENDANCE,
     "/api/settings": SETTINGS,
     "/api/employees": [],
+    "/api/reports/monthly": {"month": "2026-11", "day": "2026-11-17", "rows": []},
 }
 
 
@@ -72,6 +73,7 @@ def test_sections_start_at_the_same_position_on_each_page():
         attendance = positions(page, "/attendance?location=loc-hsr")
         guards = positions(page, "/employees")
         settings = positions(page, "/settings")
+        reports = positions(page, "/reports")
         browser.close()
 
     # Home has no title action and Attendance has one ("Add a guard"): the sections still line up.
@@ -82,3 +84,5 @@ def test_sections_start_at_the_same_position_on_each_page():
     assert guards["h1"] == home["h1"]
     assert guards["context"] is None
     assert settings["h1"] == home["h1"]
+    # Reports has a context row (the tabs): the same positions as Home.
+    assert reports["h1"] == home["h1"] and reports["context"] == home["context"]

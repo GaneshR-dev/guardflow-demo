@@ -220,6 +220,16 @@ One screen replaces the 3 old screens (list, check-in, check-outs). Each row has
 - Activity log: titles in the glossary words, IST dates. The export icon downloads the CSV with `apiFile()`.
 - Forms use `useSingleSubmit()` (`lib/useSingleSubmit.ts`): a fast double tap sends one request.
 
+### Reports screen (`screens/Reports.tsx`, `screens/reports/`)
+
+- Title row: "Reports" and an "Excel" button (not on History). Context row: the Day · Month · History tabs (each 44 px).
+- Filters: a date or month button (`PeriodButton`: the native picker input covers the whole button) and a site button (`LocationSheet`; Month has "All sites").
+- The tab, date, month, site and Day status filter are in the URL. A site detail is `/reports/sites/:id?month=`.
+- Day: 4 `StatTile` filters (All entries, Checked in, Checked out, Not checked in), "N guards · N entries", "Avg shift", read-only guard cards. The status filter works on the phone.
+- Month: `SummaryCard` ("X of Y completed", %, bar, "N open · avg shift"), then one card for each site. A site card opens the site detail ("By day"); a day opens the Day tab.
+- History: the last 6 months, each with a 44 px Excel download icon.
+- Excel: `apiFile()`, disabled until the data has records. Toast "Excel file is ready · <file>". A failure shows the error banner.
+
 ### Edit times sheet (`screens/attendance/EditTimesSheet.tsx`)
 
 The sheet uses the site shift (`lib/shift.ts`; the server has the same rule in `shift_window()`).

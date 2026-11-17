@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · React Reports screen · Claude Code · feat/react-reports
+- Request: Move the Reports screen to React.
+- Changed: `screens/Reports.tsx` (tabs in the context row, Excel in the title row, date/month and site filters, URL state) and `screens/reports/`: `DayReport.tsx`, `MonthReport.tsx`, `SiteDetail.tsx` (`/reports/sites/:id`), `HistoryReport.tsx`, `PeriodButton.tsx`, `SummaryCard.tsx`, `data.ts` (queries, Excel). Types in `types/api.ts`. No backend change.
+- Tests: `screens/reports/Reports.test.tsx` (new, 8 tests). `tests/test_next_reports.py` (new). `tests/test_next_layout.py`: Reports positions. `npm test` → 170 passed. Browser at 390 px with the local API: Day, Month, site detail, a day link, History, a future day, the site sheet. The browser test found 34 px tabs and a 42 px date input; both are now 44 px.
+- Open items: Figma not read (the Figma MCP plan limit is still used up); the old app, which follows the Figma design, was the reference. The Excel download was tested with mocks, not with a real download in the browser.
+
 ## 2026-11-17 · 4-tab menu and React Settings · Claude Code · feat/react-settings
 - Request: Use 4 tabs in the bottom menu (Home, Attendance, Reports, Settings). Open Guards and Sites from Settings. Move Settings to React.
 - Changed: `layout/BottomNav.tsx` (4 tabs; Settings is active on Guards and Sites). `layout/AppShell.tsx`: `Page` `back`. `screens/settings/`: Settings home (Guards and Sites with counts, account rows, Sign out), My profile, User access (list, add a supervisor, one supervisor: sites, new password, disable/enable), Activity log (glossary titles, IST dates, CSV export).

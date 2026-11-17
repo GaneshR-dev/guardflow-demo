@@ -5,6 +5,8 @@ import { AppShell } from '@/layout/AppShell';
 import { Attendance } from '@/screens/Attendance';
 import { Home } from '@/screens/Home';
 import { Login } from '@/screens/Login';
+import { Reports } from '@/screens/Reports';
+import { SiteDetail } from '@/screens/reports/SiteDetail';
 import { NotMovedYet } from '@/screens/NotMovedYet';
 import { Access } from '@/screens/settings/Access';
 import { AccessUser } from '@/screens/settings/AccessUser';
@@ -41,7 +43,8 @@ export function AppRoutes() {
             <Route path="/employees" element={<NotMovedYet title="Guards" oldScreen="employees" />} />
             <Route path="/locations" element={<NotMovedYet title="Sites" oldScreen="locations" />} />
             <Route path="/locations/:id" element={<NotMovedYet title="Site" oldScreen="locations" />} />
-            <Route path="/reports" element={<NotMovedYet title="Reports" oldScreen="reports" />} />
+            <Route path="/reports" element={<Reports />} />
+            <Route path="/reports/sites/:id" element={<SiteDetail />} />
             <Route path="/settings" element={<SettingsHome />} />
             <Route path="/settings/profile" element={<Profile />} />
             <Route path="/settings/access" element={<Access />} />
