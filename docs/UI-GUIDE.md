@@ -157,6 +157,26 @@ The screens move to React one at a time. Use this table to find the React form o
 
 Routes: `/login`, `/owner`, `/home`, `/attendance`, `/attendance/add`, `/attendance/checkout`, `/employees`, `/locations`, `/locations/:id`, `/reports`, `/settings`. A screen that is not moved yet shows `NotMovedYet`, with a link to the old screen.
 
+### Hover and press states
+
+Each button, clickable item and input has a hover state. The styles are in `frontend/src/index.css`.
+
+| Item | Use | Hover |
+|---|---|---|
+| White clickable box: card, tile, list row, select button (site, date), sheet row | `tap-card` | Background `--soft`, border 40 % blue |
+| Icon-only or text-only button with no box: back, password eye, bottom menu tab | `tap-icon` | Background `--soft`, text `--blue-text` |
+| Tab in a segmented control (the button holds a pill) | `tap-tab` | Pill white at 60 %, text `--text` |
+| shadcn `Button` | the variant | `default`: darker blue (`--blue-text`). `outline`: white, `--soft` on hover. `ghost`: `--soft`. `link`: underline. |
+| shadcn `Input`, `Textarea` (also `PasswordInput`) | built in | Border 40 % blue only. No hover while the field has focus (focus has its blue ring). |
+
+Rules:
+- Hover shows only on a device with a mouse (`@media (hover: hover)`). A tap on a phone does not leave a hover look.
+- A disabled item and a selected item (`aria-pressed`, `aria-checked`, `aria-current="page"`, a checked input) keep their look on hover.
+- An icon inside a card or a button (map pin, chevron, status dot) does not get its own hover. The item around it shows the hover.
+- Clickable items show the pointer cursor.
+- All hover colours keep text contrast at 4.5:1 or more.
+- `frontend/src/hover.test.ts` reads the screens. Each `<button>`, `<Link>`, `<a>`, `<label>` with an input and raw `<input>` with a `className` must have `hover:` or a `tap-` utility. A new button with no hover fails the test.
+
 ### Sign-in screen (`screens/Login.tsx`)
 
 - Fields: 54 px high, `bg-field` (`#edf3f9`), 1 px `border-line`, 12 px radius, 2 px blue focus ring. Browser autofill keeps the same fill (`index.css`).
