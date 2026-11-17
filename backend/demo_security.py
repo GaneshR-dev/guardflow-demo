@@ -60,9 +60,19 @@ def iso_dt(day: date, hour: int, minute: int) -> str:
     return datetime.combine(day, time(hour, minute), tzinfo=LOCAL_TZ).astimezone(timezone.utc).isoformat()
 
 
-def insert_user(c, user_id: str, name: str, role: str, password: str) -> None:
+def insert_user(c, user_id: str, name: str, role: str, password: str, company_id: str | None = None) -> None:
     salt = secrets.token_hex(16)
     c.execute(
-        text("INSERT INTO demo_users (id,name,role,salt,password) VALUES (:id,:name,:role,:salt,:password)"),
-        {"id": user_id, "name": name, "role": role, "salt": salt, "password": password_hash(password, salt)},
+        text(
+            "INSERT INTO demo_users (id,name,role,salt,password,company_id) "
+            "VALUES (:id,:name,:role,:salt,:password,:company)"
+        ),
+        {
+            "id": user_id,
+            "name": name,
+            "role": role,
+            "salt": salt,
+            "password": password_hash(password, salt),
+            "company": company_id,
+        },
     )
