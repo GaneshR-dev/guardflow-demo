@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, test } from 'vitest';
 import { clearSession, endSession, selectCompany, startSession } from '@/auth/session';
@@ -33,8 +33,10 @@ describe('routes', () => {
     at('/employees');
     expect(screen.getByRole('heading', { name: 'Guards' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open in the current app' })).toHaveAttribute('href', '/app#employees');
-    expect(screen.getByRole('link', { name: 'Guards' })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getAllByRole('link', { name: /^(Home|Attendance|Guards|Sites|Reports|Settings)$/ })).toHaveLength(6);
+    // Guards opens from Settings, so the Settings tab is active.
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('aria-current', 'page');
+    const tabs = within(screen.getByRole('navigation', { name: 'Main' })).getAllByRole('link');
+    expect(tabs.map((t) => t.textContent)).toEqual(['Home', 'Attendance', 'Reports', 'Settings']);
   });
 
   test('the owner without a company sees only the owner console', () => {
