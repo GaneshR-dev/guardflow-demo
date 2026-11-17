@@ -155,7 +155,7 @@ The screens move to React one at a time. Use this table to find the React form o
 | `.primary`, `.secondary`, `.link` | shadcn `Button` (`default`, `outline`, `link`) |
 | `.card` | `rounded-2xl border bg-card shadow-card` |
 
-Routes: `/login`, `/owner`, `/home`, `/attendance`, `/attendance/add`, `/attendance/checkout`, `/employees` (Guards), `/locations`, `/locations/:id`, `/reports`, `/settings`. A screen that is not moved yet shows `NotMovedYet`, with a link to the old screen.
+Routes: `/login`, `/owner`, `/home`, `/attendance`, `/attendance/add`, `/attendance/checkout`, `/employees` (Guards), `/locations` (Sites), `/locations/:id` (one site), `/reports`, `/settings`. Only the owner console (`/owner`) is not moved yet. It shows `NotMovedYet`, with a link to the old screen.
 
 ### Hover and press states
 
@@ -255,6 +255,18 @@ There is no Figma frame for this screen. It uses the patterns of User access, At
 - Import: columns `id,name,phone,role,location_id`. An empty `location_id` gets the site in the filter. `lib/csv.ts` reads the file. Possible duplicates show in an amber note.
 - Data: `['employees']` (Settings already loads it) and `['locations']`. The filter and the search work on the phone. Each change loads the guards, sites, Home and Attendance again.
 - Server rules: `PATCH /api/employees/{id}` blocks a disabled guard, a disabled site and a move during an open check-in (409). A move writes `employee.transfer`; a name or phone change writes `employee.update`.
+
+### Sites screens (`screens/Sites.tsx`, `screens/sites/`)
+
+Figma was not read for these screens (the Figma MCP plan limit). They use the patterns of Guards, User access and Reports.
+
+- `/locations`: the sites, with `StickySearchBar` (name or area). Each card: short name, `city · area`, guard count and shifts. A tap opens the site (both roles). Disabled sites are in a folded section; a search opens it.
+- Title row (admin): an import icon (CSV `id,name,area,assigned_count`) and "Add a site". `/locations?add=1` opens the add sheet at once. "Add a site" on Home and Attendance links there.
+- `/locations/:id`: title = short name, context row = `city · area` (+ "Disabled"). Then the Shifts card (each shift, "Ends the next day" for an overnight shift), a Guards row (`SettingsRow`, opens `/employees?site=id`), "Mark attendance here" (primary) and, for an admin, "Disable site" at the end. A disabled site shows "Enable site" instead.
+- `SiteSheet`: add a site (name, area, shifts, one supervisor or "Leave unassigned") or edit the name and area (pencil icon at the top right). The server makes the site ID. After an add, the new site opens.
+- `ShiftSheet` and `ShiftFields`: up to 5 shifts, start and end time (IST). `shiftRowsProblem()` in `lib/shift.ts` has the server rules (both times, start and end differ, no shift two times). The problem shows under the shift and Save is disabled.
+- Supervisors change in User access, as before. A supervisor only reads the Sites screens.
+- Data: the site comes from `['locations']`, so the site screen does not load it again. Each change loads the sites, settings, Home, Attendance and guards again.
 
 ### Reports screen (`screens/Reports.tsx`, `screens/reports/`)
 

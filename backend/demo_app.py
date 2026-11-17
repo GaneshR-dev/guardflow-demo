@@ -211,7 +211,8 @@ class ShiftBody(BaseModel):
 
 class LocationBody(BaseModel):
     supervisor_id: str | None = Field(default=None, min_length=3, max_length=80)
-    id: str = Field(min_length=2, max_length=40, pattern=r"^[a-z0-9-]+$")
+    # Optional: without an ID, the server makes a unique one from the name.
+    id: str | None = Field(default=None, min_length=2, max_length=40, pattern=r"^[a-z0-9-]+$")
     name: str = Field(min_length=3, max_length=100)
     area: str = Field(min_length=2, max_length=100)
     assigned_count: int = Field(default=0, ge=0, le=10000)
@@ -236,6 +237,11 @@ class LocationBody(BaseModel):
         if self.shift_start is not None and self.shift_start == self.shift_end:
             raise ValueError("Shift start and end must differ")
         return self
+
+
+class LocationEditBody(BaseModel):
+    name: str = Field(min_length=3, max_length=100)
+    area: str = Field(min_length=2, max_length=100)
 
 
 class LocationShiftsBody(BaseModel):
@@ -823,8 +829,8 @@ def disable_employee(employee_id: str, user=Depends(current_user)):
         if open_checkins:
             raise HTTPException(
                 409,
-                "Cannot disable this employee yet: they still have an open check-in. "
-                "Record their check-out first, then disable them. Their attendance history is kept either way.",
+                "Cannot disable this guard yet: the guard is still checked in. "
+                "Record the check-out first, then disable the guard. Attendance history is kept either way.",
             )
         c.execute(text("UPDATE demo_employees SET active=0 WHERE id=:id"), {"id": employee_id})
         if row["location_id"]:
@@ -1839,7 +1845,9 @@ def create_location(body: LocationBody, user=Depends(current_user)):
     if user["role"] != "admin":
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
-        if c.execute(text("SELECT 1 FROM demo_locations WHERE id=:id"), {"id": body.id}).first():
+        if body.id is None:
+            body.id = unique_location_id(c, body.name)
+        elif c.execute(text("SELECT 1 FROM demo_locations WHERE id=:id"), {"id": body.id}).first():
             raise HTTPException(409, "Location ID already exists")
         if body.supervisor_id is not None:
             supervisor = c.execute(
@@ -1878,6 +1886,33 @@ def create_location(body: LocationBody, user=Depends(current_user)):
             )
         audit(c, user, "settings.location.create", body.model_dump())
     return body.model_dump()
+
+
+@app.patch("/api/settings/locations/{location_id}")
+def edit_location(location_id: str, body: LocationEditBody, user=Depends(current_user)):
+    """Admin edit of a site's name and area. A disabled site can be edited too: the name
+    does not change any attendance record."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        row = (
+            c.execute(
+                text("SELECT * FROM demo_locations WHERE id=:id AND company_id=:company" + row_lock()),
+                {"id": location_id, "company": user["company_id"]},
+            )
+            .mappings()
+            .first()
+        )
+        if not row:
+            raise HTTPException(404, "Site not found")
+        fields = [f for f in ("name", "area") if row[f] != getattr(body, f)]
+        if fields:
+            c.execute(
+                text("UPDATE demo_locations SET name=:name,area=:area WHERE id=:id"),
+                {"id": location_id, "name": body.name, "area": body.area},
+            )
+            audit(c, user, "settings.location.update", {"location_id": location_id, "fields": fields})
+    return {"id": location_id, "name": body.name, "area": body.area}
 
 
 @app.put("/api/settings/locations/{location_id}/shifts")
@@ -1946,8 +1981,9 @@ def disable_location(location_id: str, user=Depends(current_user)):
         if open_checkins:
             raise HTTPException(
                 409,
-                f"Cannot disable this branch yet: {open_checkins} check-in(s) are still open. "
-                "Record the open check-outs first. Attendance history is kept either way.",
+                f"Cannot disable this site yet: {open_checkins} "
+                + ("guard is" if open_checkins == 1 else "guards are")
+                + " still checked in. Record the check-outs first. Attendance history is kept either way.",
             )
         c.execute(text("UPDATE demo_locations SET active=0 WHERE id=:id"), {"id": location_id})
         audit(c, user, "settings.location.disable", {"location_id": location_id, "name": row["name"]})
@@ -1979,6 +2015,16 @@ def enable_location(location_id: str, user=Depends(current_user)):
 def generated_location_id(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return "loc-" + (slug or secrets.token_hex(4))
+
+
+def unique_location_id(c, name: str) -> str:
+    """A new site ID from the name that no company uses yet: loc-hsr-layout, loc-hsr-layout-2, …"""
+    base = generated_location_id(name)[:36].rstrip("-")
+    candidate, n = base, 1
+    while c.execute(text("SELECT 1 FROM demo_locations WHERE id=:id"), {"id": candidate}).first():
+        n += 1
+        candidate = f"{base}-{n}"
+    return candidate
 
 
 @app.post("/api/settings/locations/import")

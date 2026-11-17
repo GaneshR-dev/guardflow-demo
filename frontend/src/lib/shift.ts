@@ -65,3 +65,49 @@ export function addDay(day: string, days = 1) {
   d.setDate(d.getDate() + days);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+// One row of the shift editor. Empty times are allowed while the user types.
+export interface ShiftRow {
+  key: number;
+  label?: string | null;
+  start: string;
+  end: string;
+}
+
+export const MAX_SHIFTS = 5;
+
+let nextKey = 1;
+// A new editor row, empty or from a saved shift. The key keeps React rows in place.
+export const newShiftRow = (s?: Shift): ShiftRow => ({
+  key: nextKey++,
+  label: s?.label ?? null,
+  start: s?.shift_start ?? '',
+  end: s?.shift_end ?? '',
+});
+
+// The server rules for the shift windows of a site (ShiftBody and _unique_windows in
+// backend/demo_app.py): both times, start and end differ, no window two times, at most 5.
+// A row with no times is not a shift and is ignored. Returns the first problem, or null.
+export function shiftRowsProblem(rows: ShiftRow[]): { row: number; text: string } | null {
+  const seen = new Map<string, number>();
+  let count = 0;
+  for (const [i, r] of rows.entries()) {
+    const n = i + 1;
+    if (!r.start && !r.end) continue;
+    if (!r.start || !r.end) return { row: i, text: `Add both times for shift ${n}, or remove it.` };
+    if (r.start === r.end) return { row: i, text: `Shift ${n}: the start and the end must be different.` };
+    const key = `${r.start}-${r.end}`;
+    if (seen.has(key)) return { row: i, text: `Shift ${n} is the same as shift ${seen.get(key)! + 1}.` };
+    seen.set(key, i);
+    count++;
+  }
+  if (count > MAX_SHIFTS) return { row: rows.length - 1, text: `A site can have ${MAX_SHIFTS} shifts or fewer.` };
+  return null;
+}
+
+// The rows with times, in the shape that the server takes.
+export const shiftRowsBody = (rows: ShiftRow[]) =>
+  rows.filter((r) => r.start && r.end).map((r) => ({ label: r.label || null, shift_start: r.start, shift_end: r.end }));
+
+// An overnight shift: the end time is before the start time, so it ends the next day.
+export const endsNextDay = (start: string, end: string) => !!start && !!end && end < start;

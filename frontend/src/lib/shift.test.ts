@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'vitest';
-import { addDay, checkoutNextDay, clock, shiftFor, shiftProblem } from './shift';
+import {
+  addDay,
+  checkoutNextDay,
+  clock,
+  endsNextDay,
+  shiftFor,
+  shiftProblem,
+  shiftRowsBody,
+  shiftRowsProblem,
+} from './shift';
 
 const DAY_SHIFT = [{ shift_start: '09:00', shift_end: '18:00' }];
 const NIGHT = [{ shift_start: '22:00', shift_end: '06:00' }];
@@ -55,5 +64,31 @@ describe('shiftProblem and the check-out day', () => {
     expect(clock(-120)).toBe('22:00');
     expect(clock(1800)).toBe('06:00');
     expect(addDay('2026-11-30')).toBe('2026-12-01');
+  });
+});
+
+describe('shiftRowsProblem', () => {
+  const row = (start: string, end: string, key = 0) => ({ key, start, end });
+  test('empty rows are not shifts', () => {
+    expect(shiftRowsProblem([])).toBeNull();
+    expect(shiftRowsProblem([row('', '')])).toBeNull();
+    expect(shiftRowsProblem([row('09:00', '18:00'), row('22:00', '06:00')])).toBeNull();
+  });
+  test('each rule names the row', () => {
+    expect(shiftRowsProblem([row('09:00', '')])).toEqual({ row: 0, text: 'Add both times for shift 1, or remove it.' });
+    expect(shiftRowsProblem([row('09:00', '18:00'), row('09:00', '09:00')])?.row).toBe(1);
+    expect(shiftRowsProblem([row('09:00', '18:00'), row('09:00', '18:00')])?.text).toBe(
+      'Shift 2 is the same as shift 1.',
+    );
+    expect(shiftRowsProblem(Array.from({ length: 6 }, (_, i) => row(`0${i}:00`, `0${i}:30`)))?.text).toBe(
+      'A site can have 5 shifts or fewer.',
+    );
+  });
+  test('the body has only the filled rows and keeps the labels', () => {
+    expect(shiftRowsBody([{ key: 1, label: 'Day', start: '09:00', end: '18:00' }, row('', '')])).toEqual([
+      { label: 'Day', shift_start: '09:00', shift_end: '18:00' },
+    ]);
+    expect(endsNextDay('22:00', '06:00')).toBe(true);
+    expect(endsNextDay('09:00', '18:00')).toBe(false);
   });
 });

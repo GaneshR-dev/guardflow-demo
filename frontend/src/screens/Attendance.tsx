@@ -159,7 +159,7 @@ export function Attendance() {
     body = admin ? (
       <EmptyState icon={<MapPin />} title="No sites yet" text="Add a site to start marking attendance.">
         <Button asChild className="h-12 px-[22px]">
-          <Link to="/locations">Add a site</Link>
+          <Link to="/locations?add=1">Add a site</Link>
         </Button>
       </EmptyState>
     ) : (

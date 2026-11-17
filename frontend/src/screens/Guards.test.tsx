@@ -209,7 +209,7 @@ describe('Add and edit a guard', () => {
   test('disable: asks first; a server error stays in the dialog', async () => {
     reply(
       'DELETE /api/employees/EMP1001',
-      { status: 409, body: { detail: 'Cannot disable this employee yet: they still have an open check-in.' } },
+      { status: 409, body: { detail: 'Cannot disable this guard yet: the guard is still checked in.' } },
       { status: 200, body: { id: 'EMP1001', status: 'disabled' } },
     );
     show();
@@ -218,7 +218,7 @@ describe('Add and edit a guard', () => {
     const dialog = await screen.findByRole('alertdialog', { name: 'Disable Anil Sharma?' });
     expect(dialog).toHaveTextContent('History is kept.');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Disable guard' }));
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent('open check-in');
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('still checked in');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Disable guard' }));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     expect(calls('DELETE /api/employees/EMP1001')).toHaveLength(2);

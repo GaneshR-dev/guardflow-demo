@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-18 · React Sites screens · Claude Code · feat/react-sites
+- Request: Move the Sites screens to React. Add "Edit site" (name and area). The site shows a guard count with a link to Guards. Keep the supervisor choice as it is today.
+- Changed: `backend/demo_app.py` (new `PATCH /api/settings/locations/{id}`; the site ID is optional on create; the disable messages say "guard" and "site"), `screens/Sites.tsx`, `screens/sites/` (`SiteScreen`, `SiteSheet`, `ShiftSheet`, `ShiftFields`, `SiteRow`, `data.ts`), `lib/shift.ts` (`shiftRowsProblem`), `routes.tsx`, Home and Attendance ("Add a site" → `/locations?add=1`), `screens/settings/data.ts`.
+- Tests: `tests/test_location_edit.py` (new, 6 tests). `screens/sites/Sites.test.tsx` (new, 16 tests), `lib/shift.test.ts`. `tests/test_next_sites.py` (new, 3 tests). `npm test` → 223 passed. Real server at 390 px: add a site with a day and a night shift and a supervisor, rename, edit shifts, disable and enable, the 409 for a site with open check-ins, the Guards link, import, the activity log, the supervisor view.
+- Open items: Figma not read (plan limit). The local demo database now has the test sites "Pune - Browser Checked" and "Pune - Import Check". Old order issue: `test_multiple_shifts.py` before `test_demo_app.py` fails 2 tests (also without this change; the full suite order passes).
+
 ## 2026-11-18 · React Guards screen · Claude Code · feat/react-guards
 - Request: Move the Guards screen to React. Add "Edit guard" (name, phone, site) and keep the CSV import. Use a search and a site button; fold the disabled guards.
 - Changed: `backend/demo_app.py` (new `PATCH /api/employees/{id}`), `screens/Guards.tsx`, `screens/guards/GuardRow.tsx`, `components/GuardSheet.tsx` (replaces `AddGuardSheet`), `components/LocationSheet.tsx` ("No site yet"), `lib/csv.ts`, `routes.tsx`, `screens/settings/data.ts` (activity log title), `types/api.ts`.

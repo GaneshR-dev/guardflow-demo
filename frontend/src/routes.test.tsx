@@ -32,7 +32,6 @@ describe('routes', () => {
     startSession('t', { id: 'admin.demo', name: 'Admin', role: 'admin', company_id: 'c1' });
     at('/locations');
     expect(screen.getByRole('heading', { name: 'Sites' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open in the current app' })).toHaveAttribute('href', '/app#locations');
     // Sites opens from Settings, so the Settings tab is active.
     expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('aria-current', 'page');
     const tabs = within(screen.getByRole('navigation', { name: 'Main' })).getAllByRole('link');

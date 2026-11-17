@@ -9,6 +9,8 @@ import { Reports } from '@/screens/Reports';
 import { SiteDetail } from '@/screens/reports/SiteDetail';
 import { Guards } from '@/screens/Guards';
 import { NotMovedYet } from '@/screens/NotMovedYet';
+import { Sites } from '@/screens/Sites';
+import { SiteScreen } from '@/screens/sites/SiteScreen';
 import { Access } from '@/screens/settings/Access';
 import { AccessUser } from '@/screens/settings/AccessUser';
 import { Activity } from '@/screens/settings/Activity';
@@ -42,8 +44,8 @@ export function AppRoutes() {
             <Route path="/attendance/add" element={<Navigate to="/attendance?status=not_in" replace />} />
             <Route path="/attendance/checkout" element={<Navigate to="/attendance?status=checked_in" replace />} />
             <Route path="/employees" element={<Guards />} />
-            <Route path="/locations" element={<NotMovedYet title="Sites" oldScreen="locations" />} />
-            <Route path="/locations/:id" element={<NotMovedYet title="Site" oldScreen="locations" />} />
+            <Route path="/locations" element={<Sites />} />
+            <Route path="/locations/:id" element={<SiteScreen />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/reports/sites/:id" element={<SiteDetail />} />
             <Route path="/settings" element={<SettingsHome />} />
