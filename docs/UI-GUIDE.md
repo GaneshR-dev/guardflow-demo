@@ -154,6 +154,18 @@ The screens move to React one at a time. Use this table to find the React form o
 
 Routes: `/login`, `/owner`, `/home`, `/attendance`, `/attendance/add`, `/attendance/checkout`, `/employees`, `/locations`, `/locations/:id`, `/reports`, `/settings`. A screen that is not moved yet shows `NotMovedYet`, with a link to the old screen.
 
+### Sign-in screen (`screens/Login.tsx`)
+
+- Fields: 54 px high, `bg-field` (`#edf3f9`), 1 px `border-line`, 12 px radius, 2 px blue focus ring. Browser autofill keeps the same fill (`index.css`).
+- User ID: no autocorrect, no capitals, no spell check.
+- Password: a show/hide button (44 × 44 px) with `aria-label` and `aria-pressed`.
+- Sign in: "Signing in…" with a spinner while the request runs. The form is disabled. A second tap sends nothing.
+- Wrong password: keep the User ID, clear the password and focus it. Other errors keep both values.
+- "Forgot password?" opens a help sheet, not a toast.
+- The demo box shows only when `/api/health` returns `demo_mode: true`. A demo button fills the form. It does not sign in.
+- The footer is in the page flow, so it never covers the form.
+- Background `bg-login-bg` (`#f5f9ff`).
+
 Data rules:
 - Read data with `useQuery` and `api()`. Show `LoadingRows` while `isPending`, and `ScreenError` on `isError` with `onRetry={refetch}`.
 - Change data with `useMutation`. Disable the submit button while `isPending`. Call `toast()` in `onSuccess`.

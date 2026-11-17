@@ -19,7 +19,7 @@ describe('routes', () => {
     clearSession();
     at('/reports');
     expect(screen.getByRole('heading', { name: 'Guardian' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Sign in in the current app' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
 
   test('a session that the server ended shows why', () => {
