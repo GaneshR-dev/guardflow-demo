@@ -168,7 +168,10 @@ def test_boot_migration_copies_existing_pairs_once_and_preserves_rows():
             if table in ("demo_users", "demo_locations", "demo_employees"):
                 assert [tuple(r)[:-1] for r in after] == [tuple(r)[:-1] for r in before], table
                 # Owners belong to no company; every other row was filled with the default company.
-                assert all(r[-1] == (b[-1] or (None if (table == "demo_users" and r[2] == "owner") else "company-1")) for r, b in zip(after, before, strict=True)), table
+                assert all(
+                    r[-1] == (b[-1] or (None if (table == "demo_users" and r[2] == "owner") else "company-1"))
+                    for r, b in zip(after, before, strict=True)
+                ), table
             else:
                 assert after == before, table
 
