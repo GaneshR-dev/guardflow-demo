@@ -278,10 +278,11 @@ def test_sqlite_migration_preserves_existing_data(tmp_path, monkeypatch):
                 "role": "Guard",
                 "location_id": "loc-hsr",
                 "active": 1,
+                "company_id": "company-1",
             }
         ]
         # After the rebuild, an unassigned employee can be inserted.
-        c.execute(sql_text("INSERT INTO demo_employees VALUES ('emp-new','New Guard','9000000098','Guard',NULL,1)"))
+        c.execute(sql_text("INSERT INTO demo_employees (id,name,phone,role,location_id,active) VALUES ('emp-new','New Guard','9000000098','Guard',NULL,1)"))
         location_columns = demo_db._columns(c, "demo_locations")
         assert "shift_start" in location_columns and "shift_end" in location_columns and "active" in location_columns
         loc = (
