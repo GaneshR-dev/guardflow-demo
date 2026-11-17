@@ -151,7 +151,9 @@ def test_postgresql_functional_scope(tmp_path):
     server = pgserver.get_server(str(tmp_path / "pgfunc"))
     uri = server.get_uri().replace("postgresql://", "postgresql+psycopg://")
     env = dict(os.environ, DATABASE_URL=uri, DEMO_MODE="true")
-    result = subprocess.run([sys.executable, "-c", FLOW], check=False, env=env, cwd=REPO, capture_output=True, text=True, timeout=240)
+    result = subprocess.run(
+        [sys.executable, "-c", FLOW], check=False, env=env, cwd=REPO, capture_output=True, text=True, timeout=240
+    )
     assert result.returncode == 0, result.stderr[-3000:]
     for marker in ("PG MIGRATION KEEPS RECORDS OK", "PG RESET PERMISSIONS OK", "PG SEEDER ISOLATION OK"):
         assert marker in result.stdout
@@ -161,6 +163,8 @@ def test_postgresql_owner_company_details_authorization(tmp_path):
     server = pgserver.get_server(str(tmp_path / "pgowner"))
     uri = server.get_uri().replace("postgresql://", "postgresql+psycopg://")
     env = dict(os.environ, DATABASE_URL=uri, DEMO_MODE="true", OWNER_SETUP_TOKEN="pg-setup-token-1")
-    result = subprocess.run([sys.executable, "-c", OWNER_FLOW], check=False, env=env, cwd=REPO, capture_output=True, text=True, timeout=240)
+    result = subprocess.run(
+        [sys.executable, "-c", OWNER_FLOW], check=False, env=env, cwd=REPO, capture_output=True, text=True, timeout=240
+    )
     assert result.returncode == 0, result.stderr[-3000:]
     assert "PG OWNER PATCH OK" in result.stdout
