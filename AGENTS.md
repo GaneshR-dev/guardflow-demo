@@ -57,6 +57,8 @@ We move the frontend to React one screen at a time. Each screen moves in its own
 - Design for a phone first: 390 px wide. Make sure that the screen also works on a wider screen.
 - Make each touch target 44 × 44 px or larger.
 - Give each screen one primary action.
+- Keep taps to a minimum. Fill each value that the app can work out (for example the check-out time and date from the site shift). Ask the user only for what the app cannot know.
+- Make each rule fool-proof: check it in the app (show the problem next to the field and disable the action) and check it again on the server.
 - Give each data view three more states: loading, empty and error.
 - In the error state, show a "Try again" button. Keep the filters of the user.
 - Keep text contrast at 4.5:1 or more.

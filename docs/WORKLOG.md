@@ -21,6 +21,47 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · Attendance loads each site one time · Claude Code · feat/react-attendance
+- Request: The filters and the search called the API again, but the screen already had all the data. Stop the extra requests.
+- Changed: `screens/Attendance.tsx`: one query for each site (`['attendance', siteId]`, fresh for 30 s, loads again when the user comes back to the app). The status filter and the search work on the phone (`screens/attendance/filters.ts`: `filterRows()`, `matchesSearch()`, the same rule as the server search). The list filters at once on each key; the URL and the other-sites search wait 300 ms. `docs/UI-GUIDE.md`: data rule.
+- Tests: `filters.test.ts` (new). `Attendance.test.tsx`: filters and search send no new request. `tests/test_next_attendance.py`: one attendance request after a filter tap. `npm test` → 127 passed. Browser with the local API: 4 filter taps and a search sent no attendance request.
+- Open items: none.
+
+## 2026-11-17 · Same section positions on each page · Claude Code · feat/react-attendance
+- Request: Split each page into the same sections, and start each section at the same position on every page. Use the position of the "Mark attendance" title.
+- Cause: the title row of Attendance had a 44 px icon, so it was 44 px high; the Home title row was 34 px. So the Attendance title was 5 px lower, and the sections under it 11 px lower.
+- Changed: `layout/AppShell.tsx` `Page`: fixed sections (brand bar, 44 px title row with an optional action, 44 px context row from the new `context` prop, content). `screens/Home.tsx` and `screens/Attendance.tsx` use `context`. `docs/UI-GUIDE.md`: "Page sections".
+- Tests: `tests/test_next_layout.py` (new): Home and Attendance have the same title, context and content positions; Guards has the same title position. `tests/test_next_home.py`: the scroll check now uses only visible cards (the disabled site is in a folded section) and waits for the scroll. `npm test` → 125 passed. Browser at 390 px: title 67, context 114, content 174 on Home and Attendance.
+- Open items: none.
+
+## 2026-11-17 · Edit times uses the site shift · Claude Code · feat/react-attendance
+- Request: Fill the check-out time from the site shift, never past the shift end, and work out the check-out date. Make it fool-proof with few taps. Add the few-taps rule to the project file.
+- Decisions: block a check-out after the shift end in the app and on the server; no check-out date field.
+- Changed: `backend/demo_app.py`: `shift_window()` (the shift of a check-in: the nearest start on the day before, the day, or the day after; overnight shifts), `location_shift_rows()`, and `PATCH /api/attendance/times` refuses a check-in or check-out after the shift end (400) and works out the check-out date when it is not sent. The old app uses the same endpoint, so it gets the same rule.
+- Changed: `frontend/src/lib/shift.ts` (the same rule), `screens/attendance/EditTimesSheet.tsx` (shift line, check-out filled from the shift, "Use shift end", "Still at work", worked-out date text, inline error and disabled Save). `AGENTS.md` §4: few taps and fool-proof rules. `docs/UI-GUIDE.md`: Edit times section.
+- Tests: `tests/test_edit_times_shift.py` (new, 9 passed), `tests/shift_helpers.py` (changes a site's shifts for one test and restores them). Updated 3 old tests that edited past the HSR shift end. `npm test` → 125 passed. `pytest -q tests/` → all pass except the 5 old search tests that also fail on `origin/main` on macOS. Browser with the restarted local API: auto-fill, 400 from the server, inline error.
+- Open items: Live check-out (the Check out button) still records the real time, also after the shift end. A record with such a check-out cannot be edited until its check-out is at or before the shift end.
+
+## 2026-11-17 · Attendance review: check-in button, edit sheet · Claude Code · feat/react-attendance
+- Request: Show the edit button on checked-out cards. Make "Check in" on a checked-out card look like the other "Check in" buttons. Make the reason a text area. Make the edit sheet text simpler.
+- Changed: `screens/Attendance.tsx`: "Check in" is always filled. `screens/attendance/EditTimesSheet.tsx`: shadcn `Textarea` for the reason (3 lines, 0/200 counter); shorter text ("Times are in IST. Your reason goes to the activity log."); each hint is under its field.
+- Checked: the edit button already shows on checked-out cards for admins (browser and tests). Supervisors do not get it (only admins can edit times).
+- Tests: `npm test` → 111 passed. Browser tests passed. Lint, format, typecheck, build → passed.
+- Open items: none new.
+
+## 2026-11-17 · Attendance design review changes · Claude Code · feat/react-attendance
+- Request: Use the Home tile style for the filters. Make each guard card bigger with space between cards. Give the actions the same size and put the edit icon at the top right. Add "Add a guard" at the top right. Make the screen work for many guards (the collaborator chose a sticky search and filters).
+- Changed: `components/StatTile.tsx` and `lib/tone.ts` (shared by Home and Attendance). `screens/attendance/`: `StatusTiles.tsx`, `CompactFilters.tsx`, `filters.ts`, `AttendanceRow.tsx` (`GuardCard`, `GuardList`, fixed 112 px actions). `screens/Attendance.tsx`: sticky search bar with compact filters (shown when the tiles scroll away), top-right "Add a guard", "Can't find a guard?" as one line and a link (no box, the collaborator's choice) only for an empty search. `layout/AppShell.tsx`: `Page` `action` prop.
+- Tests: `npm test` → 111 passed. `tests/test_next_attendance.py` → 5 passed (card gap, equal button width, edit position, sticky bar with 60 guards). Browser at 390 and 320 px with the local API.
+- Open items: none new.
+
+## 2026-11-17 · React Attendance screen · Claude Code · feat/react-attendance
+- Request: Move Attendance to React. The collaborator chose one screen with an action on each row, in place of the 3 old screens.
+- Changed: `frontend/src/screens/Attendance.tsx` and `screens/attendance/` (filter grid, guard row, actions hook, edit-times and add-guard sheets). `lib/hours.ts` (hours worked, the record that check-out closes, one row for each guard). Types in `types/api.ts`. `routes.tsx`: `/attendance`, and the old `/attendance/add` and `/attendance/checkout` open the matching filter.
+- Changed: `components/ConfirmDialog.tsx` blocks a fast double tap (a test found two check-ins from one double tap). A new question (second shift) ignores taps for 400 ms.
+- Tests: `npm test` → 103 passed. `tests/test_next_attendance.py` (new, Playwright) → passed. Lint, format, typecheck, build → passed. Browser at 390 px with the local API: check-in, check-out, second-shift dialog, search, admin and supervisor.
+- Open items: Server messages still use "Employee" and "location" (for example "Employee not found"). Change them in a backend PR with the old app tests. Figma not changed (plan limit).
+
 ## 2026-11-17 · Grey for "Checked out" · Claude Code · feat/react-signin
 - Request: Show "Checked out" in grey.
 - Changed: `frontend/src/screens/Home.tsx`: the "Checked out" tile number is grey (`text-muted-foreground`, 5.9:1). `lib/format.ts`: `STATUS_TONE` gives "completed" the tone "grey". `docs/GLOSSARY.md`: one colour for each status (green = Checked in, grey = Checked out, amber = Not checked in). `docs/UI-GUIDE.md`: Home tiles.

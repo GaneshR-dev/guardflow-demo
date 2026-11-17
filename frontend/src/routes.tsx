@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Navigate, Outlet, Route, Routes } from 'react-router';
 import { uiRole, useSession } from '@/auth/session';
 import { AppShell } from '@/layout/AppShell';
+import { Attendance } from '@/screens/Attendance';
 import { Home } from '@/screens/Home';
 import { Login } from '@/screens/Login';
 import { NotMovedYet } from '@/screens/NotMovedYet';
@@ -30,12 +31,9 @@ export function AppRoutes() {
         <Route element={<RequireCompany />}>
           <Route element={<AppShell />}>
             <Route path="/home" element={<Home />} />
-            <Route path="/attendance" element={<NotMovedYet title="Mark attendance" oldScreen="attendance" />} />
-            <Route path="/attendance/add" element={<NotMovedYet title="Guard check-in" oldScreen="add" />} />
-            <Route
-              path="/attendance/checkout"
-              element={<NotMovedYet title="Manage check-outs" oldScreen="checkout" />}
-            />
+            <Route path="/attendance" element={<Attendance />} />
+            <Route path="/attendance/add" element={<Navigate to="/attendance?status=not_in" replace />} />
+            <Route path="/attendance/checkout" element={<Navigate to="/attendance?status=checked_in" replace />} />
             <Route path="/employees" element={<NotMovedYet title="Guards" oldScreen="employees" />} />
             <Route path="/locations" element={<NotMovedYet title="Sites" oldScreen="locations" />} />
             <Route path="/locations/:id" element={<NotMovedYet title="Site" oldScreen="locations" />} />

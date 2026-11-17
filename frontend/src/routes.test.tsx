@@ -30,10 +30,10 @@ describe('routes', () => {
 
   test('a signed-in admin sees the screen and the bottom navigation', () => {
     startSession('t', { id: 'admin.demo', name: 'Admin', role: 'admin', company_id: 'c1' });
-    at('/attendance/add');
-    expect(screen.getByRole('heading', { name: 'Guard check-in' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open in the current app' })).toHaveAttribute('href', '/app#add');
-    expect(screen.getByRole('link', { name: 'Attendance' })).toHaveAttribute('aria-current', 'page');
+    at('/employees');
+    expect(screen.getByRole('heading', { name: 'Guards' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open in the current app' })).toHaveAttribute('href', '/app#employees');
+    expect(screen.getByRole('link', { name: 'Guards' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getAllByRole('link', { name: /^(Home|Attendance|Guards|Sites|Reports|Settings)$/ })).toHaveLength(6);
   });
 

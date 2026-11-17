@@ -7,6 +7,7 @@ import { ErrorBanner } from '@/components/ErrorBanner';
 import { LoadingRows } from '@/components/LoadingRows';
 import { ProgressBar } from '@/components/ProgressBar';
 import { ScreenError } from '@/components/ScreenError';
+import { StatTile } from '@/components/StatTile';
 import { Button } from '@/components/ui/button';
 import { Page } from '@/layout/AppShell';
 import { api, friendlyError, isApiError } from '@/lib/api';
@@ -56,26 +57,6 @@ function LocationCard({ c }: { c: Coverage }) {
         {status}
       </span>
     </Link>
-  );
-}
-
-// One big number with its label. Each number shows one time only on the screen.
-// Status colours (docs/GLOSSARY.md): green = Checked in, grey = Checked out, amber = Not checked in.
-function Tile({ value, label, tone }: { value: number; label: string; tone?: 'green' | 'grey' | 'amber' }) {
-  return (
-    <div className="rounded-xl border bg-card px-3.5 py-3">
-      <strong
-        className={cn(
-          'block text-[26px] leading-tight font-bold tabular-nums',
-          tone === 'green' && 'text-green-text',
-          tone === 'grey' && 'text-muted-foreground',
-          tone === 'amber' && 'text-amber-text',
-        )}
-      >
-        {value}
-      </strong>
-      <span className="mt-0.5 block text-[13px] text-muted-foreground">{label}</span>
-    </div>
   );
 }
 
@@ -140,10 +121,10 @@ export function Home() {
           />
         )}
         <section aria-label="Today's summary" className="grid grid-cols-2 gap-2.5">
-          <Tile value={data.employees} label="Guards" />
-          <Tile value={data.checked_in} label="Checked in" tone="green" />
-          <Tile value={data.completed} label="Checked out" tone="grey" />
-          <Tile
+          <StatTile value={data.employees} label="Guards" />
+          <StatTile value={data.checked_in} label="Checked in" tone="green" />
+          <StatTile value={data.completed} label="Checked out" tone="grey" />
+          <StatTile
             value={data.not_checked_in}
             label="Not checked in"
             tone={data.not_checked_in > 0 ? 'amber' : undefined}
@@ -175,15 +156,19 @@ export function Home() {
   }
 
   return (
-    <Page title="Attendance overview">
-      <div className="-mt-2 mb-4 flex items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground" role="status">
-          {data
-            ? `Today · ${fmtShortDay(data.day)} · Updated ${fmtTime(new Date(dataUpdatedAt).toISOString())}`
-            : 'Today'}
-        </p>
-        {data && refresh}
-      </div>
+    <Page
+      title="Attendance overview"
+      context={
+        <>
+          <p className="text-sm text-muted-foreground" role="status">
+            {data
+              ? `Today · ${fmtShortDay(data.day)} · Updated ${fmtTime(new Date(dataUpdatedAt).toISOString())}`
+              : 'Today'}
+          </p>
+          {data && refresh}
+        </>
+      }
+    >
       {body}
     </Page>
   );

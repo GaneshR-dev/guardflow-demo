@@ -79,8 +79,11 @@ def test_home_layout_at_phone_width(tmp_path):
         assert refresh["width"] >= 44 and refresh["height"] >= 44
         # The last card must not hide under the bottom navigation.
         page.mouse.wheel(0, 2000)
+        # The scroll is not instant. Wait for it before the positions are read.
+        page.wait_for_timeout(300)
         nav_top = page.get_by_role("navigation", name="Main").bounding_box()["y"]
-        last = page.locator("a[href^='/next/attendance?location=']").last.bounding_box()
+        # Only visible cards: the disabled site is in a folded section.
+        last = page.locator("a[href^='/next/attendance?location=']:visible").last.bounding_box()
         assert last["y"] + last["height"] <= nav_top
         page.screenshot(path=str(tmp_path / "home.png"), full_page=True)
         browser.close()

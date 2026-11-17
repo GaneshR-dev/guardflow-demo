@@ -142,6 +142,7 @@ The screens move to React one at a time. Use this table to find the React form o
 | `skeletonRows()`, `.rpSkel` | `components/LoadingRows.tsx`: `<LoadingRows label="Loading the report…" />` |
 | `message()` error banner | `components/ErrorBanner.tsx` |
 | `toast()` | `lib/toast.ts`: `toast(text)` |
+| `.dashStat` tiles | `components/StatTile.tsx`: a number with a label. With `onClick` it is a filter button with `aria-pressed`. Status colours from `lib/tone.ts`. |
 | `confirmModal()` | `components/ConfirmDialog.tsx` (`pending` blocks a second submit, `error` shows the server message) |
 | `locationSheet()` | `components/LocationSheet.tsx` |
 | `header()`, `nav()` | `layout/Header.tsx`, `layout/BottomNav.tsx`. Use `<Page title="…">` from `layout/AppShell.tsx` for each screen. |
@@ -166,6 +167,21 @@ Routes: `/login`, `/owner`, `/home`, `/attendance`, `/attendance/add`, `/attenda
 - The footer is in the page flow, so it never covers the form.
 - Background `bg-login-bg` (`#f5f9ff`).
 
+### Page sections (`layout/AppShell.tsx` `Page`)
+
+Each page has the same sections. Each section has a fixed height, so it starts at the same position on every page (390 px: title text at 67 px, context row at 114 px, content at 174 px).
+
+| # | Section | Height | `Page` prop |
+|---|---|---|---|
+| 1 | Brand bar ("Guardian") | 20 px, then 20 px space | — |
+| 2 | Title row: title, and an optional icon action on the right | always 44 px, then 8 px space | `title`, `action` |
+| 3 | Context row, for example the site button and the date | 44 px or more, then 16 px space | `context` |
+| 4 | Content | — | `children` |
+
+- Put the context row in the `context` prop. Do not add a top margin (for example `-mt-2`) to the first block of a screen.
+- A page with no context row starts its content 8 px under the title row.
+- The sign-in screen has its own layout.
+
 ### Home screen (`screens/Home.tsx`)
 
 Home answers one question: "Are my sites covered today?"
@@ -176,12 +192,46 @@ Home answers one question: "Are my sites covered today?"
 - One site only: no list, one "Mark attendance" button.
 - "Updated <time>" and a Refresh button. A failed refresh keeps the data and shows a banner.
 
+### Attendance screen (`screens/Attendance.tsx`)
+
+One screen replaces the 3 old screens (list, check-in, check-outs). Each row has its own action.
+
+- Site: a button that opens `LocationSheet` (active sites only). The site, the filter and the search are in the URL (`?location=`, `?status=`, `?q=`).
+- Filters: 4 `StatTile` buttons in a 2 × 2 grid, the same tiles as on Home (All, Not checked in, Checked in, Checked out). The counts show only here.
+- Sticky bar: the search box stays at the top while the list scrolls. When the tiles scroll out of view, a compact copy of the 4 filters shows in the bar (4 equal columns, number above a small label).
+- Cards: each guard is a card with a 10 px gap between cards. Top: initials, name (wraps, never cut), guard ID, and the edit button (admin) at the top right. Bottom: the status with a coloured dot, and one action.
+- Actions: all the same size (112 × 44 px). "Check in" (always filled, also on a checked-out card for one more shift) and "Check out" (outline). Each button label names the guard ("Check in Anil Sharma").
+- "Add a guard" (admin): an icon at the top right of the page (`Page` `action` prop). When a search finds nobody, one line ("Can't find a guard?") and an "Add a guard" link show. No box.
+- "Open from earlier days": check-ins that were not closed, with "Check out".
+- Search: filters this site and also finds guards at other sites ("ad hoc"). Disabled guards show a note and no button.
+- Dialogs: "Confirm check-in", "Second shift today", "Confirm check-out" (with hours worked). Admin sheets: "Edit times" and "Add a guard".
+- `/attendance/add` and `/attendance/checkout` open the matching filter.
+- Data: the app loads each site one time (`['attendance', siteId]`). The filters and the search work on the phone (`screens/attendance/filters.ts`, the same search rule as the server), with no new request. The data is fresh for 30 seconds. After that, the app loads it again when the user comes back to it. Each action (check-in, check-out, edit, add) loads it again. Only the search for guards at other sites calls the server.
+- `ConfirmDialog` blocks a fast double tap. A new question in the same dialog ignores taps for 400 ms.
+
+### Edit times sheet (`screens/attendance/EditTimesSheet.tsx`)
+
+The sheet uses the site shift (`lib/shift.ts`; the server has the same rule in `shift_window()`).
+
+- The shift of a check-in is the shift whose start is nearest to the check-in (on the day before, the day, or the day after). This covers an early check-in and an overnight shift.
+- When the admin changes the check-in time, the check-out time is set to the shift end. A check-out time that the admin typed stays.
+- "Use shift end" fills the check-out time. "Still at work" clears it. One tap each.
+- There is no check-out date field. A check-out that is not later than the check-in is on the next day: "Check-out: Wed 18 Nov (next day)".
+- A check-out after the shift end, or a check-in after the shift end, shows an error under the field and disables "Save times". The server refuses it too (400).
+- A site with no shift has no limit.
+- The reason is a 3-line text area with a 200-character counter.
+
+### General rule: fewer taps
+
+Fill each value that the app can work out. Ask the user only for what the app cannot know.
+
 ### Panel and text colour
 
 - Each screen is a 430 px panel on `bg-app` (`#f7faff`), the same as the old `.app`.
 - `text-muted-foreground` is `#56657b` (5.6:1 on `bg-app`). The old `--muted-text` (`#68778d`) is below 4.5:1 on light backgrounds. Use it only on white.
 
 Data rules:
+- Do not ask the server again for data that the screen already has. Filter and search it on the phone when the data is small (one site).
 - Read data with `useQuery` and `api()`. Show `LoadingRows` while `isPending`, and `ScreenError` on `isError` with `onRetry={refetch}`.
 - Change data with `useMutation`. Disable the submit button while `isPending`. Call `toast()` in `onSuccess`.
 - The query cache is cleared when the session or the company changes.

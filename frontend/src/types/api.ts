@@ -58,3 +58,60 @@ export interface Dashboard {
   not_checked_in: number;
   locations: DashboardLocation[];
 }
+
+export interface AttendanceRecord {
+  // The attendance record ID. Empty for a guard with no record today.
+  id: string | null;
+  employee_id: string;
+  name: string;
+  role?: string;
+  location_id: string | null;
+  status: AttendanceStatus;
+  check_in: string | null;
+  check_out: string | null;
+  // True for a guard from another site who checked in here.
+  adhoc?: boolean;
+}
+
+export interface StaleOpen {
+  day: string;
+  employee_id: string;
+  name: string;
+  check_in: string | null;
+  location_id: string;
+}
+
+export interface AttendanceAnswer {
+  day: string;
+  summary: { checked_in: number; completed: number; not_in: number };
+  rows: AttendanceRecord[];
+  stale_open: StaleOpen[];
+}
+
+export interface LookupMatch {
+  id: string;
+  name: string;
+  role?: string;
+  location_id: string | null;
+  location_name: string | null;
+  active: number;
+}
+
+export interface CheckinAnswer {
+  requires_confirmation?: boolean;
+  prior_shifts?: number;
+  employee_id: string;
+  name: string;
+}
+
+export interface CheckoutAnswer {
+  employee_id: string;
+  name: string;
+  // Set when the check-out closed a check-in left open from an earlier day.
+  note?: string;
+}
+
+export interface AddGuardAnswer {
+  id: string;
+  warning?: string | null;
+}
