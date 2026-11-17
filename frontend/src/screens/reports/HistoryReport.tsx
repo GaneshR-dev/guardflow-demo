@@ -42,7 +42,7 @@ export function HistoryReportView({ months, admin, downloading, onDownload, onTh
           return (
             <li key={m.month} className="flex items-center gap-3 rounded-2xl border bg-card px-4 py-3">
               <span className="flex min-w-0 flex-1 flex-col gap-2">
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-2 mb-2">
                   <strong className="text-[15px] whitespace-nowrap">{label}</strong>
                   {m.month === current && (
                     <span className="rounded-full whitespace-nowrap bg-amber-soft px-2 py-0.5 text-xs font-semibold text-amber-text">
@@ -50,12 +50,10 @@ export function HistoryReportView({ months, admin, downloading, onDownload, onTh
                     </span>
                   )}
                 </span>
-                <span className="flex items-center gap-3">
-                  <span className="min-w-0 flex-1">
-                    <ProgressBar value={percent(m.completed, m.total_records)} />
-                  </span>
-                  <CompletedCount completed={m.completed} total={m.total_records} />
+                <span className="min-w-0 flex-1">
+                  <ProgressBar value={percent(m.completed, m.total_records)} />
                 </span>
+                <CompletedCount completed={m.completed} total={m.total_records} />
               </span>
               <Button
                 variant="ghost"

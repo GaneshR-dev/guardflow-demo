@@ -15,7 +15,7 @@ export function ExcelButton({ disabled, busy, onClick }: Props) {
       disabled={disabled || busy}
       aria-busy={busy || undefined}
       onClick={onClick}
-      className="flex h-11 shrink-0 items-center gap-1.5 rounded-xl border bg-card px-3.5 text-[15px] font-semibold text-blue hover:bg-soft focus-visible:outline-2 focus-visible:outline-blue disabled:opacity-50"
+      className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl border bg-card px-3.5 text-[15px] font-semibold text-blue hover:bg-soft focus-visible:outline-2 focus-visible:outline-blue disabled:opacity-50"
     >
       <Download className="size-[18px]" aria-hidden="true" />
       Excel
