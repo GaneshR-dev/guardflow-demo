@@ -156,15 +156,19 @@ export function Home() {
   }
 
   return (
-    <Page title="Attendance overview">
-      <div className="-mt-2 mb-4 flex items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground" role="status">
-          {data
-            ? `Today · ${fmtShortDay(data.day)} · Updated ${fmtTime(new Date(dataUpdatedAt).toISOString())}`
-            : 'Today'}
-        </p>
-        {data && refresh}
-      </div>
+    <Page
+      title="Attendance overview"
+      context={
+        <>
+          <p className="text-sm text-muted-foreground" role="status">
+            {data
+              ? `Today · ${fmtShortDay(data.day)} · Updated ${fmtTime(new Date(dataUpdatedAt).toISOString())}`
+              : 'Today'}
+          </p>
+          {data && refresh}
+        </>
+      }
+    >
       {body}
     </Page>
   );

@@ -21,6 +21,13 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · Same section positions on each page · Claude Code · feat/react-attendance
+- Request: Split each page into the same sections, and start each section at the same position on every page. Use the position of the "Mark attendance" title.
+- Cause: the title row of Attendance had a 44 px icon, so it was 44 px high; the Home title row was 34 px. So the Attendance title was 5 px lower, and the sections under it 11 px lower.
+- Changed: `layout/AppShell.tsx` `Page`: fixed sections (brand bar, 44 px title row with an optional action, 44 px context row from the new `context` prop, content). `screens/Home.tsx` and `screens/Attendance.tsx` use `context`. `docs/UI-GUIDE.md`: "Page sections".
+- Tests: `tests/test_next_layout.py` (new): Home and Attendance have the same title, context and content positions; Guards has the same title position. `tests/test_next_home.py`: the scroll check now uses only visible cards (the disabled site is in a folded section) and waits for the scroll. `npm test` → 125 passed. Browser at 390 px: title 67, context 114, content 174 on Home and Attendance.
+- Open items: none.
+
 ## 2026-11-17 · Edit times uses the site shift · Claude Code · feat/react-attendance
 - Request: Fill the check-out time from the site shift, never past the shift end, and work out the check-out date. Make it fool-proof with few taps. Add the few-taps rule to the project file.
 - Decisions: block a check-out after the shift end in the app and on the server; no check-out date field.

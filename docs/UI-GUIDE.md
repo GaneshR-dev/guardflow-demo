@@ -167,6 +167,21 @@ Routes: `/login`, `/owner`, `/home`, `/attendance`, `/attendance/add`, `/attenda
 - The footer is in the page flow, so it never covers the form.
 - Background `bg-login-bg` (`#f5f9ff`).
 
+### Page sections (`layout/AppShell.tsx` `Page`)
+
+Each page has the same sections. Each section has a fixed height, so it starts at the same position on every page (390 px: title text at 67 px, context row at 114 px, content at 174 px).
+
+| # | Section | Height | `Page` prop |
+|---|---|---|---|
+| 1 | Brand bar ("Guardian") | 20 px, then 20 px space | — |
+| 2 | Title row: title, and an optional icon action on the right | always 44 px, then 8 px space | `title`, `action` |
+| 3 | Context row, for example the site button and the date | 44 px or more, then 16 px space | `context` |
+| 4 | Content | — | `children` |
+
+- Put the context row in the `context` prop. Do not add a top margin (for example `-mt-2`) to the first block of a screen.
+- A page with no context row starts its content 8 px under the title row.
+- The sign-in screen has its own layout.
+
 ### Home screen (`screens/Home.tsx`)
 
 Home answers one question: "Are my sites covered today?"

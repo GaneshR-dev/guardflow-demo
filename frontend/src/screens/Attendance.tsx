@@ -405,13 +405,18 @@ export function Attendance() {
     ) : undefined;
 
   return (
-    <Page title="Mark attendance" action={addButton}>
-      <div className="-mt-2 mb-4 flex items-center justify-between gap-3">
-        {siteControl}
-        <span className="text-sm text-muted-foreground">
-          {list.data ? fmtShortDay(list.data.day) : ''} · Times in IST
-        </span>
-      </div>
+    <Page
+      title="Mark attendance"
+      action={addButton}
+      context={
+        <>
+          {siteControl ?? <span />}
+          <span className="text-sm text-muted-foreground">
+            {list.data ? fmtShortDay(list.data.day) : ''} · Times in IST
+          </span>
+        </>
+      }
+    >
       {body}
       {dialog}
       <LocationSheet
