@@ -160,6 +160,13 @@ class EmployeeBody(BaseModel):
         return value
 
 
+class EmployeeEditBody(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    phone: str = Field(min_length=7, max_length=25, pattern=r"^[0-9+() -]+$")
+    # None removes the site: the guard waits for a new site.
+    location_id: str | None = Field(default=None, min_length=2, max_length=40)
+
+
 class EmployeeImportRow(EmployeeBody):
     id: str | None = Field(default=None, max_length=40)
 
@@ -861,6 +868,72 @@ def enable_employee(employee_id: str, user=Depends(current_user)):
             )
         audit(c, user, "employee.enable", {"employee_id": employee_id, "location_id": row["location_id"]})
     return {"id": employee_id, "status": "active"}
+
+
+@app.patch("/api/employees/{employee_id}")
+def edit_employee(employee_id: str, body: EmployeeEditBody, user=Depends(current_user)):
+    """Admin edit of an active guard: name, phone and site. A site change is a transfer: the
+    history stays at the old site, and the headcount of both sites changes."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        row = (
+            c.execute(
+                text("SELECT * FROM demo_employees WHERE id=:id AND company_id=:company" + row_lock()),
+                {"id": employee_id, "company": user["company_id"]},
+            )
+            .mappings()
+            .first()
+        )
+        if not row:
+            raise HTTPException(404, "Guard not found")
+        if not row["active"]:
+            raise HTTPException(409, "Enable this guard first, then edit.")
+        old_location = row["location_id"]
+        moved = old_location != body.location_id
+        if moved:
+            if body.location_id:
+                require_active_location(c, user, body.location_id)
+            open_checkins = (
+                c.execute(
+                    text("SELECT COUNT(*) FROM demo_attendance WHERE employee_id=:id AND status='checked_in'"),
+                    {"id": employee_id},
+                ).scalar()
+                or 0
+            )
+            if open_checkins:
+                raise HTTPException(409, "This guard is checked in. Record their check-out first, then move the guard.")
+        warning = duplicate_active_phone(c, body.phone, user["company_id"], exclude_id=employee_id)
+        update_employee_row(c, employee_id, body.name, body.phone, row["role"], body.location_id, user["company_id"])
+        if moved:
+            if old_location:
+                c.execute(
+                    text(
+                        "UPDATE demo_locations SET assigned_count=CASE WHEN assigned_count>0 "
+                        "THEN assigned_count-1 ELSE 0 END WHERE id=:id"
+                    ),
+                    {"id": old_location},
+                )
+            if body.location_id:
+                c.execute(
+                    text("UPDATE demo_locations SET assigned_count=assigned_count+1 WHERE id=:id"),
+                    {"id": body.location_id},
+                )
+            audit(
+                c, user, "employee.transfer", {"employee_id": employee_id, "from": old_location, "to": body.location_id}
+            )
+        fields = [f for f in ("name", "phone") if row[f] != getattr(body, f)]
+        if fields:
+            audit(c, user, "employee.update", {"employee_id": employee_id, "fields": fields})
+    return {
+        "id": employee_id,
+        "name": body.name,
+        "phone": body.phone,
+        "role": row["role"],
+        "location_id": body.location_id,
+        "active": 1,
+        "warning": warning,
+    }
 
 
 @app.post("/api/employees/import")
