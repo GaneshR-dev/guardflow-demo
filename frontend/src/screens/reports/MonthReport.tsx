@@ -17,7 +17,7 @@ function SiteCard({ s, month }: { s: SiteBucket; month: string }) {
     <li>
       <Link
         to={`/reports/sites/${encodeURIComponent(s.id)}?month=${month}`}
-        className="flex flex-col gap-2.5 rounded-2xl border bg-card px-4 py-3.5 text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
+        className="tap-card flex flex-col gap-2.5 rounded-2xl border bg-card px-4 py-3.5 text-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
       >
         <span className="flex items-start gap-2">
           <span className="flex min-w-0 flex-1 flex-col">

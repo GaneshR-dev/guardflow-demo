@@ -131,7 +131,7 @@ export function Login() {
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
                 aria-pressed={showPassword}
                 onClick={() => setShowPassword((v) => !v)}
-                className="absolute top-1/2 right-1 grid size-11 -translate-y-1/2 place-items-center rounded-lg text-muted-foreground hover:text-text focus-visible:outline-2 focus-visible:outline-blue"
+                className="absolute top-1/2 right-1 grid size-11 -translate-y-1/2 place-items-center tap-icon rounded-lg text-muted-foreground focus-visible:outline-2 focus-visible:outline-blue"
               >
                 {showPassword ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
               </button>
@@ -185,7 +185,7 @@ export function Login() {
                   setPassword(a.password);
                   submitRef.current?.focus();
                 }}
-                className="flex min-h-11 flex-col items-start justify-center rounded-lg border border-line bg-card px-3 py-1.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue disabled:opacity-50"
+                className="tap-card flex min-h-11 flex-col items-start justify-center rounded-lg border border-line bg-card px-3 py-1.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue disabled:opacity-50"
               >
                 <strong className="text-[13px] text-text">{a.role}</strong>
                 <small className="text-xs text-[#4d5f78]">{a.username}</small>

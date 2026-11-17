@@ -34,7 +34,7 @@ export function StatTile({ value, label, tone, onClick, pressed, disabled }: Pro
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        'min-h-11 rounded-xl border bg-card px-3.5 py-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue disabled:opacity-60',
+        'tap-card min-h-11 rounded-xl border bg-card px-3.5 py-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue disabled:opacity-60',
         pressed && 'border-blue bg-blue-tint ring-1 ring-blue',
       )}
     >

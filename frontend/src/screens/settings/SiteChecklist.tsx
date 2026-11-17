@@ -22,7 +22,7 @@ export function SiteChecklist({ sites, value, disabled, onChange }: Props) {
           <label
             key={s.id}
             className={cn(
-              'flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border bg-card px-3.5 py-2 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-blue',
+              'tap-card flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border bg-card px-3.5 py-2 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-blue',
               on && 'border-blue bg-blue-tint',
               !s.active && 'opacity-70',
             )}

@@ -104,7 +104,7 @@ export function Reports() {
             excel.reset();
             set({ tab: t.key === 'day' ? '' : t.key, site: '', status: '' });
           }}
-          className="group h-11 rounded-xl p-1 focus-visible:outline-2 focus-visible:outline-blue"
+          className="tap-tab h-11 rounded-xl p-1 focus-visible:outline-2 focus-visible:outline-blue"
         >
           <span
             className={cn(
@@ -134,7 +134,7 @@ export function Reports() {
           aria-haspopup="dialog"
           aria-label={`Change site, now ${siteLabel}`}
           onClick={() => setSheetOpen(true)}
-          className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border bg-card px-3 text-[15px] font-semibold text-text focus-visible:outline-2 focus-visible:outline-blue"
+          className="tap-card flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border bg-card px-3 text-[15px] font-semibold text-text focus-visible:outline-2 focus-visible:outline-blue"
         >
           <MapPin className="size-[18px] shrink-0 text-blue" aria-hidden="true" />
           <span className="truncate">{siteLabel}</span>

@@ -138,7 +138,7 @@ export function Attendance() {
         aria-haspopup="dialog"
         aria-label={`Change site, now ${shortLoc(site.name)}`}
         onClick={() => setSheetOpen(true)}
-        className="flex h-11 max-w-[60%] items-center gap-2 rounded-xl border bg-card px-3 text-[15px] font-semibold text-text focus-visible:outline-2 focus-visible:outline-blue"
+        className="tap-card flex h-11 max-w-[60%] items-center gap-2 rounded-xl border bg-card px-3 text-[15px] font-semibold text-text focus-visible:outline-2 focus-visible:outline-blue"
       >
         <MapPin className="size-[18px] shrink-0 text-blue" aria-hidden="true" />
         <span className="truncate">{shortLoc(site.name)}</span>
