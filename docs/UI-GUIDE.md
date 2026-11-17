@@ -15,6 +15,8 @@ Use this guide before you change a screen. Use the existing tokens, classes and 
 
 The tokens are in `:root` in `attendance-app.css`. Use `var(--name)`.
 
+The React app (`frontend/`) has the same values in `frontend/src/index.css`. Use them as Tailwind classes, for example `bg-blue`, `text-navy`, `text-muted-foreground`, `border-line`, `bg-green-soft text-green-text`. The shadcn/ui variables use the same tokens: `primary` is `--blue`, `destructive` is `--red`, `border` is `--line`.
+
 | Token | Value | Use |
 |---|---|---|
 | `--blue` | `#2367ea` | Primary action, links, active state, progress bar |
@@ -124,3 +126,28 @@ Before you finish a screen change, make sure that:
 - All dynamic values go through `esc()`.
 - The colours come from the tables above.
 - Each touch target is 44 px or more.
+
+## React app (`frontend/`)
+
+The screens move to React one at a time. Use this table to find the React form of an old helper. A row with "Phase 1" is not written yet.
+
+| Old (`attendance-app.js`) | React (`frontend/src/`) |
+|---|---|
+| `api()`, `httpError()` | `lib/api.ts` (Phase 1) |
+| `endSession()`, session state | `auth/AuthProvider.tsx`, `useAuth()` (Phase 1) |
+| `showScreenError()`, `friendlyError()` | `components/ScreenError.tsx` (Phase 1) |
+| `emptyState()`, `reportError()`, `skeletonRows()` | `components/EmptyState.tsx`, `components/ErrorState.tsx`, shadcn `Skeleton` (Phase 1) |
+| `toast()` | shadcn `Sonner` (Phase 1) |
+| `confirmModal()` | shadcn `AlertDialog` (Phase 1) |
+| `chooseLocationSheet()` | shadcn `Sheet`, `components/LocationSheet.tsx` (Phase 1) |
+| `header()`, `nav()`, `message()` | `layout/AppShell.tsx` (Phase 1) |
+| `fmtDate()`, `fmtTime()`, `plural()`, `initials()` | `lib/format.ts` (Phase 1) |
+| `go()`, hash history | React Router |
+| `seq` in `loadReport()` | TanStack Query keys |
+| `esc()` | Not necessary. React escapes values. |
+| `.primary`, `.secondary`, `.link` | shadcn `Button` (`default`, `outline`, `link`) |
+| `.card` | `rounded-2xl border bg-card shadow-card` |
+
+- Radius: buttons and inputs `rounded-lg` (12 px), cards `rounded-2xl` (16 px), sheet top `rounded-t-3xl` (24 px).
+- Touch targets: give buttons `h-11` (44 px) or more.
+- Add a shadcn component with `npx shadcn@latest add <name>` in `frontend/`.
