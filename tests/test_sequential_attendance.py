@@ -26,7 +26,9 @@ def auth(username="admin.demo"):
 def employee():
     with engine.begin() as c:
         c.execute(
-            text("INSERT INTO demo_employees (id,name,phone,role,location_id,active,company_id) VALUES ('SEQTEST','Sequential Guard','9990005511','Guard','loc-hsr',1,'company-1')")
+            text(
+                "INSERT INTO demo_employees (id,name,phone,role,location_id,active,company_id) VALUES ('SEQTEST','Sequential Guard','9990005511','Guard','loc-hsr',1,'company-1')"
+            )
         )
     yield "SEQTEST"
     with engine.begin() as c:
