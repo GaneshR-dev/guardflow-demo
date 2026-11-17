@@ -523,7 +523,7 @@ function add() {
   const available = waiting.filter(
     (r) => !state.addQuery || (r.name + ' ' + r.employee_id).toLowerCase().includes(state.addQuery.toLowerCase()),
   );
-  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Start a waiting employee's shift. Times in IST.</p>${attendanceLocationPicker()}<div class="hero"><small>READY FOR CHECK-IN</small><strong>${waiting.length}</strong> <span>${waiting.length === 1 ? 'employee' : 'employees'}</span><small class="heroTime">TIME NOW</small><strong>${nowTime()}</strong> <span>IST at ${esc(state.location.name)}</span></div><input class="search" id="addSearch" placeholder="Search name or EMP ID, e.g. EMP1024" value="${esc(state.addQuery)}" autocomplete="off">${lookupResultsView('checkin')}<h2 class="sectionTitle">Ready for check-in</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}${r.adhoc ? ' · ad-hoc' : ''}</small></span><button class="outlineBtn" data-checkin="${esc(r.employee_id)}">Check in</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${uiRole() === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
+  return `<div class="page">${header()}<h1>Employee check-in</h1><p class="sub">Start a waiting employee's shift. Times in IST.</p>${attendanceLocationPicker()}<div class="hero"><small>READY FOR CHECK-IN</small><strong>${waiting.length}</strong> <span>${waiting.length === 1 ? 'employee' : 'employees'}</span></div><input class="search" id="addSearch" placeholder="Search name or EMP ID, e.g. EMP1024" value="${esc(state.addQuery)}" autocomplete="off">${lookupResultsView('checkin')}<h2 class="sectionTitle">Ready for check-in</h2>${available.map((r) => `<div class="person"><span class="initials">${esc(initials(r.name))}</span><span><strong>${esc(r.name)}</strong><small>${esc(r.employee_id)}${r.adhoc ? ' · ad-hoc' : ''}</small></span><button class="outlineBtn" data-checkin="${esc(r.employee_id)}">Check in</button></div>`).join('') || '<p class="muted small">No waiting employees match.</p>'}${uiRole() === 'admin' ? `<div class="card addCard"><strong>Can't find the employee?</strong><p>Add a new employee to this location.</p><button class="link" id="toggleNew">+ Create new employee</button><form id="newEmployee" style="display:none;margin-top:14px"><div class="field"><label>Name</label><input name="name" required></div><div class="field"><label>Phone</label><input name="phone" required></div><button class="secondary">Save employee</button></form></div>` : '<p class="muted small">Only admins can create employees. Contact your admin if an employee is missing.</p>'}<p style="text-align:center;margin-top:16px"><button class="link" data-go="attendance">Back to attendance list</button></p></div>${nav()}${message()}`;
 }
 function checkout() {
   const staleAll = state.staleOpen || [];
@@ -1313,7 +1313,7 @@ function bind() {
       render();
       scheduleEmployeeSearch('checkout');
     };
-  document.querySelectorAll('[data-checkin]').forEach((b) => (b.onclick = () => startCheckin(b.dataset.checkin)));
+  document.querySelectorAll('[data-checkin]').forEach((b) => (b.onclick = () => askCheckin(b.dataset.checkin)));
   document.querySelectorAll('[data-checkout]').forEach((b) => (b.onclick = () => askCheckout(b.dataset.checkout)));
   const tn = document.getElementById('toggleNew');
   if (tn)
@@ -1625,10 +1625,9 @@ async function runEmployeeSearch(kind) {
   }
   render();
 }
-// Check-in is one tap: the current IST time and the location stay visible on the
-// screen, so no routine confirmation is asked. The second-shift warning inside
-// doCheckin still asks, because starting another shift the same day is exceptional.
-function startCheckin(id) {
+// Check-in asks first, like check-out: the dialog shows the IST check-in time and
+// the location the shift starts at, so ad-hoc starts stay explicit.
+function askCheckin(id) {
   const row = state.attendance.find((r) => r.employee_id === id);
   const match = (state.lookupResults || []).find((x) => x.id === id);
   const emp = row
@@ -1637,7 +1636,17 @@ function startCheckin(id) {
       ? { employee_id: match.id, name: match.name, adhoc: match.location_id !== state.location.id }
       : null;
   if (!emp) return;
-  doCheckin(emp);
+  state.confirm = {
+    title: 'Confirm check-in',
+    lines: [
+      { label: 'Employee', value: emp.name + ' (' + emp.employee_id + ')' },
+      { label: 'Check-in time', value: nowTime() + ' IST' },
+      { label: 'Location', value: state.location.name + (emp.adhoc ? ' · ad-hoc shift' : '') },
+    ],
+    okLabel: 'Yes, check in',
+    onOk: () => doCheckin(emp),
+  };
+  render();
 }
 async function doCheckin(emp, confirmedSecondShift = false) {
   if (state.checkingIn) return;
