@@ -123,7 +123,7 @@ describe('Home', () => {
   test('no sites: admin gets "Add a site", supervisor gets a next step', async () => {
     answers = [{ status: 200, body: { ...DASH, locations: [] } }];
     const { unmount } = show();
-    expect(await screen.findByRole('link', { name: 'Add a site' })).toHaveAttribute('href', '/locations');
+    expect(await screen.findByRole('link', { name: 'Add a site' })).toHaveAttribute('href', '/locations?add=1');
     unmount();
     startSession('t', { id: 'supervisor.demo', name: 'Sup', role: 'supervisor', company_id: 'c1' });
     show();
