@@ -21,6 +21,13 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · React sign-in screen with a better design · Claude Code · feat/react-signin
+- Request: Add the sign-in screen to Figma, make the design better and move the screen to React.
+- Changed: `frontend/src/screens/Login.tsx`: the real sign-in. Theme fields (no yellow autofill), focus ring, show/hide password, "Signing in…" state, one request only, wrong password clears and focuses the password, 5xx shows a plain message, help sheet for "Forgot password?", tap-to-fill demo accounts, footer in the page flow. shadcn `input`, `label`.
+- Changed: `backend/demo_app.py`: `/api/health` returns `demo_mode`. `components/ui/sheet.tsx`: close button 44 px. `vite.config.ts`: `GUARDIAN_API` sets the dev API address.
+- Tests: `npm test` → 44 passed. `tests/test_health.py` (new), `tests/test_next_signin.py` (new, Playwright, 7 passed). `pytest -q tests/` → all pass except the 5 `test_search_keeps_native_input…` tests that also fail on `origin/main` on macOS. Ruff → passed. Browser at 390 px: states, contrast, admin and supervisor sign-in.
+- Open items: Figma not changed: the Figma MCP Starter plan limit was used up. Add the "Sign in" page to Figma when the limit resets. `--muted-text` is below 4.5:1 on light backgrounds; check the other screens when they move.
+
 ## 2026-11-17 · React migration Phase 1: shared core · Claude Code · feat/react-setup
 - Request: Start Phase 1 of the React migration. Move the shared helpers that each screen uses.
 - Changed: `frontend/src/lib/api.ts` (`api()`, `ApiError`, `friendlyError()`), `auth/session.ts` (session store with the old localStorage keys, 401 ends the session), `auth/signOut.ts`, `lib/format.ts`, `lib/toast.ts`, `lib/queryClient.ts` (no retry on 4xx, cache cleared on a session change), `types/api.ts`.

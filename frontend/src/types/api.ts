@@ -34,3 +34,8 @@ export interface Location {
 }
 
 export type AttendanceStatus = 'checked_in' | 'completed' | 'not_in';
+
+export interface Health {
+  status: string;
+  demo_mode?: boolean;
+}

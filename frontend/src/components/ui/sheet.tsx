@@ -61,7 +61,8 @@ function SheetContent({
         {children}
         {showCloseButton && (
           <SheetPrimitive.Close data-slot="sheet-close" asChild>
-            <Button variant="ghost" className="absolute top-3 right-3" size="icon-sm">
+            {/* Guardian: 44 px touch target (AGENTS.md §4). */}
+            <Button variant="ghost" className="absolute top-2 right-2 size-11" size="icon">
               <XIcon />
               <span className="sr-only">Close</span>
             </Button>

@@ -615,6 +615,8 @@ def health():
         "status": "ok",
         "data_notice": "Fictional sample data only",
         "database": DB_KIND,
+        # The sign-in screen shows the demo accounts only in demo mode.
+        "demo_mode": DEMO_MODE,
     }
 
 
