@@ -387,7 +387,11 @@ def current_user(request: Request, credentials: HTTPAuthorizationCredentials | N
         if not company_id:
             raise HTTPException(400, "Select a company first")
         with engine.connect() as c:
-            company = c.execute(text("SELECT id,name FROM demo_companies WHERE id=:id"), {"id": company_id}).mappings().first()
+            company = (
+                c.execute(text("SELECT id,name FROM demo_companies WHERE id=:id"), {"id": company_id})
+                .mappings()
+                .first()
+            )
         if not company:
             raise HTTPException(404, "Company not found")
         row.update(role="admin", is_owner=True, company_id=company["id"])
@@ -870,7 +874,9 @@ def import_employees(body: EmployeeImportBody, user=Depends(current_user)):
             if row.location_id:
                 require_active_location(c, user, row.location_id)
             employee_id = row.id or new_employee_id(c)
-            existing = c.execute(text("SELECT * FROM demo_employees WHERE id=:id"), {"id": employee_id}).mappings().first()
+            existing = (
+                c.execute(text("SELECT * FROM demo_employees WHERE id=:id"), {"id": employee_id}).mappings().first()
+            )
             if existing and existing["company_id"] != user["company_id"]:
                 # Same message whether the ID is free or not for the caller's own data: no detail about other companies.
                 raise HTTPException(409, f"Employee ID {employee_id} cannot be used. Choose another ID.")
@@ -1225,7 +1231,12 @@ def dashboard(user=Depends(current_user)):
     with engine.connect() as c:
         total_employees = (
             c.execute(
-                text("SELECT COUNT(*) FROM demo_employees WHERE active=1 AND " + on_active_branch + " AND " + employee_scope),
+                text(
+                    "SELECT COUNT(*) FROM demo_employees WHERE active=1 AND "
+                    + on_active_branch
+                    + " AND "
+                    + employee_scope
+                ),
                 params,
             ).scalar()
             or 0
@@ -1295,7 +1306,9 @@ def unrecorded_today(c, user: dict, location_id: str = "") -> list[dict]:
     sql = (
         "SELECT e.id employee_id,e.name employee_name,e.location_id,l.name location_name "
         "FROM demo_employees e JOIN demo_locations l ON l.id=e.location_id "
-        "WHERE e.active=1 AND l.active=1 AND e.company_id=:__company AND " + scoped_sql(user, "e.location_id") + " AND NOT EXISTS "
+        "WHERE e.active=1 AND l.active=1 AND e.company_id=:__company AND "
+        + scoped_sql(user, "e.location_id")
+        + " AND NOT EXISTS "
         "(SELECT 1 FROM demo_attendance a WHERE a.employee_id=e.id AND a.day=:day AND a.location_id=e.location_id)"
     )
     if location_id:
@@ -1588,7 +1601,11 @@ def audit_export(user=Depends(current_user)):
 
 def company_summary(company_id: str) -> dict:
     with engine.connect() as c:
-        row = c.execute(text("SELECT id,name,active FROM demo_companies WHERE id=:id"), {"id": company_id}).mappings().first()
+        row = (
+            c.execute(text("SELECT id,name,active FROM demo_companies WHERE id=:id"), {"id": company_id})
+            .mappings()
+            .first()
+        )
     return dict(row) if row else {"id": company_id, "name": "", "active": 0}
 
 
@@ -1996,7 +2013,12 @@ def reset_access_password(user_id: str, body: PasswordResetBody, user=Depends(cu
         salt = secrets.token_hex(16)
         c.execute(
             text("UPDATE demo_users SET salt=:salt, password=:password WHERE id=:id AND company_id=:company"),
-            {"salt": salt, "password": password_hash(body.password, salt), "id": user_id, "company": user["company_id"]},
+            {
+                "salt": salt,
+                "password": password_hash(body.password, salt),
+                "id": user_id,
+                "company": user["company_id"],
+            },
         )
         c.execute(text("DELETE FROM demo_sessions WHERE user_id=:id"), {"id": user_id})
         audit(c, user, "settings.access.password_reset", {"id": user_id, "name": row["name"]})
@@ -2092,12 +2114,25 @@ def owner_setup(body: OwnerSetupBody):
 @app.get("/api/owner/companies")
 def owner_companies(owner=Depends(owner_user)):
     with engine.connect() as c:
-        rows = [dict(r) for r in c.execute(text("SELECT id,name,active,created_at,address,contact_person,contact_phone FROM demo_companies ORDER BY name")).mappings()]
+        rows = [
+            dict(r)
+            for r in c.execute(
+                text(
+                    "SELECT id,name,active,created_at,address,contact_person,contact_phone FROM demo_companies ORDER BY name"
+                )
+            ).mappings()
+        ]
         for row in rows:
             counts = {"company": row["id"]}
-            row["admins"] = c.execute(text("SELECT COUNT(*) FROM demo_users WHERE company_id=:company AND role='admin'"), counts).scalar()
-            row["supervisors"] = c.execute(text("SELECT COUNT(*) FROM demo_users WHERE company_id=:company AND role='supervisor'"), counts).scalar()
-            row["locations"] = c.execute(text("SELECT COUNT(*) FROM demo_locations WHERE company_id=:company"), counts).scalar()
+            row["admins"] = c.execute(
+                text("SELECT COUNT(*) FROM demo_users WHERE company_id=:company AND role='admin'"), counts
+            ).scalar()
+            row["supervisors"] = c.execute(
+                text("SELECT COUNT(*) FROM demo_users WHERE company_id=:company AND role='supervisor'"), counts
+            ).scalar()
+            row["locations"] = c.execute(
+                text("SELECT COUNT(*) FROM demo_locations WHERE company_id=:company"), counts
+            ).scalar()
     return {"companies": rows}
 
 
@@ -2121,7 +2156,13 @@ def owner_create_company(body: CompanyBody, owner=Depends(owner_user)):
                 **{f: clean_detail(getattr(body, f)) for f in COMPANY_DETAIL_FIELDS},
             },
         )
-        audit(c, owner, "owner.company.create", {"company_id": company_id, "name": body.name.strip()}, company_id=company_id)
+        audit(
+            c,
+            owner,
+            "owner.company.create",
+            {"company_id": company_id, "name": body.name.strip()},
+            company_id=company_id,
+        )
     return {"id": company_id, "name": body.name.strip(), "active": 1}
 
 
@@ -2135,7 +2176,9 @@ def owner_update_company(company_id: str, body: CompanyBody, owner=Depends(owner
         details = {f: clean_detail(getattr(body, f)) for f in COMPANY_DETAIL_FIELDS}
         changed = [f for f in COMPANY_DETAIL_FIELDS if (row.get(f) if isinstance(row, dict) else row[f]) != details[f]]
         c.execute(
-            text("UPDATE demo_companies SET name=:name, address=:address, contact_person=:contact_person, contact_phone=:contact_phone WHERE id=:id"),
+            text(
+                "UPDATE demo_companies SET name=:name, address=:address, contact_person=:contact_person, contact_phone=:contact_phone WHERE id=:id"
+            ),
             {"name": name, "id": company_id, **details},
         )
         if row["name"] != name:
