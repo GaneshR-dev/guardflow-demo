@@ -142,6 +142,7 @@ The screens move to React one at a time. Use this table to find the React form o
 | `skeletonRows()`, `.rpSkel` | `components/LoadingRows.tsx`: `<LoadingRows label="Loading the report…" />` |
 | `message()` error banner | `components/ErrorBanner.tsx` |
 | `toast()` | `lib/toast.ts`: `toast(text)` |
+| file download (`exportAudit()`) | `lib/api.ts`: `apiFile(path, filename)`, with the same errors as `api()` |
 | `.dashStat` tiles | `components/StatTile.tsx`: a number with a label. With `onClick` it is a filter button with `aria-pressed`. Status colours from `lib/tone.ts`. |
 | `confirmModal()` | `components/ConfirmDialog.tsx` (`pending` blocks a second submit, `error` shows the server message) |
 | `locationSheet()` | `components/LocationSheet.tsx` |
@@ -208,6 +209,16 @@ One screen replaces the 3 old screens (list, check-in, check-outs). Each row has
 - `/attendance/add` and `/attendance/checkout` open the matching filter.
 - Data: the app loads each site one time (`['attendance', siteId]`). The filters and the search work on the phone (`screens/attendance/filters.ts`, the same search rule as the server), with no new request. The data is fresh for 30 seconds. After that, the app loads it again when the user comes back to it. Each action (check-in, check-out, edit, add) loads it again. Only the search for guards at other sites calls the server.
 - `ConfirmDialog` blocks a fast double tap. A new question in the same dialog ignores taps for 400 ms.
+
+### Bottom menu and Settings (`layout/BottomNav.tsx`, `screens/settings/`)
+
+- The bottom menu has 4 tabs: Home, Attendance, Reports, Settings. The Settings tab is also active on `/employees` and `/locations`.
+- Settings home: "Manage" (Guards and Sites, with counts) first, then "Account" (My profile, User access, Activity log for admins), then "Sign out". Each entry is a `SettingsRow` (64 px link).
+- Sub-screens use `Page` `back` (a 44 px back button at the left of the title).
+- My profile: Save is disabled until the name changes. The new name updates the session.
+- User access: user cards. Admins open a supervisor: sites (`SiteChecklist`), a new password (sheet), disable or enable (confirm dialog). "Add a supervisor" is an icon at the top right.
+- Activity log: titles in the glossary words, IST dates. The export icon downloads the CSV with `apiFile()`.
+- Forms use `useSingleSubmit()` (`lib/useSingleSubmit.ts`): a fast double tap sends one request.
 
 ### Edit times sheet (`screens/attendance/EditTimesSheet.tsx`)
 

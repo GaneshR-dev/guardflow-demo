@@ -25,19 +25,20 @@ The old app (`attendance-app.js`) does not change. Each screen gets these words 
 | Sign in / Sign out | Start or end a session in the app. | log in, log out |
 | Disabled | A guard, site or user that is paused. The data stays. | deleted, inactive |
 | Report | Attendance for a day, a month or the history. | — |
+| User access | The list of users who can sign in (admins and supervisors) and their sites. | users, accounts |
+| Activity log | The list of changes: who changed what, and when. | audit, history |
 
 ## Screen titles and navigation
+
+The bottom menu has 4 tabs. Guards and Sites open from Settings.
 
 | Navigation label | Screen title |
 |---|---|
 | Home | Attendance overview |
 | Attendance | Mark attendance |
-| — | Guard check-in |
-| — | Manage check-outs |
-| Guards | Guards |
-| Sites | Sites |
 | Reports | Reports |
 | Settings | Settings |
+| — (from Settings) | Guards, Sites, My profile, User access, Activity log |
 | — (owner only) | Your companies |
 
 ## Rules for app text

@@ -92,3 +92,6 @@ export const STATUS_TONE: Record<AttendanceStatus, 'green' | 'grey' | 'amber'> =
   completed: 'grey',
   not_in: 'amber',
 };
+
+// The IST day ("2026-11-17") of a stored UTC time.
+export const istDay = (v: string) => new Intl.DateTimeFormat('en-CA', { timeZone: IST_TZ }).format(new Date(v));

@@ -8,6 +8,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { api, friendlyError, isApiError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import type { AddGuardAnswer } from '@/types/api';
+import { useSingleSubmit } from '@/lib/useSingleSubmit';
 
 interface Props {
   open: boolean;
@@ -32,6 +33,7 @@ export function AddGuardSheet({ open, site, onClose, onAdded }: Props) {
 function AddGuardForm({ site, onClose, onAdded }: Omit<Props, 'open'>) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const once = useSingleSubmit();
   const add = useMutation({
     mutationFn: () =>
       api<AddGuardAnswer>('/api/employees', {
@@ -46,7 +48,7 @@ function AddGuardForm({ site, onClose, onAdded }: Omit<Props, 'open'>) {
   });
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!add.isPending) add.mutate();
+    once(() => add.mutateAsync());
   };
   const error = add.error && friendlyError(isApiError(add.error) ? add.error.status : 0, add.error.message);
   return (

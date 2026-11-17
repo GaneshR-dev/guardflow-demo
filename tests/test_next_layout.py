@@ -15,13 +15,20 @@ sys.path.insert(0, os.path.dirname(__file__))
 from next_app import DIST, fulfill_next
 from test_next_attendance import ATTENDANCE, SITES
 from test_next_home import DASH
+from test_next_settings import SETTINGS
 
 playwright = pytest.importorskip("playwright.sync_api")
 if not (DIST / "index.html").is_file():
     pytest.skip("frontend/dist is not built", allow_module_level=True)
 
 USER = {"id": "admin.demo", "name": "Admin Demo", "role": "admin", "company_id": "c1"}
-ANSWERS = {"/api/dashboard": DASH, "/api/locations": SITES, "/api/attendance": ATTENDANCE}
+ANSWERS = {
+    "/api/dashboard": DASH,
+    "/api/locations": SITES,
+    "/api/attendance": ATTENDANCE,
+    "/api/settings": SETTINGS,
+    "/api/employees": [],
+}
 
 
 def positions(page, path):
@@ -64,6 +71,7 @@ def test_sections_start_at_the_same_position_on_each_page():
         home = positions(page, "/home")
         attendance = positions(page, "/attendance?location=loc-hsr")
         guards = positions(page, "/employees")
+        settings = positions(page, "/settings")
         browser.close()
 
     # Home has no title action and Attendance has one ("Add a guard"): the sections still line up.
@@ -73,3 +81,4 @@ def test_sections_start_at_the_same_position_on_each_page():
     # A page with no context row: the title is at the same place.
     assert guards["h1"] == home["h1"]
     assert guards["context"] is None
+    assert settings["h1"] == home["h1"]

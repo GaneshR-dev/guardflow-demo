@@ -115,3 +115,45 @@ export interface AddGuardAnswer {
   id: string;
   warning?: string | null;
 }
+
+export interface AccessUser {
+  id: string;
+  name: string;
+  role: 'admin' | 'supervisor' | 'owner';
+  active?: number;
+  location_ids: string[];
+}
+
+export interface SettingsAnswer {
+  profile: { id: string; name: string; role: Role; is_owner?: boolean; company_id: string | null };
+  company: { id: string; name: string; active: number };
+  locations: Location[];
+  access: AccessUser[];
+}
+
+export interface Employee {
+  id: string;
+  name: string;
+  role: string;
+  location_id: string | null;
+  active: number;
+}
+
+export interface AuditRow {
+  at: string;
+  user_id: string;
+  action: string;
+  details: Record<string, unknown>;
+  labels: {
+    employee_name?: string | null;
+    location_name?: string | null;
+    from_name?: string | null;
+    to_name?: string | null;
+  };
+}
+
+// Sites that have no active supervisor after a change.
+export interface AccessChange {
+  id: string;
+  unsupervised?: string[];
+}

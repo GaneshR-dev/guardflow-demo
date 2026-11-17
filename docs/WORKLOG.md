@@ -21,6 +21,13 @@ Template:
 
 ## Entries
 
+## 2026-11-17 · 4-tab menu and React Settings · Claude Code · feat/react-settings
+- Request: Use 4 tabs in the bottom menu (Home, Attendance, Reports, Settings). Open Guards and Sites from Settings. Move Settings to React.
+- Changed: `layout/BottomNav.tsx` (4 tabs; Settings is active on Guards and Sites). `layout/AppShell.tsx`: `Page` `back`. `screens/settings/`: Settings home (Guards and Sites with counts, account rows, Sign out), My profile, User access (list, add a supervisor, one supervisor: sites, new password, disable/enable), Activity log (glossary titles, IST dates, CSV export).
+- Changed: `lib/api.ts`: `apiFile()` shares the request code of `api()`. `auth/session.ts`: `updateUser()`. `lib/useSingleSubmit.ts`: one request for a fast double tap, also used in the Attendance sheets. `lib/format.ts`: `istDay()`.
+- Tests: `screens/settings/Settings.test.tsx` (new, 18 tests; it found a second save after a fast double tap in My profile, now fixed). `tests/test_next_settings.py` (new). `tests/test_next_layout.py`: Settings title position. `npm test` → 154 passed. Browser with the local API: admin flows (added and disabled a test supervisor "sup.uicheck"), activity log, supervisor read-only screens.
+- Open items: Guards and Sites are not in React yet (Settings links to their placeholders). The local demo database has the disabled test user "sup.uicheck". Figma not changed (plan limit).
+
 ## 2026-11-17 · Attendance loads each site one time · Claude Code · feat/react-attendance
 - Request: The filters and the search called the API again, but the screen already had all the data. Stop the extra requests.
 - Changed: `screens/Attendance.tsx`: one query for each site (`['attendance', siteId]`, fresh for 30 s, loads again when the user comes back to the app). The status filter and the search work on the phone (`screens/attendance/filters.ts`: `filterRows()`, `matchesSearch()`, the same rule as the server search). The list filters at once on each key; the URL and the other-sites search wait 300 ms. `docs/UI-GUIDE.md`: data rule.
