@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, test } from 'vitest';
 import { clearSession, endSession, selectCompany, startSession } from '@/auth/session';
@@ -19,7 +19,7 @@ describe('routes', () => {
     clearSession();
     at('/reports');
     expect(screen.getByRole('heading', { name: 'Guardian' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Sign in in the current app' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
 
   test('a session that the server ended shows why', () => {
@@ -30,13 +30,12 @@ describe('routes', () => {
 
   test('a signed-in admin sees the screen and the bottom navigation', () => {
     startSession('t', { id: 'admin.demo', name: 'Admin', role: 'admin', company_id: 'c1' });
-    at('/attendance/add');
-    expect(screen.getByRole('heading', { name: 'Employee check-in' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open in the current app' })).toHaveAttribute('href', '/app#add');
-    expect(screen.getByRole('link', { name: 'Attendance' })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getAllByRole('link', { name: /Home|Attendance|Employees|Locations|Reports|Settings/ })).toHaveLength(
-      6,
-    );
+    at('/locations');
+    expect(screen.getByRole('heading', { name: 'Sites' })).toBeInTheDocument();
+    // Sites opens from Settings, so the Settings tab is active.
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('aria-current', 'page');
+    const tabs = within(screen.getByRole('navigation', { name: 'Main' })).getAllByRole('link');
+    expect(tabs.map((t) => t.textContent)).toEqual(['Home', 'Attendance', 'Reports', 'Settings']);
   });
 
   test('the owner without a company sees only the owner console', () => {

@@ -10,7 +10,7 @@ Use ASD-STE100 Simplified Technical English for:
 - All work log entries.
 - All commit messages and pull request text.
 
-Do not use STE100 rules for text that users see in the app. App text follows `docs/UI-GUIDE.md`.
+Do not use STE100 rules for text that users see in the app. App text follows `docs/UI-GUIDE.md` and the word list in `docs/GLOSSARY.md`.
 
 STE100 rules to use:
 - Write short sentences. Use a maximum of 20 words in an instruction and 25 words in a description.
@@ -57,10 +57,13 @@ We move the frontend to React one screen at a time. Each screen moves in its own
 - Design for a phone first: 390 px wide. Make sure that the screen also works on a wider screen.
 - Make each touch target 44 × 44 px or larger.
 - Give each screen one primary action.
+- Keep taps to a minimum. Fill each value that the app can work out (for example the check-out time and date from the site shift). Ask the user only for what the app cannot know.
+- Make each rule fool-proof: check it in the app (show the problem next to the field and disable the action) and check it again on the server.
 - Give each data view three more states: loading, empty and error.
 - In the error state, show a "Try again" button. Keep the filters of the user.
 - Keep text contrast at 4.5:1 or more.
 - Use real `<button>` elements for actions. Give an icon-only button an `aria-label`.
+- Give each button, clickable item and input a hover state. Use `tap-card`, `tap-icon` or `tap-tab`, a shadcn `Button` or a shadcn `Input`. Do not show hover on a disabled or selected item. An icon in an item does not get its own hover. `frontend/src/hover.test.ts` checks this.
 - Show each number one time only on a screen. Do not show the same data again on each row.
 - Escape each dynamic value with `esc()` before you put it into HTML.
 
@@ -117,6 +120,7 @@ Each screen and each action must handle loading, success and all failures. Do no
 - Before you add a component, look for one in `docs/UI-GUIDE.md`. Use the existing CSS classes and template functions.
 - If a new screen needs its own classes, give them a short prefix. For example, the Reports screen uses `rp` (`.rpList`, `.rpSheet`).
 - Do not load libraries from a CDN. Install them with npm in `frontend/`.
+- When you move a screen, use the words in `docs/GLOSSARY.md` (for example "guard" and "site"). Code and API names do not change.
 - In `frontend/`, use shadcn/ui components first (`npx shadcn@latest add <name>`). Style them with the Tailwind tokens in `frontend/src/index.css`.
 - Do not add a second UI library, CSS framework or state library without a reason.
 

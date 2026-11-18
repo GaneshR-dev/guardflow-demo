@@ -26,7 +26,9 @@ const never = <T>() => new Promise<T>(() => {});
 
 type Detail = string | { msg?: string; message?: string }[] | undefined;
 
-export async function api<T = unknown>(path: string, opts: RequestInit = {}): Promise<T> {
+// The shared request: the token, the company header, and each failure as a readable ApiError.
+// Returns the raw response for a success. api() reads JSON; apiFile() saves a file.
+async function request(path: string, opts: RequestInit = {}): Promise<Response> {
   const { token, companyId } = getSession();
   const isLogin = path === '/api/login';
   const isLogout = path === '/api/logout';
@@ -46,6 +48,10 @@ export async function api<T = unknown>(path: string, opts: RequestInit = {}): Pr
     if (stale()) return never();
     throw new ApiError(NETWORK_ERROR, 0, true);
   }
+  if (res.ok) {
+    if (stale()) return never();
+    return res;
+  }
   const text = await res.text();
   if (stale()) return never();
   let data: { detail?: Detail } & Record<string, unknown>;
@@ -54,20 +60,43 @@ export async function api<T = unknown>(path: string, opts: RequestInit = {}): Pr
   } catch {
     data = { detail: text };
   }
-  if (!res.ok) {
-    if (isLogin && res.status === 401) throw new ApiError(LOGIN_FAILED, 401);
-    // Any other 401 means the server no longer accepts this session (expired, revoked or
-    // signed out on another device). /api/logout handles its own 401.
-    if (res.status === 401 && !isLogout) {
-      endSession();
-      throw new ApiError(SESSION_ENDED, 401);
-    }
-    const detail = Array.isArray(data.detail)
-      ? data.detail.map((x) => x.msg || x.message || String(x)).join('; ')
-      : data.detail;
-    throw new ApiError(detail || 'Request failed', res.status);
+  if (isLogin && res.status === 401) throw new ApiError(LOGIN_FAILED, 401);
+  // Any other 401 means the server no longer accepts this session (expired, revoked or
+  // signed out on another device). /api/logout handles its own 401.
+  if (res.status === 401 && !isLogout) {
+    endSession();
+    throw new ApiError(SESSION_ENDED, 401);
   }
-  return data as T;
+  const detail = Array.isArray(data.detail)
+    ? data.detail.map((x) => x.msg || x.message || String(x)).join('; ')
+    : data.detail;
+  throw new ApiError(detail || 'Request failed', res.status);
+}
+
+export async function api<T = unknown>(path: string, opts: RequestInit = {}): Promise<T> {
+  const token = getSession().token;
+  const res = await request(path, opts);
+  const text = await res.text();
+  // The session changed while the body loaded: the reply belongs to the old account.
+  if (path !== '/api/login' && path !== '/api/logout' && getSession().token !== token) return never();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // A success with no JSON body (rare). The callers that need data use JSON endpoints.
+    return text as unknown as T;
+  }
+}
+
+// Download a file (for example a CSV export) with the same session and error handling as api().
+export async function apiFile(path: string, filename: string): Promise<string> {
+  const res = await request(path, { headers: { Accept: '*/*' } });
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+  return filename;
 }
 
 export const isApiError = (e: unknown): e is ApiError => e instanceof ApiError;

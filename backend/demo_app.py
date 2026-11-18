@@ -160,6 +160,13 @@ class EmployeeBody(BaseModel):
         return value
 
 
+class EmployeeEditBody(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    phone: str = Field(min_length=7, max_length=25, pattern=r"^[0-9+() -]+$")
+    # None removes the site: the guard waits for a new site.
+    location_id: str | None = Field(default=None, min_length=2, max_length=40)
+
+
 class EmployeeImportRow(EmployeeBody):
     id: str | None = Field(default=None, max_length=40)
 
@@ -204,7 +211,8 @@ class ShiftBody(BaseModel):
 
 class LocationBody(BaseModel):
     supervisor_id: str | None = Field(default=None, min_length=3, max_length=80)
-    id: str = Field(min_length=2, max_length=40, pattern=r"^[a-z0-9-]+$")
+    # Optional: without an ID, the server makes a unique one from the name.
+    id: str | None = Field(default=None, min_length=2, max_length=40, pattern=r"^[a-z0-9-]+$")
     name: str = Field(min_length=3, max_length=100)
     area: str = Field(min_length=2, max_length=100)
     assigned_count: int = Field(default=0, ge=0, le=10000)
@@ -229,6 +237,11 @@ class LocationBody(BaseModel):
         if self.shift_start is not None and self.shift_start == self.shift_end:
             raise ValueError("Shift start and end must differ")
         return self
+
+
+class LocationEditBody(BaseModel):
+    name: str = Field(min_length=3, max_length=100)
+    area: str = Field(min_length=2, max_length=100)
 
 
 class LocationShiftsBody(BaseModel):
@@ -615,6 +628,8 @@ def health():
         "status": "ok",
         "data_notice": "Fictional sample data only",
         "database": DB_KIND,
+        # The sign-in screen shows the demo accounts only in demo mode.
+        "demo_mode": DEMO_MODE,
     }
 
 
@@ -814,8 +829,8 @@ def disable_employee(employee_id: str, user=Depends(current_user)):
         if open_checkins:
             raise HTTPException(
                 409,
-                "Cannot disable this employee yet: they still have an open check-in. "
-                "Record their check-out first, then disable them. Their attendance history is kept either way.",
+                "Cannot disable this guard yet: the guard is still checked in. "
+                "Record the check-out first, then disable the guard. Attendance history is kept either way.",
             )
         c.execute(text("UPDATE demo_employees SET active=0 WHERE id=:id"), {"id": employee_id})
         if row["location_id"]:
@@ -859,6 +874,72 @@ def enable_employee(employee_id: str, user=Depends(current_user)):
             )
         audit(c, user, "employee.enable", {"employee_id": employee_id, "location_id": row["location_id"]})
     return {"id": employee_id, "status": "active"}
+
+
+@app.patch("/api/employees/{employee_id}")
+def edit_employee(employee_id: str, body: EmployeeEditBody, user=Depends(current_user)):
+    """Admin edit of an active guard: name, phone and site. A site change is a transfer: the
+    history stays at the old site, and the headcount of both sites changes."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        row = (
+            c.execute(
+                text("SELECT * FROM demo_employees WHERE id=:id AND company_id=:company" + row_lock()),
+                {"id": employee_id, "company": user["company_id"]},
+            )
+            .mappings()
+            .first()
+        )
+        if not row:
+            raise HTTPException(404, "Guard not found")
+        if not row["active"]:
+            raise HTTPException(409, "Enable this guard first, then edit.")
+        old_location = row["location_id"]
+        moved = old_location != body.location_id
+        if moved:
+            if body.location_id:
+                require_active_location(c, user, body.location_id)
+            open_checkins = (
+                c.execute(
+                    text("SELECT COUNT(*) FROM demo_attendance WHERE employee_id=:id AND status='checked_in'"),
+                    {"id": employee_id},
+                ).scalar()
+                or 0
+            )
+            if open_checkins:
+                raise HTTPException(409, "This guard is checked in. Record their check-out first, then move the guard.")
+        warning = duplicate_active_phone(c, body.phone, user["company_id"], exclude_id=employee_id)
+        update_employee_row(c, employee_id, body.name, body.phone, row["role"], body.location_id, user["company_id"])
+        if moved:
+            if old_location:
+                c.execute(
+                    text(
+                        "UPDATE demo_locations SET assigned_count=CASE WHEN assigned_count>0 "
+                        "THEN assigned_count-1 ELSE 0 END WHERE id=:id"
+                    ),
+                    {"id": old_location},
+                )
+            if body.location_id:
+                c.execute(
+                    text("UPDATE demo_locations SET assigned_count=assigned_count+1 WHERE id=:id"),
+                    {"id": body.location_id},
+                )
+            audit(
+                c, user, "employee.transfer", {"employee_id": employee_id, "from": old_location, "to": body.location_id}
+            )
+        fields = [f for f in ("name", "phone") if row[f] != getattr(body, f)]
+        if fields:
+            audit(c, user, "employee.update", {"employee_id": employee_id, "fields": fields})
+    return {
+        "id": employee_id,
+        "name": body.name,
+        "phone": body.phone,
+        "role": row["role"],
+        "location_id": body.location_id,
+        "active": 1,
+        "warning": warning,
+    }
 
 
 @app.post("/api/employees/import")
@@ -1125,6 +1206,61 @@ def check_out(body: CheckBody, user=Depends(current_user)):
         return result
 
 
+def _clock(hhmm: str) -> dt_time:
+    hour, minute = (int(part) for part in hhmm.split(":"))
+    return dt_time(hour, minute)
+
+
+def fmt_clock(value: datetime) -> str:
+    """'6:00 pm' for messages, the same format as the app."""
+    return f"{value.hour % 12 or 12}:{value.minute:02d} {'am' if value.hour < 12 else 'pm'}"
+
+
+def shift_window(shifts: list[dict], day: date, check_in_hhmm: str) -> tuple[datetime, datetime] | None:
+    """Return the IST start and end of the shift that a check-in belongs to, or None if the site has no shift.
+
+    The shift is the one whose start (on the day before, the day, or the day after) is nearest to the
+    check-in; a tie goes to the earlier start. This covers an early check-in (8:50 for a 9:00 shift) and
+    an overnight shift (22:00-06:00, with a check-in at 01:00). End = start + duration; a shift whose
+    end is not after its start runs past midnight.
+    """
+    if not shifts:
+        return None
+    check_in = datetime.combine(day, _clock(check_in_hhmm), tzinfo=LOCAL_TZ)
+    best: tuple[tuple[timedelta, datetime], datetime, datetime] | None = None
+    for shift in shifts:
+        start_time, end_time = _clock(shift["shift_start"]), _clock(shift["shift_end"])
+        duration = datetime.combine(day, end_time) - datetime.combine(day, start_time)
+        if duration <= timedelta(0):
+            duration += timedelta(days=1)
+        for offset in (-1, 0, 1):
+            start = datetime.combine(day + timedelta(days=offset), start_time, tzinfo=LOCAL_TZ)
+            key = (abs(start - check_in), start)
+            if best is None or key < best[0]:
+                best = (key, start, start + duration)
+    assert best is not None
+    return best[1], best[2]
+
+
+def location_shift_rows(c, location_id: str) -> list[dict]:
+    """The shift windows of one site. Falls back to the legacy single pair on the site row."""
+    rows = [
+        dict(r)
+        for r in c.execute(
+            text("SELECT shift_start,shift_end FROM demo_location_shifts WHERE location_id=:id ORDER BY position"),
+            {"id": location_id},
+        ).mappings()
+    ]
+    if rows:
+        return rows
+    legacy = (
+        c.execute(text("SELECT shift_start,shift_end FROM demo_locations WHERE id=:id"), {"id": location_id})
+        .mappings()
+        .first()
+    )
+    return [dict(legacy)] if legacy and legacy["shift_start"] and legacy["shift_end"] else []
+
+
 def ist_stamp(day_text: str, hhmm: str) -> str:
     """Convert an IST wall-clock day + HH:MM into the stored UTC ISO timestamp."""
     hour, minute = (int(part) for part in hhmm.split(":"))
@@ -1141,7 +1277,11 @@ def edit_attendance_times(body: AttendanceTimeBody, user=Depends(current_user)):
         parsed_day = date.fromisoformat(body.day)
     except ValueError:
         raise HTTPException(400, "Invalid day") from None
-    out_day_text = body.check_out_day or body.day
+    # The React app does not send the check-out date: a check-out that is not later than the
+    # check-in on the clock is on the next day (a shift is shorter than 24 hours).
+    out_day_text = body.check_out_day or (
+        (parsed_day + timedelta(days=1)).isoformat() if body.check_out and body.check_out <= body.check_in else body.day
+    )
     try:
         out_day = date.fromisoformat(out_day_text)
     except ValueError:
@@ -1165,6 +1305,15 @@ def edit_attendance_times(body: AttendanceTimeBody, user=Depends(current_user)):
         ).first():
             raise HTTPException(404, "Employee not found")
         require_location_access(c, user, body.location_id)
+        # An edit cannot go past the end of the site's shift (the owner's rule). Sites with no shift
+        # have no limit.
+        window = shift_window(location_shift_rows(c, body.location_id), parsed_day, body.check_in)
+        if window:
+            shift_end = window[1]
+            if datetime.fromisoformat(check_in) >= shift_end:
+                raise HTTPException(400, f"Check-in is after the shift end ({fmt_clock(shift_end)}). Check the time.")
+            if check_out and datetime.fromisoformat(check_out) > shift_end:
+                raise HTTPException(400, f"Check-out must be at or before the shift end ({fmt_clock(shift_end)}).")
         params = {"employee": body.employee_id, "day": parsed_day.isoformat(), "location": body.location_id}
         sql = "SELECT * FROM demo_attendance WHERE employee_id=:employee AND day=:day AND location_id=:location"
         if body.record_id:
@@ -1696,7 +1845,9 @@ def create_location(body: LocationBody, user=Depends(current_user)):
     if user["role"] != "admin":
         raise HTTPException(403, "Admin required")
     with engine.begin() as c:
-        if c.execute(text("SELECT 1 FROM demo_locations WHERE id=:id"), {"id": body.id}).first():
+        if body.id is None:
+            body.id = unique_location_id(c, body.name)
+        elif c.execute(text("SELECT 1 FROM demo_locations WHERE id=:id"), {"id": body.id}).first():
             raise HTTPException(409, "Location ID already exists")
         if body.supervisor_id is not None:
             supervisor = c.execute(
@@ -1735,6 +1886,33 @@ def create_location(body: LocationBody, user=Depends(current_user)):
             )
         audit(c, user, "settings.location.create", body.model_dump())
     return body.model_dump()
+
+
+@app.patch("/api/settings/locations/{location_id}")
+def edit_location(location_id: str, body: LocationEditBody, user=Depends(current_user)):
+    """Admin edit of a site's name and area. A disabled site can be edited too: the name
+    does not change any attendance record."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin required")
+    with engine.begin() as c:
+        row = (
+            c.execute(
+                text("SELECT * FROM demo_locations WHERE id=:id AND company_id=:company" + row_lock()),
+                {"id": location_id, "company": user["company_id"]},
+            )
+            .mappings()
+            .first()
+        )
+        if not row:
+            raise HTTPException(404, "Site not found")
+        fields = [f for f in ("name", "area") if row[f] != getattr(body, f)]
+        if fields:
+            c.execute(
+                text("UPDATE demo_locations SET name=:name,area=:area WHERE id=:id"),
+                {"id": location_id, "name": body.name, "area": body.area},
+            )
+            audit(c, user, "settings.location.update", {"location_id": location_id, "fields": fields})
+    return {"id": location_id, "name": body.name, "area": body.area}
 
 
 @app.put("/api/settings/locations/{location_id}/shifts")
@@ -1803,8 +1981,9 @@ def disable_location(location_id: str, user=Depends(current_user)):
         if open_checkins:
             raise HTTPException(
                 409,
-                f"Cannot disable this branch yet: {open_checkins} check-in(s) are still open. "
-                "Record the open check-outs first. Attendance history is kept either way.",
+                f"Cannot disable this site yet: {open_checkins} "
+                + ("guard is" if open_checkins == 1 else "guards are")
+                + " still checked in. Record the check-outs first. Attendance history is kept either way.",
             )
         c.execute(text("UPDATE demo_locations SET active=0 WHERE id=:id"), {"id": location_id})
         audit(c, user, "settings.location.disable", {"location_id": location_id, "name": row["name"]})
@@ -1836,6 +2015,16 @@ def enable_location(location_id: str, user=Depends(current_user)):
 def generated_location_id(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return "loc-" + (slug or secrets.token_hex(4))
+
+
+def unique_location_id(c, name: str) -> str:
+    """A new site ID from the name that no company uses yet: loc-hsr-layout, loc-hsr-layout-2, …"""
+    base = generated_location_id(name)[:36].rstrip("-")
+    candidate, n = base, 1
+    while c.execute(text("SELECT 1 FROM demo_locations WHERE id=:id"), {"id": candidate}).first():
+        n += 1
+        candidate = f"{base}-{n}"
+    return candidate
 
 
 @app.post("/api/settings/locations/import")

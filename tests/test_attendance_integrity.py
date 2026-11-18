@@ -13,6 +13,7 @@ from demo_app import app, local_today
 from demo_db import engine
 from demo_security import iso_dt
 from fastapi.testclient import TestClient
+from shift_helpers import temporary_shifts
 from sqlalchemy import text
 
 client = TestClient(app)
@@ -193,18 +194,20 @@ def test_time_edit_requires_reason_and_caps_shift_length():
     # No reason at all and a one-word reason both fail validation.
     assert client.patch("/api/attendance/times", headers=headers, json=base).status_code == 422
     assert client.patch("/api/attendance/times", headers=headers, json={**base, "reason": "no"}).status_code == 422
-    # A six-day span (for example a forgotten check-out) is allowed with a reason and
-    # flagged for review in the audit, not hard-blocked (owner policy pending).
-    long_edit = client.patch(
-        "/api/attendance/times",
-        headers=headers,
-        json={
-            **base,
-            "check_out": "18:00",
-            "check_out_day": (local_today() + timedelta(days=6)).isoformat(),
-            "reason": "guard forgot to check out for several days",
-        },
-    )
+    six_days = {
+        **base,
+        "check_out": "18:00",
+        "check_out_day": (local_today() + timedelta(days=6)).isoformat(),
+        "reason": "guard forgot to check out for several days",
+    }
+    # A site with a shift: an edit cannot go past the shift end (09:00-18:00 at HSR Layout).
+    blocked = client.patch("/api/attendance/times", headers=headers, json=six_days)
+    assert blocked.status_code == 400
+    assert blocked.json()["detail"] == "Check-out must be at or before the shift end (6:00 pm)."
+    # A site with no shift has no limit: a six-day span is allowed with a reason and flagged
+    # for review in the audit.
+    with temporary_shifts(engine, "loc-hsr", []):
+        long_edit = client.patch("/api/attendance/times", headers=headers, json=six_days)
     assert long_edit.status_code == 200
     assert long_edit.json()["long_shift"] is True
     # A valid correction stores the reason and the before/after in the audit log.

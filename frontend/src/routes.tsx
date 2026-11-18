@@ -2,9 +2,20 @@ import type { ReactNode } from 'react';
 import { Navigate, Outlet, Route, Routes } from 'react-router';
 import { uiRole, useSession } from '@/auth/session';
 import { AppShell } from '@/layout/AppShell';
+import { Attendance } from '@/screens/Attendance';
+import { Home } from '@/screens/Home';
 import { Login } from '@/screens/Login';
+import { Reports } from '@/screens/Reports';
+import { SiteDetail } from '@/screens/reports/SiteDetail';
+import { Guards } from '@/screens/Guards';
 import { NotMovedYet } from '@/screens/NotMovedYet';
-import { Settings } from '@/screens/Settings';
+import { Sites } from '@/screens/Sites';
+import { SiteScreen } from '@/screens/sites/SiteScreen';
+import { Access } from '@/screens/settings/Access';
+import { AccessUser } from '@/screens/settings/AccessUser';
+import { Activity } from '@/screens/settings/Activity';
+import { Profile } from '@/screens/settings/Profile';
+import { SettingsHome } from '@/screens/settings/SettingsHome';
 
 // No session: go to the sign-in screen.
 function RequireSession() {
@@ -28,18 +39,20 @@ export function AppRoutes() {
         <Route path="/owner" element={<NotMovedYet title="Your companies" oldScreen="dashboard" noNav />} />
         <Route element={<RequireCompany />}>
           <Route element={<AppShell />}>
-            <Route path="/home" element={<NotMovedYet title="Attendance overview" oldScreen="dashboard" />} />
-            <Route path="/attendance" element={<NotMovedYet title="Mark attendance" oldScreen="attendance" />} />
-            <Route path="/attendance/add" element={<NotMovedYet title="Employee check-in" oldScreen="add" />} />
-            <Route
-              path="/attendance/checkout"
-              element={<NotMovedYet title="Manage check-outs" oldScreen="checkout" />}
-            />
-            <Route path="/employees" element={<NotMovedYet title="Employees" oldScreen="employees" />} />
-            <Route path="/locations" element={<NotMovedYet title="Locations" oldScreen="locations" />} />
-            <Route path="/locations/:id" element={<NotMovedYet title="Location" oldScreen="locations" />} />
-            <Route path="/reports" element={<NotMovedYet title="Reports" oldScreen="reports" />} />
-            <Route path="/settings" element={<Settings />} />
+            <Route path="/home" element={<Home />} />
+            <Route path="/attendance" element={<Attendance />} />
+            <Route path="/attendance/add" element={<Navigate to="/attendance?status=not_in" replace />} />
+            <Route path="/attendance/checkout" element={<Navigate to="/attendance?status=checked_in" replace />} />
+            <Route path="/employees" element={<Guards />} />
+            <Route path="/locations" element={<Sites />} />
+            <Route path="/locations/:id" element={<SiteScreen />} />
+            <Route path="/reports" element={<Reports />} />
+            <Route path="/reports/sites/:id" element={<SiteDetail />} />
+            <Route path="/settings" element={<SettingsHome />} />
+            <Route path="/settings/profile" element={<Profile />} />
+            <Route path="/settings/access" element={<Access />} />
+            <Route path="/settings/access/:id" element={<AccessUser />} />
+            <Route path="/settings/activity" element={<Activity />} />
           </Route>
         </Route>
       </Route>

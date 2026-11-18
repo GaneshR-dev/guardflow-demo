@@ -21,6 +21,114 @@ Template:
 
 ## Entries
 
+## 2026-11-18 · React Sites screens · Claude Code · feat/react-sites
+- Request: Move the Sites screens to React. Add "Edit site" (name and area). The site shows a guard count with a link to Guards. Keep the supervisor choice as it is today.
+- Changed: `backend/demo_app.py` (new `PATCH /api/settings/locations/{id}`; the site ID is optional on create; the disable messages say "guard" and "site"), `screens/Sites.tsx`, `screens/sites/` (`SiteScreen`, `SiteSheet`, `ShiftSheet`, `ShiftFields`, `SiteRow`, `data.ts`), `lib/shift.ts` (`shiftRowsProblem`), `routes.tsx`, Home and Attendance ("Add a site" → `/locations?add=1`), `screens/settings/data.ts`.
+- Tests: `tests/test_location_edit.py` (new, 6 tests). `screens/sites/Sites.test.tsx` (new, 16 tests), `lib/shift.test.ts`. `tests/test_next_sites.py` (new, 3 tests). `npm test` → 223 passed. Real server at 390 px: add a site with a day and a night shift and a supervisor, rename, edit shifts, disable and enable, the 409 for a site with open check-ins, the Guards link, import, the activity log, the supervisor view.
+- Open items: Figma not read (plan limit). The local demo database now has the test sites "Pune - Browser Checked" and "Pune - Import Check". Old order issue: `test_multiple_shifts.py` before `test_demo_app.py` fails 2 tests (also without this change; the full suite order passes).
+
+## 2026-11-18 · React Guards screen · Claude Code · feat/react-guards
+- Request: Move the Guards screen to React. Add "Edit guard" (name, phone, site) and keep the CSV import. Use a search and a site button; fold the disabled guards.
+- Changed: `backend/demo_app.py` (new `PATCH /api/employees/{id}`), `screens/Guards.tsx`, `screens/guards/GuardRow.tsx`, `components/GuardSheet.tsx` (replaces `AddGuardSheet`), `components/LocationSheet.tsx` ("No site yet"), `lib/csv.ts`, `routes.tsx`, `screens/settings/data.ts` (activity log title), `types/api.ts`.
+- Tests: `tests/test_employee_edit.py` (new, 8 tests). `Guards.test.tsx` (new, 14 tests), `lib/csv.test.ts` (new). `tests/test_next_guards.py` (new). `npm test` → 197 passed. Browser at 390 px with the local API: import, move a site, disable, enable, the activity log, the 409 for a checked-in guard, a touch tap on a card.
+- Open items: there is no Figma frame for Guards.
+- Also fixed: `test_record_specific_time_edit_and_reopen_guard` failed between 00:00 and 08:00 IST. It found a record by its place in a list sorted by check-in time. It now finds the record by its ID.
+
+## 2026-11-17 · Hover states for all buttons · Claude Code · feat/react-hover
+- Request: Add a hover effect to all buttons. Add it as a design rule.
+- Changed: `index.css` (`tap-card`, `tap-icon`, `tap-tab`), shadcn `button.tsx` (`default` and `outline` hover), `input.tsx` and `textarea.tsx` (border hover), and the clickable items on all React screens. Rule in `AGENTS.md` §4 and `docs/UI-GUIDE.md` ("Hover and press states").
+- Tests: `src/hover.test.ts` (new): each clickable item has a hover class. `tests/test_next_hover.py` (new): hover with a mouse; no hover look after a tap on a phone.
+- Open items: none.
+
+## 2026-11-17 · Reports review changes · Claude Code · feat/react-reports
+- Request: New tab design (white pill on a grey track); the Excel button with the same height and white background as the other buttons; "x / y" with a colour in History; search and a sticky bar on the Day tab.
+- Changed: `screens/Reports.tsx`, `screens/reports/` (`ExcelButton.tsx` new, `DayReport.tsx`, `HistoryReport.tsx`, `SiteDetail.tsx`). New shared parts: `components/StickySearchBar.tsx`, `lib/useScrolledPast.ts`. `screens/Attendance.tsx` uses them (no visual change).
+- Tests: `Reports.test.tsx` (10 tests). `tests/test_next_reports.py`: button heights and backgrounds, tab heights, the sticky search with 60 guards.
+- Open items: an export for a range of months is a GitHub issue (not done now). The collaborator set the Excel button to 40 px high (commit "chore: cosmetic fix"); the tests accept 40 px for this button only.
+
+## 2026-11-17 · React Reports screen · Claude Code · feat/react-reports
+- Request: Move the Reports screen to React.
+- Changed: `screens/Reports.tsx` (tabs in the context row, Excel in the title row, date/month and site filters, URL state) and `screens/reports/`: `DayReport.tsx`, `MonthReport.tsx`, `SiteDetail.tsx` (`/reports/sites/:id`), `HistoryReport.tsx`, `PeriodButton.tsx`, `SummaryCard.tsx`, `data.ts` (queries, Excel). Types in `types/api.ts`. No backend change.
+- Tests: `screens/reports/Reports.test.tsx` (new, 8 tests). `tests/test_next_reports.py` (new). `tests/test_next_layout.py`: Reports positions. `npm test` → 170 passed. Browser at 390 px with the local API: Day, Month, site detail, a day link, History, a future day, the site sheet. The browser test found 34 px tabs and a 42 px date input; both are now 44 px.
+- Open items: Figma not read (the Figma MCP plan limit is still used up); the old app, which follows the Figma design, was the reference. The Excel download was tested with mocks, not with a real download in the browser.
+
+## 2026-11-17 · 4-tab menu and React Settings · Claude Code · feat/react-settings
+- Request: Use 4 tabs in the bottom menu (Home, Attendance, Reports, Settings). Open Guards and Sites from Settings. Move Settings to React.
+- Changed: `layout/BottomNav.tsx` (4 tabs; Settings is active on Guards and Sites). `layout/AppShell.tsx`: `Page` `back`. `screens/settings/`: Settings home (Guards and Sites with counts, account rows, Sign out), My profile, User access (list, add a supervisor, one supervisor: sites, new password, disable/enable), Activity log (glossary titles, IST dates, CSV export).
+- Changed: `lib/api.ts`: `apiFile()` shares the request code of `api()`. `auth/session.ts`: `updateUser()`. `lib/useSingleSubmit.ts`: one request for a fast double tap, also used in the Attendance sheets. `lib/format.ts`: `istDay()`.
+- Tests: `screens/settings/Settings.test.tsx` (new, 18 tests; it found a second save after a fast double tap in My profile, now fixed). `tests/test_next_settings.py` (new). `tests/test_next_layout.py`: Settings title position. `npm test` → 154 passed. Browser with the local API: admin flows (added and disabled a test supervisor "sup.uicheck"), activity log, supervisor read-only screens.
+- Open items: Guards and Sites are not in React yet (Settings links to their placeholders). The local demo database has the disabled test user "sup.uicheck". Figma not changed (plan limit).
+
+## 2026-11-17 · Attendance loads each site one time · Claude Code · feat/react-attendance
+- Request: The filters and the search called the API again, but the screen already had all the data. Stop the extra requests.
+- Changed: `screens/Attendance.tsx`: one query for each site (`['attendance', siteId]`, fresh for 30 s, loads again when the user comes back to the app). The status filter and the search work on the phone (`screens/attendance/filters.ts`: `filterRows()`, `matchesSearch()`, the same rule as the server search). The list filters at once on each key; the URL and the other-sites search wait 300 ms. `docs/UI-GUIDE.md`: data rule.
+- Tests: `filters.test.ts` (new). `Attendance.test.tsx`: filters and search send no new request. `tests/test_next_attendance.py`: one attendance request after a filter tap. `npm test` → 127 passed. Browser with the local API: 4 filter taps and a search sent no attendance request.
+- Open items: none.
+
+## 2026-11-17 · Same section positions on each page · Claude Code · feat/react-attendance
+- Request: Split each page into the same sections, and start each section at the same position on every page. Use the position of the "Mark attendance" title.
+- Cause: the title row of Attendance had a 44 px icon, so it was 44 px high; the Home title row was 34 px. So the Attendance title was 5 px lower, and the sections under it 11 px lower.
+- Changed: `layout/AppShell.tsx` `Page`: fixed sections (brand bar, 44 px title row with an optional action, 44 px context row from the new `context` prop, content). `screens/Home.tsx` and `screens/Attendance.tsx` use `context`. `docs/UI-GUIDE.md`: "Page sections".
+- Tests: `tests/test_next_layout.py` (new): Home and Attendance have the same title, context and content positions; Guards has the same title position. `tests/test_next_home.py`: the scroll check now uses only visible cards (the disabled site is in a folded section) and waits for the scroll. `npm test` → 125 passed. Browser at 390 px: title 67, context 114, content 174 on Home and Attendance.
+- Open items: none.
+
+## 2026-11-17 · Edit times uses the site shift · Claude Code · feat/react-attendance
+- Request: Fill the check-out time from the site shift, never past the shift end, and work out the check-out date. Make it fool-proof with few taps. Add the few-taps rule to the project file.
+- Decisions: block a check-out after the shift end in the app and on the server; no check-out date field.
+- Changed: `backend/demo_app.py`: `shift_window()` (the shift of a check-in: the nearest start on the day before, the day, or the day after; overnight shifts), `location_shift_rows()`, and `PATCH /api/attendance/times` refuses a check-in or check-out after the shift end (400) and works out the check-out date when it is not sent. The old app uses the same endpoint, so it gets the same rule.
+- Changed: `frontend/src/lib/shift.ts` (the same rule), `screens/attendance/EditTimesSheet.tsx` (shift line, check-out filled from the shift, "Use shift end", "Still at work", worked-out date text, inline error and disabled Save). `AGENTS.md` §4: few taps and fool-proof rules. `docs/UI-GUIDE.md`: Edit times section.
+- Tests: `tests/test_edit_times_shift.py` (new, 9 passed), `tests/shift_helpers.py` (changes a site's shifts for one test and restores them). Updated 3 old tests that edited past the HSR shift end. `npm test` → 125 passed. `pytest -q tests/` → all pass except the 5 old search tests that also fail on `origin/main` on macOS. Browser with the restarted local API: auto-fill, 400 from the server, inline error.
+- Open items: Live check-out (the Check out button) still records the real time, also after the shift end. A record with such a check-out cannot be edited until its check-out is at or before the shift end.
+
+## 2026-11-17 · Attendance review: check-in button, edit sheet · Claude Code · feat/react-attendance
+- Request: Show the edit button on checked-out cards. Make "Check in" on a checked-out card look like the other "Check in" buttons. Make the reason a text area. Make the edit sheet text simpler.
+- Changed: `screens/Attendance.tsx`: "Check in" is always filled. `screens/attendance/EditTimesSheet.tsx`: shadcn `Textarea` for the reason (3 lines, 0/200 counter); shorter text ("Times are in IST. Your reason goes to the activity log."); each hint is under its field.
+- Checked: the edit button already shows on checked-out cards for admins (browser and tests). Supervisors do not get it (only admins can edit times).
+- Tests: `npm test` → 111 passed. Browser tests passed. Lint, format, typecheck, build → passed.
+- Open items: none new.
+
+## 2026-11-17 · Attendance design review changes · Claude Code · feat/react-attendance
+- Request: Use the Home tile style for the filters. Make each guard card bigger with space between cards. Give the actions the same size and put the edit icon at the top right. Add "Add a guard" at the top right. Make the screen work for many guards (the collaborator chose a sticky search and filters).
+- Changed: `components/StatTile.tsx` and `lib/tone.ts` (shared by Home and Attendance). `screens/attendance/`: `StatusTiles.tsx`, `CompactFilters.tsx`, `filters.ts`, `AttendanceRow.tsx` (`GuardCard`, `GuardList`, fixed 112 px actions). `screens/Attendance.tsx`: sticky search bar with compact filters (shown when the tiles scroll away), top-right "Add a guard", "Can't find a guard?" as one line and a link (no box, the collaborator's choice) only for an empty search. `layout/AppShell.tsx`: `Page` `action` prop.
+- Tests: `npm test` → 111 passed. `tests/test_next_attendance.py` → 5 passed (card gap, equal button width, edit position, sticky bar with 60 guards). Browser at 390 and 320 px with the local API.
+- Open items: none new.
+
+## 2026-11-17 · React Attendance screen · Claude Code · feat/react-attendance
+- Request: Move Attendance to React. The collaborator chose one screen with an action on each row, in place of the 3 old screens.
+- Changed: `frontend/src/screens/Attendance.tsx` and `screens/attendance/` (filter grid, guard row, actions hook, edit-times and add-guard sheets). `lib/hours.ts` (hours worked, the record that check-out closes, one row for each guard). Types in `types/api.ts`. `routes.tsx`: `/attendance`, and the old `/attendance/add` and `/attendance/checkout` open the matching filter.
+- Changed: `components/ConfirmDialog.tsx` blocks a fast double tap (a test found two check-ins from one double tap). A new question (second shift) ignores taps for 400 ms.
+- Tests: `npm test` → 103 passed. `tests/test_next_attendance.py` (new, Playwright) → passed. Lint, format, typecheck, build → passed. Browser at 390 px with the local API: check-in, check-out, second-shift dialog, search, admin and supervisor.
+- Open items: Server messages still use "Employee" and "location" (for example "Employee not found"). Change them in a backend PR with the old app tests. Figma not changed (plan limit).
+
+## 2026-11-17 · Grey for "Checked out" · Claude Code · feat/react-signin
+- Request: Show "Checked out" in grey.
+- Changed: `frontend/src/screens/Home.tsx`: the "Checked out" tile number is grey (`text-muted-foreground`, 5.9:1). `lib/format.ts`: `STATUS_TONE` gives "completed" the tone "grey". `docs/GLOSSARY.md`: one colour for each status (green = Checked in, grey = Checked out, amber = Not checked in). `docs/UI-GUIDE.md`: Home tiles.
+- Tests: `npm test` → 75 passed (Home test checks the tile colours). Lint, format, typecheck, build → passed. Browser at 390 px: contrast 5.9:1 or more on each tile.
+- Open items: Use the same colours on Attendance and Reports when they move.
+
+## 2026-11-17 · One word list for the app text · Claude Code · feat/react-signin
+- Request: Make the app words the same on each screen, as part of the migration. Keep a Markdown file that tells what each word means.
+- Decisions: "guard" (not employee or staff), "site" (not location or branch), statuses "Checked in", "Checked out", "Not checked in". React screens only. The old app does not change.
+- Changed: `docs/GLOSSARY.md` (new): app words, meanings, words not to use, screen titles, nav labels and writing rules. `AGENTS.md`, `docs/UI-GUIDE.md`, `README.md` link it.
+- Changed: React text: nav "Home, Attendance, Guards, Sites, Reports, Settings" (no short forms, one line down to 320 px). Home, `ScreenError`, `LocationSheet` and the screen titles use "guard" and "site". Times show as "9:00 am" (no leading zero).
+- Changed: `frontend/src/glossary.test.ts` (new): fails when app text in a screen has a word that the glossary does not allow.
+- Tests: `npm test` → 75 passed. Lint, format, typecheck, build → passed. `pytest -q tests/` → all pass except the 5 old `test_search_keeps_native_input…` tests (they also fail on `origin/main` on macOS). Ruff → passed. Browser at 390, 360 and 320 px.
+- Open items: The old app keeps the old words until each screen moves. URL paths (`/employees`, `/locations`) keep the old names.
+
+## 2026-11-17 · React Home screen with a clearer purpose · Claude Code · feat/react-signin
+- Request: Build the newer Home design in React. Remove the double location control. Add improvements that use the data we have today.
+- Changed: `frontend/src/screens/Home.tsx`: four big summary tiles (the collaborator chose them over one summary sentence; labels 13 px, not 10 px), no location picker, locations grouped by need (`lib/coverage.ts`: needs attention, upcoming from the shift times, everybody came, disabled folded). A card opens Attendance for that location. One location shows a "Mark attendance" button. "Updated" time and Refresh. Loading, empty (admin and supervisor), error and failed-refresh states.
+- Changed: `layout/AppShell.tsx`: the 430 px `#f7faff` panel of the old app. `index.css`: `text-muted-foreground` is now `#56657b` for 4.5:1 contrast. `components/ProgressBar.tsx`. `tests/next_app.py`: shared helper for the /next browser tests.
+- Tests: `npm test` → 58 passed. `tests/test_next_home.py` (new) and `tests/test_next_signin.py` → 9 passed. Ruff → passed. Browser at 390 px with the local API: groups, links, contrast 5.1:1 or more.
+- Open items: Attendance is not in React yet, so a card opens the "not here yet" screen. Figma not changed (plan limit): add Home with the sign-in screen. The dashboard counts only today's records, so a guard on an overnight shift from yesterday counts as "not in".
+
+## 2026-11-17 · React sign-in screen with a better design · Claude Code · feat/react-signin
+- Request: Add the sign-in screen to Figma, make the design better and move the screen to React.
+- Changed: `frontend/src/screens/Login.tsx`: the real sign-in. Theme fields (no yellow autofill), focus ring, show/hide password, "Signing in…" state, one request only, wrong password clears and focuses the password, 5xx shows a plain message, help sheet for "Forgot password?", tap-to-fill demo accounts, footer in the page flow. shadcn `input`, `label`.
+- Changed: `backend/demo_app.py`: `/api/health` returns `demo_mode`. `components/ui/sheet.tsx`: close button 44 px. `vite.config.ts`: `GUARDIAN_API` sets the dev API address.
+- Tests: `npm test` → 44 passed. `tests/test_health.py` (new), `tests/test_next_signin.py` (new, Playwright, 7 passed). `pytest -q tests/` → all pass except the 5 `test_search_keeps_native_input…` tests that also fail on `origin/main` on macOS. Ruff → passed. Browser at 390 px: states, contrast, admin and supervisor sign-in.
+- Open items: Figma not changed: the Figma MCP Starter plan limit was used up. Add the "Sign in" page to Figma when the limit resets. `--muted-text` is below 4.5:1 on light backgrounds; check the other screens when they move.
+
 ## 2026-11-17 · React migration Phase 1: shared core · Claude Code · feat/react-setup
 - Request: Start Phase 1 of the React migration. Move the shared helpers that each screen uses.
 - Changed: `frontend/src/lib/api.ts` (`api()`, `ApiError`, `friendlyError()`), `auth/session.ts` (session store with the old localStorage keys, 401 ends the session), `auth/signOut.ts`, `lib/format.ts`, `lib/toast.ts`, `lib/queryClient.ts` (no retry on 4xx, cache cleared on a session change), `types/api.ts`.

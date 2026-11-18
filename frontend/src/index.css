@@ -26,6 +26,11 @@
   --red-soft: #fdecee;
   --red-text: #b3263a;
   --page: #e9edf3;
+  --field: #edf3f9;
+  --app: #f7faff;
+  /* Secondary text. #68778d (--muted-text) is below 4.5:1 on --app, so the UI uses this darker value. */
+  --muted-strong: #56657b;
+  --login-bg: #f5f9ff;
   --shadow: 0 16px 40px rgba(20, 45, 90, 0.1);
 
   /* shadcn/ui variables, mapped to the Guardian tokens. */
@@ -40,7 +45,7 @@
   --secondary: #fff;
   --secondary-foreground: var(--blue);
   --muted: var(--soft);
-  --muted-foreground: var(--muted-text);
+  --muted-foreground: var(--muted-strong);
   --accent: var(--soft);
   --accent-foreground: var(--navy);
   --destructive: var(--red);
@@ -73,6 +78,9 @@
   --color-red-soft: var(--red-soft);
   --color-red-text: var(--red-text);
   --color-page: var(--page);
+  --color-field: var(--field);
+  --color-app: var(--app);
+  --color-login-bg: var(--login-bg);
   --shadow-card: var(--shadow);
 
   --color-background: var(--background);
@@ -112,8 +120,61 @@
   html {
     @apply font-sans;
   }
+  /* Browser autofill must not paint the fields yellow. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px var(--field) inset;
+    -webkit-text-fill-color: var(--text);
+    caret-color: var(--text);
+  }
   button:not(:disabled),
   [role='button']:not(:disabled) {
     cursor: pointer;
+  }
+}
+
+/* Hover states (docs/UI-GUIDE.md, "Hover and press states"). Hover shows only on a device with a
+   mouse, so a tap on a phone does not leave a hover look. A disabled or selected item keeps its look. */
+@utility tap-card {
+  transition-property: background-color, border-color;
+  transition-duration: 150ms;
+  @media (hover: hover) {
+    &:hover:not(
+        :disabled,
+        [aria-pressed='true'],
+        [aria-checked='true'],
+        [aria-current='page'],
+        :has(:checked),
+        :has(:disabled)
+      ) {
+      background-color: var(--soft);
+      border-color: color-mix(in srgb, var(--blue) 40%, var(--line));
+    }
+  }
+}
+
+@utility tap-icon {
+  transition-property: background-color, color;
+  transition-duration: 150ms;
+  @media (hover: hover) {
+    &:hover:not(:disabled, [aria-pressed='true'], [aria-current='page']) {
+      background-color: var(--soft);
+      color: var(--blue-text);
+    }
+  }
+}
+
+/* A segmented tab: the button holds a pill (its first child). */
+@utility tap-tab {
+  & > * {
+    transition-property: background-color, color;
+    transition-duration: 150ms;
+  }
+  @media (hover: hover) {
+    &:hover:not(:disabled, [aria-pressed='true']) > * {
+      background-color: rgb(255 255 255 / 0.6);
+      color: var(--text);
+    }
   }
 }

@@ -37,4 +37,11 @@ describe('ConfirmDialog', () => {
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
     expect(screen.getByRole('alert')).toHaveTextContent('Already disabled');
   });
+
+  test('a fast double tap confirms one time only', async () => {
+    const ok = vi.fn();
+    render(<ConfirmDialog open onOpenChange={vi.fn()} title="Check in" okLabel="Check in" onConfirm={ok} />);
+    await userEvent.dblClick(screen.getByRole('button', { name: 'Check in' }));
+    expect(ok).toHaveBeenCalledTimes(1);
+  });
 });
