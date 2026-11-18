@@ -24,7 +24,7 @@ Template:
 ## 2026-11-18 · Build the React app in a Dockerfile · Instinct · feat/docker-react-build
 - Request: Make the live deploy build and serve the React app at /next.
 - Changed: Dockerfile, .dockerignore. A Node 22 stage builds frontend/dist. The Python stage copies it and starts the API.
-- Tests: A build command on the Python builder failed ("npm: command not found"). npm ci and npm run build pass on Node 22 locally. Docker build checked in the PR preview.
+- Tests: A build command on the Python builder failed ("npm: command not found"). npm ci and npm run build pass on Node 22 locally. Docker build not tested yet. The first Docker build is the live deploy after merge. One Sites test fails at random on main too.
 - Open items: Check /next after the deploy.
 
 ## 2026-11-18 · React Sites screens · Claude Code · feat/react-sites
