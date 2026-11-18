@@ -21,6 +21,12 @@ Template:
 
 ## Entries
 
+## 2026-11-18 · Build the React app in a Dockerfile · Instinct · feat/docker-react-build
+- Request: Make the live deploy build and serve the React app at /next.
+- Changed: Dockerfile, .dockerignore. A Node 22 stage builds frontend/dist. The Python stage copies it and starts the API.
+- Tests: A build command on the Python builder failed ("npm: command not found"). npm ci and npm run build pass on Node 22 locally. Docker build not tested yet. The first Docker build is the live deploy after merge. One Sites test fails at random on main too.
+- Open items: Check /next after the deploy.
+
 ## 2026-11-18 · React Sites screens · Claude Code · feat/react-sites
 - Request: Move the Sites screens to React. Add "Edit site" (name and area). The site shows a guard count with a link to Guards. Keep the supervisor choice as it is today.
 - Changed: `backend/demo_app.py` (new `PATCH /api/settings/locations/{id}`; the site ID is optional on create; the disable messages say "guard" and "site"), `screens/Sites.tsx`, `screens/sites/` (`SiteScreen`, `SiteSheet`, `ShiftSheet`, `ShiftFields`, `SiteRow`, `data.ts`), `lib/shift.ts` (`shiftRowsProblem`), `routes.tsx`, Home and Attendance ("Add a site" → `/locations?add=1`), `screens/settings/data.ts`.
